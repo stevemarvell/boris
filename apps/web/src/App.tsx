@@ -83,7 +83,17 @@ export function App() {
           </div>
         )}
 
-        {state.status === 'ready' && shown.length === 0 && (
+        {/* An empty tree and a filter that matched nobody both leave the list
+            empty, but they are different facts and need different words. */}
+        {state.status === 'ready' && total === 0 && (
+          <div className="centred" data-testid="empty-tree">
+            <IonText color="medium">
+              <p>No people recorded yet.</p>
+            </IonText>
+          </div>
+        )}
+
+        {state.status === 'ready' && total > 0 && shown.length === 0 && (
           <div className="centred" data-testid="no-matches">
             <IonText color="medium">
               <p>Nobody matches “{query}”.</p>
