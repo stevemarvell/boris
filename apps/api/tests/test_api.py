@@ -60,7 +60,7 @@ def test_person_by_id_with_relationships() -> None:
     assert [p["name"] for p in fred["parents"]] == ["Frank Shaw", "Margaret Shaw"]
     assert len(fred["grandparents"]) == 4
     assert [c["name"] for c in fred["cousins"]] == [
-        "Gemma Hale",
+        "Gemma Hale-Nunn",
         "George Hale",
         "Hugo Shaw",
         "Isaac Clay",

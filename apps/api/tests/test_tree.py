@@ -22,6 +22,11 @@ def test_fixture_loads(tree: FamilyTree) -> None:
     assert len(tree.people) == 44
 
 
+def test_a_renamed_person_keeps_her_id(tree: FamilyTree) -> None:
+    """Ids are the stable identifier; a display name may change without them."""
+    assert tree.get("gemma-hale").name == "Gemma Hale-Nunn"
+
+
 def test_fred_and_ellie_are_married(tree: FamilyTree) -> None:
     assert tree.spouse("fred-shaw").id == "ellie-shaw"
     assert tree.spouse("ellie-shaw").id == "fred-shaw"
@@ -77,7 +82,7 @@ def test_siblings_share_a_parent(tree: FamilyTree) -> None:
 def test_cousins_come_from_both_sides(tree: FamilyTree) -> None:
     """Fred's cousins are Frank's nephews and nieces plus Margaret's."""
     assert [c.name for c in tree.cousins("fred-shaw")] == [
-        "Gemma Hale",
+        "Gemma Hale-Nunn",
         "George Hale",
         "Hugo Shaw",
         "Isaac Clay",
@@ -100,7 +105,7 @@ def test_descendants_reach_the_bottom_of_the_tree(tree: FamilyTree) -> None:
         "Fiona Hale",
         "Frank Shaw",
         "Fred Shaw",
-        "Gemma Hale",
+        "Gemma Hale-Nunn",
         "George Hale",
         "Hugo Shaw",
         "Sally Baker",
