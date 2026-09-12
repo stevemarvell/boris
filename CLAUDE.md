@@ -37,6 +37,30 @@ tooling that belongs to a later stage.
 - **Merging deploys.** `develop` publishes the Pages site, the Vercel frontend,
   and the Railway API. The approval path and the release path are the same.
 
+- **Deployment config lives in the repo, not in dashboards.** A setting only
+  visible in a web console is invisible to everyone working here.
+
+## Deployments
+
+| What | Where | Built from |
+| --- | --- | --- |
+| Step-0 page | <https://stevemarvell.github.io/boris/> | `index.html`, Pages, `develop` |
+| API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
+| Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
+
+Two settings are load-bearing and non-obvious:
+
+- Railway ignores `railway.json`'s `builder` field. Railpack reads the root
+  `package.json`, concludes the repo is Node, and fails with *"No start command
+  detected"* without looking for a Dockerfile. The `RAILWAY_DOCKERFILE_PATH`
+  service variable is what actually selects it.
+- Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
+  `vercel.json` at the repository root is never read — Vercel looks for it
+  inside the root directory. Put Vercel config in `apps/web/`.
+
+`VITE_API_URL` is read at build time and set in `apps/web/.env.production`. It
+is a public URL, not a secret.
+
 ## Running it
 
 ```bash
