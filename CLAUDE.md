@@ -83,6 +83,9 @@ npm run verify:api    # ruff + pytest
 npm run verify:web    # typecheck + eslint + vitest + build
 ```
 
-There is no CI yet, and no end-to-end suite. Both are the remaining step-1 work
-— until CI runs `verify` on every pull request, "it's green" is a claim rather
-than a fact.
+CI runs `verify` on every pull request and on pushes to `develop`, and the
+branch ruleset requires it to pass before a merge. A red loop cannot land.
+
+Still missing: an end-to-end suite. Every deployment failure so far — Railpack
+ignoring `railway.json`, Vercel building the wrong directory, the Dockerfile
+not copying `data/` — was configuration that unit tests cannot reach.
