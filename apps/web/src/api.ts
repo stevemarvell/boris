@@ -2,6 +2,24 @@ const API_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:8000';
 
 export class ApiError extends Error {}
 
+export interface PersonRef {
+  readonly name: string;
+}
+
+export interface Person {
+  readonly id: string;
+  readonly name: string;
+  readonly spouse: PersonRef | null;
+  readonly parents: readonly PersonRef[];
+  readonly children: readonly PersonRef[];
+  readonly siblings: readonly PersonRef[];
+}
+
+export interface Generation {
+  readonly depth: number;
+  readonly people: readonly Person[];
+}
+
 /** Minimal GraphQL client. No library until the schema is big enough to need one. */
 export async function graphql<T>(query: string): Promise<T> {
   const response = await fetch(`${API_URL}/graphql`, {
@@ -18,7 +36,21 @@ export async function graphql<T>(query: string): Promise<T> {
   return body.data;
 }
 
-export async function fetchStatus(): Promise<string> {
-  const { status } = await graphql<{ status: string }>('{ status }');
-  return status;
+const GENERATIONS = `{
+  generations {
+    depth
+    people {
+      id
+      name
+      spouse { name }
+      parents { name }
+      children { name }
+      siblings { name }
+    }
+  }
+}`;
+
+export async function fetchGenerations(): Promise<Generation[]> {
+  const { generations } = await graphql<{ generations: Generation[] }>(GENERATIONS);
+  return generations;
 }
