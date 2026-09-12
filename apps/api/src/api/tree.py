@@ -93,7 +93,7 @@ class FamilyTree:
             [
                 p
                 for p in self.people.values()
-                if p.id != person_id and shared.intersection(p.parents)
+                if shared.intersection(p.parents)
             ]
         )
 
