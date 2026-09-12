@@ -30,9 +30,9 @@ tooling that belongs to a later stage.
 
 - **Every change ships as a pull request.** Branch off `develop`, push the
   branch, then open a PR with `gh pr create --base develop`. Never commit or
-  push directly to `develop` — a repository ruleset enforces this. Report the
-  PR URL rather than describing the change as landed; merging is the
-  maintainer's call.
+  push directly to `develop` — a repository ruleset enforces this. Merge once
+  `verify` is green; stop and ask for anything destructive, outward-facing, or
+  beyond what was asked.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
@@ -94,4 +94,25 @@ building the wrong directory, the Dockerfile not copying `data/`, CORS refusing
 `127.0.0.1` — was configuration that unit tests structurally cannot reach.
 
 A `smoke` workflow runs after each merge to `develop` and checks the deployed
-API and web app, allowing for Railway's cold start.
+API and web app, allowing for Railway's cold start. Claude Code Review comments
+on every pull request; it is advisory, and `verify` is the only required check.
+
+## Worktrees
+
+Each agent works in its own worktree, so parallel work cannot collide:
+
+```bash
+git worktree add ../boris-<name> -b feat/<name>
+cd ../boris-<name> && npm run bootstrap
+```
+
+`node_modules` and `.venv` are per-worktree, not shared — `npm run bootstrap`
+installs both toolchains and the Playwright browser.
+
+End-to-end ports are derived from the worktree directory name by
+`scripts/ports.mjs`, so two checkouts never fight over a port. Set
+`E2E_API_PORT` and `E2E_WEB_PORT` to override.
+
+Vercel builds a preview for every branch. Railway does not — every worktree
+shares one API until PR environments exist, so treat the deployed API as shared
+state.
