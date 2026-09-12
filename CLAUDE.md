@@ -45,8 +45,8 @@ tooling that belongs to a later stage.
 | What | Where | Built from |
 | --- | --- | --- |
 | Step-0 page | <https://stevemarvell.github.io/boris/> | `index.html`, Pages, `develop` |
-| API | <https://api-production-1107d5.up.railway.app> | `apps/api/Dockerfile`, Railway project `boris-api` |
-| Web | <https://boris-web-eta.vercel.app> | Vercel project `family-tree`, root directory `apps/web` |
+| API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
+| Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
 
 Two settings are load-bearing and non-obvious:
 
