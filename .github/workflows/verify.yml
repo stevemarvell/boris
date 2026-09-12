@@ -1,0 +1,36 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - run: npm ci
+
+      # Fails the build rather than resolving new versions silently, so CI
+      # tests the same dependency set as a local run.
+      - run: uv sync --directory apps/api --frozen
+
+      - run: npm run verify
