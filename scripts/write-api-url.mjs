@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Map Railway's API_URL onto Vite's VITE_API_URL before a build.
 //
 // The Railway integration syncs the API service's own variables into Vercel,
