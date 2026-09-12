@@ -41,6 +41,14 @@ class Person:
         return [_person(p) for p in _tree(info).grandparents(self.id)]
 
     @strawberry.field
+    def cousins(self, info: Info) -> list["Person"]:
+        return [_person(p) for p in _tree(info).cousins(self.id)]
+
+    @strawberry.field
+    def descendants(self, info: Info) -> list["Person"]:
+        return [_person(p) for p in _tree(info).descendants(self.id)]
+
+    @strawberry.field
     def generation(self, info: Info) -> int:
         return _tree(info).generation_of(self.id)
 

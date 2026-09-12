@@ -105,6 +105,42 @@ class FamilyTree:
         }
         return self._sorted([self.people[g] for g in seen])
 
+    def cousins(self, person_id: str) -> list[Person]:
+        """The children of a parent's siblings.
+
+        Half-siblings make an aunt reachable through either parent, so the
+        results are collected by id before sorting. Anyone who is already a
+        sibling — or the person themselves — is not a cousin.
+        """
+        person = self.get(person_id)
+        excluded = {person_id} | {s.id for s in self.siblings(person_id)}
+        found = {
+            child.id: child
+            for parent in person.parents
+            for aunt_or_uncle in self.siblings(parent)
+            for child in self.children(aunt_or_uncle.id)
+            if child.id not in excluded
+        }
+        return self._sorted(list(found.values()))
+
+    def descendants(self, person_id: str) -> list[Person]:
+        """Children, their children, and on down.
+
+        A parent cycle would make this walk forever, so nobody already reached
+        is expanded twice — the cycle surfaces as a DataError from
+        `generations()` rather than as a hang here.
+        """
+        self.get(person_id)
+        found: dict[str, Person] = {}
+        frontier = [person_id]
+        while frontier:
+            for child in self.children(frontier.pop()):
+                if child.id == person_id or child.id in found:
+                    continue
+                found[child.id] = child
+                frontier.append(child.id)
+        return self._sorted(list(found.values()))
+
     # -- generations -----------------------------------------------------
 
     @cached_property
