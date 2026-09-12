@@ -89,3 +89,21 @@ def test_zero_cases_serialise_as_empty_lists_and_null() -> None:
 
     albert = data('{ person(id: "albert-shaw") { siblings { name } parents { name } } }')["person"]
     assert albert == {"siblings": [], "parents": []}
+
+
+def test_cors_allows_local_and_vercel_origins() -> None:
+    """The loopback address is not spelled 'localhost'; e2e runs on 127.0.0.1."""
+    for origin in (
+        "http://127.0.0.1:4173",
+        "http://localhost:5173",
+        "https://family-tree-flame-ten.vercel.app",
+    ):
+        response = client.options(
+            "/graphql",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert response.headers.get("access-control-allow-origin") == origin, origin

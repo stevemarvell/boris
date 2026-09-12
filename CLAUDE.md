@@ -78,14 +78,20 @@ cd apps/api && uv run uvicorn api.main:app --reload   # API on :8000
 ```
 
 ```bash
-npm run verify        # everything: ruff, pytest, typecheck, eslint, vitest, build
+npm run verify        # everything, about a minute
 npm run verify:api    # ruff + pytest
 npm run verify:web    # typecheck + eslint + vitest + build
+npm run verify:e2e    # playwright against the built bundle and a real uvicorn
 ```
 
 CI runs `verify` on every pull request and on pushes to `develop`, and the
 branch ruleset requires it to pass before a merge. A red loop cannot land.
 
-Still missing: an end-to-end suite. Every deployment failure so far — Railpack
-ignoring `railway.json`, Vercel building the wrong directory, the Dockerfile
-not copying `data/` — was configuration that unit tests cannot reach.
+The e2e suite runs against the **built bundle** via `vite preview` and a **real
+uvicorn**, never the dev server and never a mocked `fetch`. That is deliberate:
+every failure this project has had — Railpack ignoring `railway.json`, Vercel
+building the wrong directory, the Dockerfile not copying `data/`, CORS refusing
+`127.0.0.1` — was configuration that unit tests structurally cannot reach.
+
+A `smoke` workflow runs after each merge to `develop` and checks the deployed
+API and web app, allowing for Railway's cold start.
