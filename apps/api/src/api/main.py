@@ -13,7 +13,7 @@ from api.tree import FamilyTree
 # Preview deployments get generated hostnames, hence the regex rather than a list.
 ALLOWED_ORIGIN_REGEX = os.environ.get(
     "ALLOWED_ORIGIN_REGEX",
-    r"https://.*\.vercel\.app|http://localhost:\d+",
+    r"https://.*\.vercel\.app|http://(localhost|127\.0\.0\.1):\d+",
 )
 
 # Read once at startup. The data is a file in the repository, so it only

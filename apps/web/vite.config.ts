@@ -6,5 +6,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // e2e/ belongs to Playwright; vitest's default glob would claim it.
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
   },
 });

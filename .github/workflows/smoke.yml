@@ -1,0 +1,63 @@
+name: smoke
+
+# Runs after a merge reaches develop, once Railway and Vercel have had time to
+# redeploy. Catches the class of failure that unit and e2e tests cannot: the
+# deployed build's configuration.
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API: https://api-production-53f7b.up.railway.app
+      WEB: https://family-tree-flame-ten.vercel.app
+    steps:
+      - name: Wait for the API to report the loaded tree
+        run: |
+          # Railway sleeps when idle, so the first request is a cold start.
+          for attempt in $(seq 1 30); do
+            body=$(curl -fsS --max-time 30 "$API/health" || true)
+            echo "attempt $attempt: $body"
+            case "$body" in *'"people":44'*) echo "API ok"; exit 0;; esac
+            sleep 15
+          done
+          echo "API never reported 44 people" >&2
+          exit 1
+
+      - name: Check GraphQL returns four generations
+        run: |
+          counts=$(curl -fsS --max-time 30 -X POST "$API/graphql" \
+            -H 'content-type: application/json' \
+            -d '{"query":"{ generations { depth people { id } } }"}' \
+            | python3 -c 'import json,sys; g=json.load(sys.stdin)["data"]["generations"]; print(len(g), sum(len(x["people"]) for x in g))')
+          echo "generations people = $counts"
+          [ "$counts" = "4 44" ] || { echo "expected '4 44'" >&2; exit 1; }
+
+      - name: Wait for the web app to serve the current bundle
+        run: |
+          for attempt in $(seq 1 30); do
+            page=$(curl -fsS --max-time 30 "$WEB" || true)
+            bundle=$(printf '%s' "$page" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
+            echo "attempt $attempt: bundle=$bundle"
+            if [ -n "$bundle" ] && curl -fsS --max-time 30 "$WEB$bundle" | grep -q 'generations'; then
+              echo "web ok"; exit 0
+            fi
+            sleep 15
+          done
+          echo "web never served a bundle querying generations" >&2
+          exit 1
+
+      - name: Check CORS from the deployed origin
+        run: |
+          allowed=$(curl -fsS -o /dev/null -w '%{http_code}' -X OPTIONS "$API/graphql" \
+            -H "Origin: $WEB" \
+            -H 'Access-Control-Request-Method: POST' \
+            -H 'Access-Control-Request-Headers: content-type' \
+            -D /tmp/h && grep -i '^access-control-allow-origin' /tmp/h)
+          echo "$allowed"
+          printf '%s' "$allowed" | grep -qi "$WEB" || { echo "CORS does not allow the web origin" >&2; exit 1; }
