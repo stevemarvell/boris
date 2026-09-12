@@ -2,7 +2,10 @@ import {
   IonApp,
   IonContent,
   IonHeader,
-  IonNote,
+  IonItemDivider,
+  IonItemGroup,
+  IonLabel,
+  IonList,
   IonSpinner,
   IonText,
   IonTitle,
@@ -10,23 +13,28 @@ import {
   setupIonicReact,
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
-import { fetchStatus } from './api';
+import { PersonCard } from './PersonCard';
+import { fetchGenerations } from './api';
+import type { Generation } from './api';
 
 setupIonicReact();
 
-type Connection = { state: 'loading' } | { state: 'up' } | { state: 'down'; reason: string };
+type State =
+  | { status: 'loading' }
+  | { status: 'ready'; generations: Generation[] }
+  | { status: 'failed'; reason: string };
 
 export function App() {
-  const [connection, setConnection] = useState<Connection>({ state: 'loading' });
+  const [state, setState] = useState<State>({ status: 'loading' });
 
   useEffect(() => {
     let cancelled = false;
-    fetchStatus()
-      .then(() => {
-        if (!cancelled) setConnection({ state: 'up' });
+    fetchGenerations()
+      .then((generations) => {
+        if (!cancelled) setState({ status: 'ready', generations });
       })
       .catch((err: Error) => {
-        if (!cancelled) setConnection({ state: 'down', reason: err.message });
+        if (!cancelled) setState({ status: 'failed', reason: err.message });
       });
     return () => {
       cancelled = true;
@@ -40,23 +48,38 @@ export function App() {
           <IonTitle>Family Tree</IonTitle>
         </IonToolbar>
       </IonHeader>
-      <IonContent className="ion-padding">
-        <IonText>
-          <h2>Step 0</h2>
-          <p>
-            Nothing here yet but the pipeline. This page is deployed on Vercel and is asking the
-            API on Railway whether it is alive.
-          </p>
-        </IonText>
-        <IonNote data-testid="api-status">
-          {connection.state === 'loading' && (
-            <>
-              <IonSpinner name="dots" /> checking the API…
-            </>
-          )}
-          {connection.state === 'up' && 'API reachable.'}
-          {connection.state === 'down' && `API unreachable — ${connection.reason}`}
-        </IonNote>
+      <IonContent>
+        {state.status === 'loading' && (
+          <div className="centred" data-testid="loading">
+            <IonSpinner name="dots" />
+          </div>
+        )}
+
+        {state.status === 'failed' && (
+          <div className="centred" data-testid="error">
+            <IonText color="danger">
+              <p>Could not load the family tree — {state.reason}</p>
+            </IonText>
+          </div>
+        )}
+
+        {state.status === 'ready' && (
+          <IonList>
+            {state.generations.map((generation) => (
+              <IonItemGroup key={generation.depth} data-testid="generation">
+                <IonItemDivider sticky>
+                  <IonLabel>
+                    Generation {generation.depth + 1}
+                    <span className="count"> · {generation.people.length} people</span>
+                  </IonLabel>
+                </IonItemDivider>
+                {generation.people.map((person) => (
+                  <PersonCard key={person.id} person={person} />
+                ))}
+              </IonItemGroup>
+            ))}
+          </IonList>
+        )}
       </IonContent>
     </IonApp>
   );

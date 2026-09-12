@@ -1,0 +1,352 @@
+{
+  "people": [
+    {
+      "id": "albert-shaw",
+      "name": "Albert Shaw",
+      "parents": [],
+      "spouse": "agnes-shaw"
+    },
+    {
+      "id": "agnes-shaw",
+      "name": "Agnes Shaw",
+      "parents": [],
+      "spouse": "albert-shaw"
+    },
+    {
+      "id": "bernard-clay",
+      "name": "Bernard Clay",
+      "parents": [],
+      "spouse": "beatrice-clay"
+    },
+    {
+      "id": "beatrice-clay",
+      "name": "Beatrice Clay",
+      "parents": [],
+      "spouse": "bernard-clay"
+    },
+    {
+      "id": "cyril-nunn",
+      "name": "Cyril Nunn",
+      "parents": [],
+      "spouse": "clara-nunn"
+    },
+    {
+      "id": "clara-nunn",
+      "name": "Clara Nunn",
+      "parents": [],
+      "spouse": "cyril-nunn"
+    },
+    {
+      "id": "douglas-pike",
+      "name": "Douglas Pike",
+      "parents": [],
+      "spouse": "dorothy-pike"
+    },
+    {
+      "id": "dorothy-pike",
+      "name": "Dorothy Pike",
+      "parents": [],
+      "spouse": "douglas-pike"
+    },
+    {
+      "id": "frank-shaw",
+      "name": "Frank Shaw",
+      "parents": [
+        "albert-shaw",
+        "agnes-shaw"
+      ],
+      "spouse": "margaret-shaw"
+    },
+    {
+      "id": "margaret-shaw",
+      "name": "Margaret Shaw",
+      "parents": [
+        "bernard-clay",
+        "beatrice-clay"
+      ],
+      "spouse": "frank-shaw"
+    },
+    {
+      "id": "edward-nunn",
+      "name": "Edward Nunn",
+      "parents": [
+        "cyril-nunn",
+        "clara-nunn"
+      ],
+      "spouse": "nancy-nunn"
+    },
+    {
+      "id": "nancy-nunn",
+      "name": "Nancy Nunn",
+      "parents": [
+        "douglas-pike",
+        "dorothy-pike"
+      ],
+      "spouse": "edward-nunn"
+    },
+    {
+      "id": "fiona-hale",
+      "name": "Fiona Hale",
+      "parents": [
+        "albert-shaw",
+        "agnes-shaw"
+      ],
+      "spouse": "gregory-hale"
+    },
+    {
+      "id": "gregory-hale",
+      "name": "Gregory Hale",
+      "parents": [],
+      "spouse": "fiona-hale"
+    },
+    {
+      "id": "felix-shaw",
+      "name": "Felix Shaw",
+      "parents": [
+        "albert-shaw",
+        "agnes-shaw"
+      ],
+      "spouse": "harriet-shaw"
+    },
+    {
+      "id": "harriet-shaw",
+      "name": "Harriet Shaw",
+      "parents": [],
+      "spouse": "felix-shaw"
+    },
+    {
+      "id": "martin-clay",
+      "name": "Martin Clay",
+      "parents": [
+        "bernard-clay",
+        "beatrice-clay"
+      ],
+      "spouse": "iris-clay"
+    },
+    {
+      "id": "iris-clay",
+      "name": "Iris Clay",
+      "parents": [],
+      "spouse": "martin-clay"
+    },
+    {
+      "id": "eleanor-reed",
+      "name": "Eleanor Reed",
+      "parents": [
+        "cyril-nunn",
+        "clara-nunn"
+      ],
+      "spouse": "julian-reed"
+    },
+    {
+      "id": "julian-reed",
+      "name": "Julian Reed",
+      "parents": [],
+      "spouse": "eleanor-reed"
+    },
+    {
+      "id": "neville-pike",
+      "name": "Neville Pike",
+      "parents": [
+        "douglas-pike",
+        "dorothy-pike"
+      ],
+      "spouse": "kathleen-pike"
+    },
+    {
+      "id": "kathleen-pike",
+      "name": "Kathleen Pike",
+      "parents": [],
+      "spouse": "neville-pike"
+    },
+    {
+      "id": "nora-pike",
+      "name": "Nora Pike",
+      "parents": [
+        "douglas-pike",
+        "dorothy-pike"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "gemma-hale",
+      "name": "Gemma Hale",
+      "parents": [
+        "fiona-hale",
+        "gregory-hale"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "george-hale",
+      "name": "George Hale",
+      "parents": [
+        "fiona-hale",
+        "gregory-hale"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "hugo-shaw",
+      "name": "Hugo Shaw",
+      "parents": [
+        "felix-shaw",
+        "harriet-shaw"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "ivy-clay",
+      "name": "Ivy Clay",
+      "parents": [
+        "martin-clay",
+        "iris-clay"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "isaac-clay",
+      "name": "Isaac Clay",
+      "parents": [
+        "martin-clay",
+        "iris-clay"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "jasper-reed",
+      "name": "Jasper Reed",
+      "parents": [
+        "eleanor-reed",
+        "julian-reed"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "keith-pike",
+      "name": "Keith Pike",
+      "parents": [
+        "neville-pike",
+        "kathleen-pike"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "kara-pike",
+      "name": "Kara Pike",
+      "parents": [
+        "neville-pike",
+        "kathleen-pike"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "fred-shaw",
+      "name": "Fred Shaw",
+      "parents": [
+        "frank-shaw",
+        "margaret-shaw"
+      ],
+      "spouse": "ellie-shaw"
+    },
+    {
+      "id": "ellie-shaw",
+      "name": "Ellie Shaw",
+      "parents": [
+        "edward-nunn",
+        "nancy-nunn"
+      ],
+      "spouse": "fred-shaw"
+    },
+    {
+      "id": "sally-baker",
+      "name": "Sally Baker",
+      "parents": [
+        "frank-shaw",
+        "margaret-shaw"
+      ],
+      "spouse": "tom-baker"
+    },
+    {
+      "id": "tom-baker",
+      "name": "Tom Baker",
+      "parents": [],
+      "spouse": "sally-baker"
+    },
+    {
+      "id": "oliver-nunn",
+      "name": "Oliver Nunn",
+      "parents": [
+        "edward-nunn",
+        "nancy-nunn"
+      ],
+      "spouse": "ruth-nunn"
+    },
+    {
+      "id": "ruth-nunn",
+      "name": "Ruth Nunn",
+      "parents": [],
+      "spouse": "oliver-nunn"
+    },
+    {
+      "id": "olivia-vance",
+      "name": "Olivia Vance",
+      "parents": [
+        "edward-nunn",
+        "nancy-nunn"
+      ],
+      "spouse": "peter-vance"
+    },
+    {
+      "id": "peter-vance",
+      "name": "Peter Vance",
+      "parents": [],
+      "spouse": "olivia-vance"
+    },
+    {
+      "id": "daisy-shaw",
+      "name": "Daisy Shaw",
+      "parents": [
+        "fred-shaw",
+        "ellie-shaw"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "sam-shaw",
+      "name": "Sam Shaw",
+      "parents": [
+        "fred-shaw",
+        "ellie-shaw"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "toby-baker",
+      "name": "Toby Baker",
+      "parents": [
+        "sally-baker",
+        "tom-baker"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "rosie-nunn",
+      "name": "Rosie Nunn",
+      "parents": [
+        "oliver-nunn",
+        "ruth-nunn"
+      ],
+      "spouse": null
+    },
+    {
+      "id": "rory-nunn",
+      "name": "Rory Nunn",
+      "parents": [
+        "oliver-nunn",
+        "ruth-nunn"
+      ],
+      "spouse": null
+    }
+  ]
+}

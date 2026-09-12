@@ -14,6 +14,8 @@ COPY apps/api/pyproject.toml apps/api/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY apps/api/src ./src
+# The family tree is a file in the repository, so it ships inside the image.
+COPY data ./data
 RUN uv sync --frozen --no-dev
 
 ENV PORT=8000
