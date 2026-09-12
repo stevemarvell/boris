@@ -77,6 +77,19 @@ the committed `apps/web/.env.production` as a fallback.
 On Railway, `API_URL` is defined as `https://${{RAILWAY_PUBLIC_DOMAIN}}`, so it
 resolves per environment rather than being typed out.
 
+## Preview environments
+
+Every pull request gets both a Vercel preview and a Railway PR environment at
+`api-boris-pr-<number>.up.railway.app`, and they are torn down on merge.
+
+They do **not** pair themselves. The Railway integration syncs the *production*
+environment's `API_URL` into Vercel for previews as well as production, so a
+preview frontend would be built against production and show production's data.
+`scripts/write-api-url.mjs` closes that by reading Vercel's
+`VERCEL_GIT_PULL_REQUEST_ID` and pointing the build at that PR's own API. The
+host pattern is a Railway convention rather than a contract; override it with
+`RAILWAY_PR_API_TEMPLATE` if it changes.
+
 ## Running it
 
 ```bash
