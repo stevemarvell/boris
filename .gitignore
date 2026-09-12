@@ -1,1 +1,13 @@
 .idea
+
+# node
+node_modules/
+dist/
+.vercel/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/

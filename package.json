@@ -1,0 +1,12 @@
+{
+  "name": "boris",
+  "private": true,
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "dev": "npm run dev --workspace @family-tree/web",
+    "build": "npm run build --workspace @family-tree/web",
+    "typecheck": "npm run typecheck --workspace @family-tree/web",
+    "lint": "npm run lint --workspace @family-tree/web",
+    "test": "npm run test --workspace @family-tree/web"
+  }
+}
