@@ -1,0 +1,1453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Tree API — reference manual</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #000000;
+    --muted: #6d7278;
+    --rule: rgba(0, 0, 0, 0.13);
+    --accent: #3880ff;
+    --shade: #f4f5f8;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  a { color: var(--accent); }
+  a:hover { text-decoration: none; }
+
+  code, pre, textarea { font-family: var(--mono); }
+
+  code {
+    font-size: 0.875em;
+    background: var(--shade);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+
+  pre {
+    background: var(--shade);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 14px 16px;
+    margin: 0 0 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  pre.tall { max-height: 420px; overflow-y: auto; }
+
+  /* ---- frame ---- */
+
+  header.masthead {
+    border-bottom: 1px solid var(--rule);
+    padding: 40px 24px 28px;
+  }
+
+  .wrap { max-width: 1140px; margin: 0 auto; }
+
+  header.masthead h1 {
+    margin: 0 0 6px;
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  header.masthead p.lede {
+    margin: 0 0 20px;
+    color: var(--muted);
+    max-width: 60ch;
+  }
+
+  .endpoint-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    font-size: 13px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  .pill .verb { color: var(--accent); font-weight: 600; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 48px;
+    padding: 32px 24px 80px;
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    font-size: 14px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+
+  nav.toc h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin-bottom: 2px; }
+
+  nav.toc a {
+    display: block;
+    padding: 4px 10px;
+    border-left: 2px solid var(--rule);
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  nav.toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+
+  main { min-width: 0; }
+
+  section { margin-bottom: 56px; scroll-margin-top: 24px; }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+
+  h2 + p.section-note {
+    margin: 0 0 20px;
+    color: var(--muted);
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 32px 0 8px;
+  }
+
+  h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 24px 0 8px;
+    color: var(--muted);
+  }
+
+  p { margin: 0 0 16px; }
+
+  ul, ol.prose { margin: 0 0 16px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 32px 0;
+  }
+
+  /* ---- tables ---- */
+
+  .table-scroll { overflow-x: auto; margin-bottom: 16px; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+  }
+
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  th {
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  td.name, td.type { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  td.type { color: var(--muted); }
+
+  /* ---- stored vs derived ---- */
+
+  .split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .panel {
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 16px 18px;
+  }
+
+  .panel h4 { margin: 0 0 10px; color: var(--muted); }
+
+  .panel ul { margin: 0; padding-left: 20px; font-size: 14px; }
+
+  .panel.stored { border-left: 3px solid var(--accent); }
+
+  /* ---- console ---- */
+
+  .console {
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .console-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .console-bar .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+
+  button {
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.2;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+    background: var(--bg);
+    color: var(--text);
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+
+  button:hover { border-color: var(--accent); color: var(--accent); }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+    padding: 9px 20px;
+  }
+
+  button.primary:hover { background: #3171e0; border-color: #3171e0; color: #ffffff; }
+
+  button[disabled] { opacity: 0.5; cursor: default; }
+
+  textarea {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.55;
+    resize: vertical;
+    min-height: 170px;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .console-run {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .status { font-size: 13px; color: var(--muted); }
+  .status.error { color: #c5000f; }
+
+  .console pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    max-height: 380px;
+    overflow: auto;
+  }
+
+  /* ---- figures ---- */
+
+  figure { margin: 0 0 24px; }
+
+  figure img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+  }
+
+  figcaption {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .figure-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding: 24px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 24px 20px 64px; }
+    nav.toc { position: static; max-height: none; }
+    header.masthead { padding: 28px 20px 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <h1>Family Tree API</h1>
+    <p class="lede">
+      A read-only GraphQL service over one family tree. It stores each person's
+      parents and spouse, and derives every other relationship on request.
+    </p>
+    <div class="endpoint-strip">
+      <span class="pill"><span class="verb">POST</span> https://api-production-53f7b.up.railway.app/graphql</span>
+      <span class="pill"><span class="verb">GET</span> /health</span>
+      <span class="pill">No authentication</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap layout">
+
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#service">The service</a></li>
+      <li><a href="#model">The data model</a></li>
+      <li><a href="#validation">What is rejected</a></li>
+      <li><a href="#queries">Queries</a></li>
+      <li><a href="#person">The Person type</a></li>
+      <li><a href="#console">Try it</a></li>
+      <li><a href="#examples">Worked examples</a></li>
+      <li><a href="#errors">Errors</a></li>
+      <li><a href="#health">Health</a></li>
+      <li><a href="#cors">CORS</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="service">
+      <h2>The service</h2>
+      <p class="section-note">What it is, where it runs, and how to talk to it.</p>
+
+      <p>
+        The Family Tree API answers questions about one specific family: who is
+        married to whom, who descends from whom, and how the whole tree divides
+        into generations. It is read-only. There are no mutations, no accounts
+        and no API keys — every request is anonymous, and every response is the
+        same for everybody.
+      </p>
+
+      <p>
+        The service is FastAPI with a Strawberry GraphQL schema, built from
+        <code>apps/api/</code> in the
+        <a href="https://github.com/stevemarvell/boris">stevemarvell/boris</a>
+        repository and deployed to Railway. The tree itself is not a database:
+        it is <code>data/family.json</code>, a file committed to the repository
+        and copied into the container image. The API reads it once at startup,
+        so the data changes only when a deployment does.
+      </p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Endpoint</th><th>Method</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">/graphql</td>
+              <td class="type">POST</td>
+              <td>Every query. JSON body of <code>{"query": "..."}</code>, JSON response.</td>
+            </tr>
+            <tr>
+              <td class="name">/graphql</td>
+              <td class="type">GET</td>
+              <td>GraphiQL, the in-browser explorer Strawberry ships with. Open it in a tab.</td>
+            </tr>
+            <tr>
+              <td class="name">/health</td>
+              <td class="type">GET</td>
+              <td>Liveness, plus the number of people loaded.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        There is nothing at <code>/</code>; it returns <code>404</code>. The
+        smallest useful request is a single round trip with <code>curl</code>:
+      </p>
+
+<pre><code>curl -s https://api-production-53f7b.up.railway.app/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"{ status }"}'</code></pre>
+
+<pre><code>{"data":{"status":"ok"}}</code></pre>
+
+      <p>
+        Railway lets an idle container sleep, so the very first request after a
+        quiet spell can take a few seconds while it wakes. Everything after that
+        is fast — the whole tree is in memory.
+      </p>
+
+      <figure>
+        <img src="app-generations.jpg" alt="The Family Tree web app listing Generation 1, with Agnes Shaw and Albert Shaw each showing a spouse and three children.">
+        <figcaption>
+          The web app at <a href="https://family-tree-flame-ten.vercel.app">family-tree-flame-ten.vercel.app</a>
+          is one client of this API. Its whole screen comes from a single
+          <code>generations</code> query.
+        </figcaption>
+      </figure>
+    </section>
+
+    <section id="model">
+      <h2>The data model</h2>
+      <p class="section-note">Two stored relationships; everything else computed.</p>
+
+      <p>
+        A person is a name plus two facts about other people: the
+        <strong>parents</strong> they descend from, and the
+        <strong>spouse</strong> they married. That is the entire stored record.
+        On disk a person looks like this:
+      </p>
+
+<pre><code>{
+  "id": "fred-shaw",
+  "name": "Fred Shaw",
+  "parents": ["frank-shaw", "margaret-shaw"],
+  "spouse": "ellie-shaw"
+}</code></pre>
+
+      <p>
+        Children, siblings, grandparents, cousins, descendants and generation
+        are <em>not</em> stored. They are computed from those two fields each
+        time you ask for them.
+      </p>
+
+      <div class="split">
+        <div class="panel stored">
+          <h4>Stored</h4>
+          <ul>
+            <li><code>id</code></li>
+            <li><code>name</code></li>
+            <li><code>parents</code></li>
+            <li><code>spouse</code></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h4>Derived on request</h4>
+          <ul>
+            <li><code>children</code> — everyone naming you as a parent</li>
+            <li><code>siblings</code> — everyone sharing a parent with you</li>
+            <li><code>grandparents</code> — your parents' parents</li>
+            <li><code>cousins</code> — the children of your parents' siblings</li>
+            <li><code>descendants</code> — children, their children, on down</li>
+            <li><code>generation</code> — depth from the oldest ancestors</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Why derive rather than store</h3>
+
+      <p>
+        Because a file that can contradict itself eventually will. If a child
+        list were stored alongside the parent lists, the two could disagree —
+        Fred could name Frank as a parent while Frank's child list omitted Fred,
+        and nothing in the data would say which side was right. Deriving removes
+        the question: there is exactly one place each fact lives, so there is
+        nothing to keep in sync and no reconciliation to get wrong.
+      </p>
+
+      <p>
+        The cost is paid at read time, and it is small — the tree is
+        44 people held in memory. The benefit is that the same walk that
+        produces <code>children</code> also produces <code>siblings</code>,
+        <code>cousins</code> and <code>descendants</code>, so those answers
+        cannot drift apart from each other either.
+      </p>
+
+      <h3>Ordering and empty results</h3>
+
+      <p>
+        Every list of people comes back sorted by name, then by id as a
+        tiebreaker. That ordering is stable, so a client can render a list
+        without sorting it again.
+      </p>
+
+      <p>
+        Nothing is null because it is empty. A person with no children gets
+        <code>[]</code>, not <code>null</code>; the only nullable fields in the
+        schema are <code>spouse</code> (an unmarried person) and the
+        <code>person</code> query itself (an id nobody has).
+      </p>
+
+      <h3>Generations</h3>
+
+      <p>
+        A generation is a depth measured from the oldest ancestors. Everyone
+        with no recorded parents starts at depth <code>0</code>, and each child
+        sits one below the deepest of their parents.
+      </p>
+
+      <p>
+        That rule alone would misplace anyone who married into the family: they
+        have no parents in the data, so descent would put them in the oldest
+        generation regardless of who they married. A second pass fixes it by
+        lifting a parentless person to sit beside their spouse. It is why Ellie
+        Shaw — who has parents of her own in this tree — and Tom Baker, who does
+        not, both appear at depth <code>2</code> next to the people they married.
+      </p>
+    </section>
+
+    <section id="validation">
+      <h2>What is rejected</h2>
+      <p class="section-note">The tree is validated once, at startup, and refuses to load if it is inconsistent.</p>
+
+      <p>
+        Validation is not a per-request concern. The whole file is checked when
+        the process starts, and a failure raises <code>DataError</code> before
+        the service accepts traffic — a bad tree is a failed deployment, not a
+        set of odd answers. Five conditions are rejected:
+      </p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Condition</th><th>Why it is fatal</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">Duplicate id</td>
+              <td>Two records claiming <code>fred-shaw</code> means every lookup for that id is ambiguous. The first duplicate seen aborts the load.</td>
+            </tr>
+            <tr>
+              <td class="name">Unknown parent</td>
+              <td>A person naming a parent id that is not in the file. Nothing could resolve that edge, so <code>parents</code>, <code>grandparents</code> and <code>generation</code> would all be built on a dangling reference.</td>
+            </tr>
+            <tr>
+              <td class="name">Unknown spouse</td>
+              <td>The same problem on the marriage edge: a spouse id nobody in the file has.</td>
+            </tr>
+            <tr>
+              <td class="name">One-sided marriage</td>
+              <td>Marriage is stored on both people and must agree. If A names B, then B must name A. A one-sided record would make <code>spouse</code> depend on which person you asked.</td>
+            </tr>
+            <tr>
+              <td class="name">Self-parenting</td>
+              <td>A person listing their own id among their parents. It is a cycle of length one, and it has no meaning.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Parent cycles</h3>
+
+      <p>
+        A longer cycle — A is B's parent, B is C's, C is A's — is caught later,
+        when generations are computed. The depth pass assigns a person only once
+        every parent has a depth, so a cycle starves: each member waits on
+        another member that is also waiting, and the pass settles with all of
+        them unassigned. The service compares how many people got a depth
+        against how many exist and raises <code>DataError</code> naming the
+        people involved.
+      </p>
+
+      <p>
+        Walking <code>descendants</code> never expands the same person twice, so
+        a cycle surfaces as that error rather than as a request that hangs.
+      </p>
+    </section>
+
+    <section id="queries">
+      <h2>Queries</h2>
+      <p class="section-note">Four root fields. No mutations, no subscriptions.</p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Arguments</th><th>Type</th><th>Returns</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">status</td>
+              <td class="type">—</td>
+              <td class="type">String!</td>
+              <td>The literal <code>"ok"</code>. A liveness probe reachable through GraphQL as well as through <code>/health</code>.</td>
+            </tr>
+            <tr>
+              <td class="name">people</td>
+              <td class="type">—</td>
+              <td class="type">[Person!]!</td>
+              <td>Everyone in the tree, in file order — this is the one list that is not sorted by name.</td>
+            </tr>
+            <tr>
+              <td class="name">person</td>
+              <td class="type">id: ID!</td>
+              <td class="type">Person</td>
+              <td>One person by id, or <code>null</code> if no one has that id. An unknown id is not an error.</td>
+            </tr>
+            <tr>
+              <td class="name">generations</td>
+              <td class="type">—</td>
+              <td class="type">[Generation!]!</td>
+              <td>The whole tree grouped by depth, oldest generation first.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Generation</h3>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">depth</td>
+              <td class="type">Int!</td>
+              <td>0 for the oldest generation, counting up.</td>
+            </tr>
+            <tr>
+              <td class="name">people</td>
+              <td class="type">[Person!]!</td>
+              <td>Everyone at that depth, sorted by name.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        In the current tree <code>generations</code> returns four groups, at
+        depths <code>0</code> through <code>3</code>, holding 8, 15, 16 and 5
+        people.
+      </p>
+    </section>
+
+    <section id="person">
+      <h2>The Person type</h2>
+      <p class="section-note">Two stored fields, six derived ones. All of them nest.</p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Source</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">id</td>
+              <td class="type">ID!</td>
+              <td class="type">stored</td>
+              <td>Stable slug, e.g. <code>fred-shaw</code>. The key <code>person(id:)</code> takes.</td>
+            </tr>
+            <tr>
+              <td class="name">name</td>
+              <td class="type">String!</td>
+              <td class="type">stored</td>
+              <td>Display name, e.g. <code>Gemma Hale-Nunn</code>. Not unique by contract.</td>
+            </tr>
+            <tr>
+              <td class="name">parents</td>
+              <td class="type">[Person!]!</td>
+              <td class="type">stored</td>
+              <td>Zero or two in this tree. Empty for anyone whose parents are not recorded.</td>
+            </tr>
+            <tr>
+              <td class="name">spouse</td>
+              <td class="type">Person</td>
+              <td class="type">stored</td>
+              <td><code>null</code> if unmarried. Always symmetric — the spouse names them back.</td>
+            </tr>
+            <tr>
+              <td class="name">children</td>
+              <td class="type">[Person!]!</td>
+              <td class="type">derived</td>
+              <td>Everyone who lists this person among their parents.</td>
+            </tr>
+            <tr>
+              <td class="name">siblings</td>
+              <td class="type">[Person!]!</td>
+              <td class="type">derived</td>
+              <td>Anyone sharing <em>at least one</em> parent, excluding the person. A person with no recorded parents has no siblings, even if others also have none.</td>
+            </tr>
+            <tr>
+              <td class="name">grandparents</td>
+              <td class="type">[Person!]!</td>
+              <td class="type">derived</td>
+              <td>The parents of the parents, de-duplicated.</td>
+            </tr>
+            <tr>
+              <td class="name">cousins</td>
+              <td class="type">[Person!]!</td>
+              <td class="type">derived</td>
+              <td>The children of a parent's siblings. Excludes the person and their own siblings; de-duplicated, since a half-sibling can make an aunt reachable through either parent.</td>
+            </tr>
+            <tr>
+              <td class="name">descendants</td>
+              <td class="type">[Person!]!</td>
+              <td class="type">derived</td>
+              <td>Children, their children, and on down. Flat, not nested, and sorted by name like every other list.</td>
+            </tr>
+            <tr>
+              <td class="name">generation</td>
+              <td class="type">Int!</td>
+              <td class="type">derived</td>
+              <td>The same depth <code>generations</code> groups by.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Every relationship field returns <code>Person</code>, so they nest to
+        any depth you like — <code>person.parents.siblings.children</code> is a
+        legal path. Ask only for what you need: each level is another walk over
+        the tree.
+      </p>
+
+      <p>
+        Note the asymmetry between <code>cousins</code> and marriage.
+        <code>cousins</code> follows blood — a parent's <em>sibling's</em>
+        children — so the spouse of an aunt or uncle contributes nothing on
+        their own. Gemma Hale-Nunn's cousins come through Fiona Hale, her mother
+        and a Shaw by birth, not through Gregory Hale, who married in.
+      </p>
+
+      <figure>
+        <img src="app-filtered.jpg" alt="The web app filtered to the word shaw, showing 11 of 44 people grouped by generation, with parents, siblings and children listed under each name.">
+        <figcaption>
+          Derived fields as a client sees them. <em>parents</em>,
+          <em>siblings</em> and <em>children</em> are rendered here from a
+          single query; none of the three exists in the stored file.
+        </figcaption>
+      </figure>
+    </section>
+
+    <section id="console">
+      <h2>Try it</h2>
+      <p class="section-note">Edit the query and run it against the live service. Responses below are not canned — they come from the deployed API.</p>
+
+      <div class="console">
+        <div class="console-bar">
+          <span class="label">Examples</span>
+          <button type="button" data-example="status">Liveness</button>
+          <button type="button" data-example="person">One person, everything derived</button>
+          <button type="button" data-example="generations">The tree by generation</button>
+          <button type="button" data-example="cousins">Cousins across a marriage</button>
+          <button type="button" data-example="people">Every id</button>
+        </div>
+
+        <label for="query" style="display:none">GraphQL query</label>
+        <textarea id="query" spellcheck="false" autocomplete="off"></textarea>
+
+        <div class="console-run">
+          <button type="button" class="primary" id="run">Run query</button>
+          <span class="status" id="status">POST to api-production-53f7b.up.railway.app/graphql</span>
+        </div>
+
+        <pre id="response"><code>Press Run query.</code></pre>
+      </div>
+
+      <p style="margin-top:16px">
+        The first run may pause for a few seconds while Railway wakes the
+        container. If the browser reports a network failure rather than a
+        response, the request was blocked before it left — see
+        <a href="#cors">CORS</a>.
+      </p>
+    </section>
+
+    <section id="examples">
+      <h2>Worked examples</h2>
+      <p class="section-note">Real ids, and the responses the deployed service actually returned.</p>
+
+      <h3>One person and all six derived fields</h3>
+
+      <p>
+        Fred Shaw sits in the middle of the tree, which makes him the useful
+        case: he has parents, a spouse, children, a sibling, four grandparents
+        and five cousins.
+      </p>
+
+<pre><code>{
+  person(id: "fred-shaw") {
+    id
+    name
+    generation
+    parents { id name }
+    spouse { id name }
+    children { id name }
+    siblings { id name }
+    grandparents { id name }
+    cousins { id name }
+    descendants { id name }
+  }
+}</code></pre>
+
+<pre class="tall"><code>{
+  "data": {
+    "person": {
+      "id": "fred-shaw",
+      "name": "Fred Shaw",
+      "generation": 2,
+      "parents": [
+        { "id": "frank-shaw", "name": "Frank Shaw" },
+        { "id": "margaret-shaw", "name": "Margaret Shaw" }
+      ],
+      "spouse": { "id": "ellie-shaw", "name": "Ellie Shaw" },
+      "children": [
+        { "id": "daisy-shaw", "name": "Daisy Shaw" },
+        { "id": "sam-shaw", "name": "Sam Shaw" }
+      ],
+      "siblings": [
+        { "id": "sally-baker", "name": "Sally Baker" }
+      ],
+      "grandparents": [
+        { "id": "agnes-shaw", "name": "Agnes Shaw" },
+        { "id": "albert-shaw", "name": "Albert Shaw" },
+        { "id": "beatrice-clay", "name": "Beatrice Clay" },
+        { "id": "bernard-clay", "name": "Bernard Clay" }
+      ],
+      "cousins": [
+        { "id": "gemma-hale", "name": "Gemma Hale-Nunn" },
+        { "id": "george-hale", "name": "George Hale" },
+        { "id": "hugo-shaw", "name": "Hugo Shaw" },
+        { "id": "isaac-clay", "name": "Isaac Clay" },
+        { "id": "ivy-clay", "name": "Ivy Clay" }
+      ],
+      "descendants": [
+        { "id": "daisy-shaw", "name": "Daisy Shaw" },
+        { "id": "sam-shaw", "name": "Sam Shaw" }
+      ]
+    }
+  }
+}</code></pre>
+
+      <p>
+        Fred's <code>descendants</code> and <code>children</code> match because
+        his children have no children yet. The next example shows what
+        <code>descendants</code> does when the line runs deeper.
+      </p>
+
+      <h3>Descendants down the whole line</h3>
+
+      <p>
+        Albert Shaw is at the top of the tree: no parents, no siblings, no
+        grandparents, no cousins. His three children fan out into eleven
+        descendants across three generations, returned flat and sorted by name
+        rather than as a nested structure.
+      </p>
+
+<pre><code>{
+  person(id: "albert-shaw") {
+    id
+    name
+    generation
+    spouse { name }
+    parents { id }
+    siblings { id }
+    grandparents { id }
+    cousins { id }
+    children { id name }
+    descendants { id name }
+  }
+}</code></pre>
+
+<pre class="tall"><code>{
+  "data": {
+    "person": {
+      "id": "albert-shaw",
+      "name": "Albert Shaw",
+      "generation": 0,
+      "spouse": { "name": "Agnes Shaw" },
+      "parents": [],
+      "siblings": [],
+      "grandparents": [],
+      "cousins": [],
+      "children": [
+        { "id": "felix-shaw", "name": "Felix Shaw" },
+        { "id": "fiona-hale", "name": "Fiona Hale" },
+        { "id": "frank-shaw", "name": "Frank Shaw" }
+      ],
+      "descendants": [
+        { "id": "daisy-shaw", "name": "Daisy Shaw" },
+        { "id": "felix-shaw", "name": "Felix Shaw" },
+        { "id": "fiona-hale", "name": "Fiona Hale" },
+        { "id": "frank-shaw", "name": "Frank Shaw" },
+        { "id": "fred-shaw", "name": "Fred Shaw" },
+        { "id": "gemma-hale", "name": "Gemma Hale-Nunn" },
+        { "id": "george-hale", "name": "George Hale" },
+        { "id": "hugo-shaw", "name": "Hugo Shaw" },
+        { "id": "sally-baker", "name": "Sally Baker" },
+        { "id": "sam-shaw", "name": "Sam Shaw" },
+        { "id": "toby-baker", "name": "Toby Baker" }
+      ]
+    }
+  }
+}</code></pre>
+
+      <p>
+        <code>descendants</code> follows parentage only, so the people who
+        married into those lines — Margaret Shaw, Harriet Shaw, Gregory Hale,
+        Ellie Shaw, Tom Baker — are absent. They are spouses of descendants,
+        not descendants.
+      </p>
+
+      <h3>The empty cases</h3>
+
+      <p>
+        Nora Pike is unmarried and childless, which is the clearest look at how
+        absence is represented: <code>spouse</code> is <code>null</code>, and
+        every list that has no members is <code>[]</code>. She still has
+        siblings, because her parents are recorded.
+      </p>
+
+<pre><code>{
+  person(id: "nora-pike") {
+    id
+    name
+    generation
+    spouse { name }
+    children { name }
+    siblings { id name }
+    cousins { id name }
+    descendants { name }
+  }
+}</code></pre>
+
+<pre><code>{
+  "data": {
+    "person": {
+      "id": "nora-pike",
+      "name": "Nora Pike",
+      "generation": 1,
+      "spouse": null,
+      "children": [],
+      "siblings": [
+        { "id": "nancy-nunn", "name": "Nancy Nunn" },
+        { "id": "neville-pike", "name": "Neville Pike" }
+      ],
+      "cousins": [],
+      "descendants": []
+    }
+  }
+}</code></pre>
+
+      <p>
+        Her <code>cousins</code> list is empty for a structural reason worth
+        understanding: cousins are the children of a parent's siblings, and
+        Nora's parents — Douglas and Dorothy Pike — have no recorded parents,
+        so they have no siblings, so there are no aunts or uncles to have
+        children. An empty list here means "none in this data", not "none in
+        life".
+      </p>
+
+      <h3>Cousins through one side of a marriage</h3>
+
+      <p>
+        Gemma Hale-Nunn shows the same rule from the other direction. Her
+        grandparents list has two entries, not four, and her cousins all arrive
+        through her mother.
+      </p>
+
+<pre><code>{
+  person(id: "gemma-hale") {
+    id
+    name
+    generation
+    parents { id name }
+    grandparents { id name }
+    siblings { id name }
+    cousins { id name }
+    spouse { name }
+  }
+}</code></pre>
+
+<pre class="tall"><code>{
+  "data": {
+    "person": {
+      "id": "gemma-hale",
+      "name": "Gemma Hale-Nunn",
+      "generation": 2,
+      "parents": [
+        { "id": "fiona-hale", "name": "Fiona Hale" },
+        { "id": "gregory-hale", "name": "Gregory Hale" }
+      ],
+      "grandparents": [
+        { "id": "agnes-shaw", "name": "Agnes Shaw" },
+        { "id": "albert-shaw", "name": "Albert Shaw" }
+      ],
+      "siblings": [
+        { "id": "george-hale", "name": "George Hale" }
+      ],
+      "cousins": [
+        { "id": "fred-shaw", "name": "Fred Shaw" },
+        { "id": "hugo-shaw", "name": "Hugo Shaw" },
+        { "id": "sally-baker", "name": "Sally Baker" }
+      ],
+      "spouse": null
+    }
+  }
+}</code></pre>
+
+      <p>
+        Gregory Hale married in and has no recorded parents, so he contributes
+        no grandparents and no siblings — and therefore no cousins. Every one of
+        Gemma's cousins descends from Agnes and Albert Shaw. Note also that this
+        relationship is reciprocal: Gemma appears in Fred Shaw's cousin list in
+        the first example, and Fred appears in hers.
+      </p>
+
+      <h3>The whole tree by generation</h3>
+
+      <p>
+        This is the query the web app runs on load, minus the relationship
+        fields it also asks for.
+      </p>
+
+<pre><code>{
+  generations {
+    depth
+    people { name }
+  }
+}</code></pre>
+
+<pre class="tall"><code>{
+  "data": {
+    "generations": [
+      {
+        "depth": 0,
+        "people": [
+          { "name": "Agnes Shaw" },
+          { "name": "Albert Shaw" },
+          { "name": "Beatrice Clay" },
+          { "name": "Bernard Clay" },
+          { "name": "Clara Nunn" },
+          { "name": "Cyril Nunn" },
+          { "name": "Dorothy Pike" },
+          { "name": "Douglas Pike" }
+        ]
+      },
+      {
+        "depth": 1,
+        "people": [
+          { "name": "Edward Nunn" },
+          { "name": "Eleanor Reed" },
+          { "name": "Felix Shaw" },
+          { "name": "Fiona Hale" },
+          { "name": "Frank Shaw" },
+          { "name": "Gregory Hale" },
+          { "name": "Harriet Shaw" },
+          { "name": "Iris Clay" },
+          { "name": "Julian Reed" },
+          { "name": "Kathleen Pike" },
+          { "name": "Margaret Shaw" },
+          { "name": "Martin Clay" },
+          { "name": "Nancy Nunn" },
+          { "name": "Neville Pike" },
+          { "name": "Nora Pike" }
+        ]
+      },
+      {
+        "depth": 2,
+        "people": [
+          { "name": "Ellie Shaw" },
+          { "name": "Fred Shaw" },
+          { "name": "Gemma Hale-Nunn" },
+          { "name": "George Hale" },
+          { "name": "Hugo Shaw" },
+          { "name": "Isaac Clay" },
+          { "name": "Ivy Clay" },
+          { "name": "Jasper Reed" },
+          { "name": "Kara Pike" },
+          { "name": "Keith Pike" },
+          { "name": "Oliver Nunn" },
+          { "name": "Olivia Vance" },
+          { "name": "Peter Vance" },
+          { "name": "Ruth Nunn" },
+          { "name": "Sally Baker" },
+          { "name": "Tom Baker" }
+        ]
+      },
+      {
+        "depth": 3,
+        "people": [
+          { "name": "Daisy Shaw" },
+          { "name": "Rory Nunn" },
+          { "name": "Rosie Nunn" },
+          { "name": "Sam Shaw" },
+          { "name": "Toby Baker" }
+        ]
+      }
+    ]
+  }
+}</code></pre>
+
+      <p>
+        Eight people here married in and have no parents in the data: Gregory
+        Hale, Harriet Shaw, Iris Clay, Julian Reed and Kathleen Pike at depth
+        <code>1</code>, and Peter Vance, Ruth Nunn and Tom Baker at depth
+        <code>2</code>. Descent alone would have put all eight at depth
+        <code>0</code>; they appear beside their spouses instead because of the
+        levelling pass.
+      </p>
+    </section>
+
+    <section id="errors">
+      <h2>Errors</h2>
+      <p class="section-note">GraphQL answers with 200 and an errors array; missing data is not an error at all.</p>
+
+      <p>
+        An id nobody has is a legitimate answer, not a failure. The request
+        succeeds and <code>person</code> is <code>null</code>:
+      </p>
+
+<pre><code>{ person(id: "nobody") { name } }</code></pre>
+
+<pre><code>{"data":{"person":null}}</code></pre>
+
+      <p>
+        A query that does not match the schema is rejected before execution.
+        The HTTP status is still <code>200</code> — the transport worked — and
+        the failure is reported in <code>errors</code>, with
+        <code>data</code> null:
+      </p>
+
+<pre><code>{ nope }</code></pre>
+
+<pre><code>{
+  "data": null,
+  "errors": [
+    {
+      "message": "Cannot query field 'nope' on type 'Query'.",
+      "locations": [{ "line": 1, "column": 3 }]
+    }
+  ]
+}</code></pre>
+
+      <p>
+        So a client cannot rely on the status code alone. Check for an
+        <code>errors</code> array on every response, and treat a non-2xx status
+        as a transport or infrastructure problem rather than a query problem.
+      </p>
+    </section>
+
+    <section id="health">
+      <h2>Health</h2>
+      <p class="section-note">One GET, no GraphQL parsing involved.</p>
+
+<pre><code>curl -s https://api-production-53f7b.up.railway.app/health</code></pre>
+
+<pre><code>{"ok":true,"people":44}</code></pre>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">ok</td>
+              <td class="type">boolean</td>
+              <td>Always <code>true</code> when the endpoint answers. The tree is validated at startup, so a process that serves this at all served a valid tree.</td>
+            </tr>
+            <tr>
+              <td class="name">people</td>
+              <td class="type">integer</td>
+              <td>How many people were loaded — 44 in the current deployment.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Because the count comes from the loaded tree rather than a constant, it
+        is the quickest way to tell which build of the data an environment is
+        running. <code>{ status }</code> over GraphQL answers the same liveness
+        question through the query path, which additionally proves the schema
+        is serving.
+      </p>
+    </section>
+
+    <section id="cors">
+      <h2>CORS</h2>
+      <p class="section-note">Browsers need an allowed origin; anything not in a browser does not.</p>
+
+      <p>
+        The API and its clients are deployed separately, so every browser
+        request is cross-origin. The service allows origins by regular
+        expression rather than by list, because Vercel gives each preview
+        deployment a generated hostname. Three families of origin are admitted:
+      </p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Origin</th><th>Who</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">https://&lt;anything&gt;.vercel.app</td>
+              <td>The web app, production and every preview deployment.</td>
+            </tr>
+            <tr>
+              <td class="name">https://stevemarvell.github.io</td>
+              <td>GitHub Pages — the page you are reading, and its "try it" console.</td>
+            </tr>
+            <tr>
+              <td class="name">http://localhost:&lt;port&gt;<br>http://127.0.0.1:&lt;port&gt;</td>
+              <td>Local development and the end-to-end suite. Both spellings of the loopback address are listed, because they are different origins to a browser.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The Pages origin is spelled out in full rather than as a wildcard over
+        <code>*.github.io</code>. That domain is shared by every GitHub user, so
+        a wildcard would hand the API to anyone who can publish a Pages site.
+      </p>
+
+      <h4>Allowed methods and headers</h4>
+
+      <ul>
+        <li>Methods: <code>GET</code>, <code>POST</code>, <code>OPTIONS</code>.</li>
+        <li>Request headers: <code>content-type</code>. Credentials are not allowed and not needed — there is nothing to authenticate.</li>
+        <li>Preflight results are cacheable for 600 seconds.</li>
+      </ul>
+
+      <p>
+        A preflight from an allowed origin answers <code>200</code> and echoes
+        the origin back:
+      </p>
+
+<pre><code>curl -X OPTIONS https://api-production-53f7b.up.railway.app/graphql \
+  -H 'Origin: https://stevemarvell.github.io' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'</code></pre>
+
+      <p>
+        An origin outside the three families is refused at the preflight with
+        <code>400 Disallowed CORS origin</code>. A <code>POST</code> that skips
+        the preflight is answered normally but without an
+        <code>access-control-allow-origin</code> header, so the browser
+        withholds the response from the page. Either way the failure appears in
+        the browser as a network error with no status code — which is why a
+        request that works in <code>curl</code> can still fail in a page.
+      </p>
+
+      <p>
+        None of this restricts non-browser clients. <code>curl</code>, a server,
+        a script or a mobile app sends no <code>Origin</code> header, is subject
+        to no preflight, and is never blocked. CORS is a browser policy, not an
+        authorisation model: this API is public, and the origin list exists to
+        keep other people's web pages from quietly making their users' browsers
+        call it.
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    Family Tree API · source in
+    <a href="https://github.com/stevemarvell/boris/tree/develop/apps/api">stevemarvell/boris</a> ·
+    deployed at <a href="https://api-production-53f7b.up.railway.app">api-production-53f7b.up.railway.app</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var ENDPOINT = 'https://api-production-53f7b.up.railway.app/graphql';
+
+  var EXAMPLES = {
+    status: '{\n  status\n}',
+    person: [
+      '{',
+      '  person(id: "fred-shaw") {',
+      '    name',
+      '    generation',
+      '    parents { name }',
+      '    spouse { name }',
+      '    children { name }',
+      '    siblings { name }',
+      '    grandparents { name }',
+      '    cousins { name }',
+      '    descendants { name }',
+      '  }',
+      '}'
+    ].join('\n'),
+    generations: [
+      '{',
+      '  generations {',
+      '    depth',
+      '    people { name }',
+      '  }',
+      '}'
+    ].join('\n'),
+    cousins: [
+      '{',
+      '  person(id: "gemma-hale") {',
+      '    name',
+      '    parents { name }',
+      '    grandparents { name }',
+      '    cousins { name }',
+      '  }',
+      '}'
+    ].join('\n'),
+    people: '{\n  people {\n    id\n    name\n  }\n}'
+  };
+
+  var queryBox = document.getElementById('query');
+  var runButton = document.getElementById('run');
+  var statusLine = document.getElementById('status');
+  var responseBox = document.getElementById('response').firstElementChild;
+
+  queryBox.value = EXAMPLES.person;
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll('[data-example]'),
+    function (button) {
+      button.addEventListener('click', function () {
+        var example = EXAMPLES[button.getAttribute('data-example')];
+        if (!example) return;
+        queryBox.value = example;
+        queryBox.focus();
+        setStatus('Loaded an example. Press Run query.', false);
+      });
+    }
+  );
+
+  function setStatus(text, isError) {
+    statusLine.textContent = text;
+    statusLine.className = isError ? 'status error' : 'status';
+  }
+
+  function run() {
+    var query = queryBox.value.trim();
+    if (!query) {
+      setStatus('Nothing to send — the query is empty.', true);
+      return;
+    }
+
+    runButton.disabled = true;
+    setStatus('Running…');
+    var started = Date.now();
+
+    fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: query })
+    })
+      .then(function (response) {
+        return response.text().then(function (text) {
+          var elapsed = Date.now() - started;
+          var body;
+          try {
+            body = JSON.parse(text);
+          } catch (err) {
+            responseBox.textContent = text;
+            setStatus('HTTP ' + response.status + ' · response was not JSON · ' + elapsed + ' ms', true);
+            return;
+          }
+          responseBox.textContent = JSON.stringify(body, null, 2);
+          var failed = !response.ok || (body.errors && body.errors.length);
+          setStatus(
+            'HTTP ' + response.status + ' · ' + elapsed + ' ms' +
+              (failed ? ' · the response carries errors' : ''),
+            Boolean(failed)
+          );
+        });
+      })
+      .catch(function (err) {
+        responseBox.textContent =
+          'The request did not complete.\n\n' +
+          String(err && err.message ? err.message : err) +
+          '\n\nA browser reports a blocked cross-origin request this way, with no status code.\n' +
+          'It can also mean the service is still waking up — try once more.';
+        setStatus('Request failed before a response arrived.', true);
+      })
+      .then(function () {
+        runButton.disabled = false;
+      });
+  }
+
+  runButton.addEventListener('click', run);
+
+  queryBox.addEventListener('keydown', function (event) {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault();
+      run();
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

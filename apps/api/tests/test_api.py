@@ -135,3 +135,30 @@ def test_cors_allows_local_and_vercel_origins() -> None:
             },
         )
         assert response.headers.get("access-control-allow-origin") == origin, origin
+
+
+def test_cors_allows_the_github_pages_origin() -> None:
+    """The manual is served from GitHub Pages and calls this API from the browser."""
+    origin = "https://stevemarvell.github.io"
+    response = client.options(
+        "/graphql",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.headers.get("access-control-allow-origin") == origin
+
+
+def test_cors_refuses_another_users_github_pages_origin() -> None:
+    """*.github.io is shared, so the allowance is pinned to one account."""
+    response = client.options(
+        "/graphql",
+        headers={
+            "Origin": "https://someone-else.github.io",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.headers.get("access-control-allow-origin") is None

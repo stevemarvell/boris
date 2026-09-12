@@ -11,9 +11,14 @@ from api.tree import FamilyTree
 
 # The web app is deployed separately (Vercel), so it is always cross-origin.
 # Preview deployments get generated hostnames, hence the regex rather than a list.
+# The GitHub Pages origin is spelled out in full rather than as *.github.io: the
+# manual at /boris/manual/api/ calls this API from the browser, and every other
+# GitHub user shares that domain.
 ALLOWED_ORIGIN_REGEX = os.environ.get(
     "ALLOWED_ORIGIN_REGEX",
-    r"https://.*\.vercel\.app|http://(localhost|127\.0\.0\.1):\d+",
+    r"https://.*\.vercel\.app"
+    r"|https://stevemarvell\.github\.io"
+    r"|http://(localhost|127\.0\.0\.1):\d+",
 )
 
 # Read once at startup. The data is a file in the repository, so it only
