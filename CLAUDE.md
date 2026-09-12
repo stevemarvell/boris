@@ -46,7 +46,7 @@ tooling that belongs to a later stage.
 | --- | --- | --- |
 | Step-0 page | <https://stevemarvell.github.io/boris/> | `index.html`, Pages, `develop` |
 | API | <https://api-production-1107d5.up.railway.app> | `apps/api/Dockerfile`, Railway project `boris-api` |
-| Web | Vercel project `family-tree` | `vercel.json`, root of the repo |
+| Web | <https://boris-web-eta.vercel.app> | Vercel project `family-tree`, root directory `apps/web` |
 
 Two settings are load-bearing and non-obvious:
 
@@ -54,9 +54,9 @@ Two settings are load-bearing and non-obvious:
   `package.json`, concludes the repo is Node, and fails with *"No start command
   detected"* without looking for a Dockerfile. The `RAILWAY_DOCKERFILE_PATH`
   service variable is what actually selects it.
-- Vercel builds from the repository root, not `apps/web`. `vercel.json` names
-  the workspace build command and output directory, so no dashboard
-  root-directory setting is needed.
+- Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
+  `vercel.json` at the repository root is never read — Vercel looks for it
+  inside the root directory. Put Vercel config in `apps/web/`.
 
 `VITE_API_URL` is read at build time and set in `apps/web/.env.production`. It
 is a public URL, not a secret.
