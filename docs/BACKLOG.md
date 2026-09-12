@@ -22,10 +22,25 @@ Gaps against `adoption.md`, tagged by the step they belong to.
 
 ## aia1
 
-- [ ] **No telemetry.** Nothing measures token use, active time, or cost per
+- [ ] **No telemetry.** Nothing measures token use, active time, or output per
       merged change. A subagent already died mid-task on a session limit, which
-      is the cheap version of this problem. See `CLAUDE_CODE_ENABLE_TELEMETRY`
-      and <https://code.claude.com/docs/en/monitoring-usage>.
+      is the cheap version of this problem.
+
+      Cost in dollars is a function of the plan, so the signals worth having are
+      `claude_code.token.usage` against `claude_code.pull_request.count` — tokens
+      per merged change — and `claude_code.active_time.total`.
+
+      First step costs nothing and needs no collector; it just prints metrics to
+      the terminal, which is enough to decide whether standing anything up is
+      worth it:
+
+      ```bash
+      CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER=console         OTEL_METRIC_EXPORT_INTERVAL=10000 claude
+      ```
+
+      Anything durable needs a collector plus Prometheus/Grafana, or a hosted
+      backend. Prompts, responses and tool inputs are redacted by default; leave
+      them that way. <https://code.claude.com/docs/en/monitoring-usage>
 
 ## aia2
 
