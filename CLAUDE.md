@@ -67,8 +67,15 @@ Two settings are load-bearing and non-obvious:
   `vercel.json` at the repository root is never read — Vercel looks for it
   inside the root directory. Put Vercel config in `apps/web/`.
 
-`VITE_API_URL` is read at build time and set in `apps/web/.env.production`. It
-is a public URL, not a secret.
+`VITE_API_URL` is read at build time. The Railway integration syncs the API
+service's `API_URL` variable into Vercel, and `scripts/write-api-url.mjs` maps
+it onto `VITE_API_URL` before the build — so a deployment points at whichever
+Railway environment it belongs to rather than at a hardcoded host. Precedence:
+an explicit `VITE_API_URL` (the e2e suite sets one) wins, then `API_URL`, then
+the committed `apps/web/.env.production` as a fallback.
+
+On Railway, `API_URL` is defined as `https://${{RAILWAY_PUBLIC_DOMAIN}}`, so it
+resolves per environment rather than being typed out.
 
 ## Running it
 
