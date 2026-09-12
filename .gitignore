@@ -1,5 +1,8 @@
 .idea
 
+# Agent worktrees live inside the repo; they are not content.
+.claude/worktrees/
+
 # node
 node_modules/
 dist/
