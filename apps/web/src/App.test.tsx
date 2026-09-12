@@ -77,11 +77,13 @@ describe('App', () => {
     expect(nora?.textContent).toContain('No recorded relationships');
   });
 
-  it('renders an empty tree without crashing', async () => {
+  it('says the tree is empty rather than blaming an empty filter', async () => {
     mockGraphql({ generations: [] });
     render(<App />);
 
-    await waitFor(() => expect(screen.queryByTestId('loading')).toBeNull());
+    await waitFor(() => expect(screen.getByTestId('empty-tree')).toBeTruthy());
+    expect(screen.getByTestId('empty-tree').textContent).toContain('No people recorded yet');
+    expect(screen.queryByTestId('no-matches')).toBeNull();
     expect(screen.queryAllByTestId('person')).toHaveLength(0);
   });
 
@@ -108,6 +110,8 @@ describe('App', () => {
     fireEvent.input(input, { target: { value: 'zzz' } });
 
     await waitFor(() => expect(screen.getByTestId('no-matches')).toBeTruthy());
+    expect(screen.getByTestId('no-matches').textContent).toContain('zzz');
+    expect(screen.queryByTestId('empty-tree')).toBeNull();
     expect(screen.queryAllByTestId('person')).toHaveLength(0);
   });
 
