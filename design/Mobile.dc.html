@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, sans-serif;
+      background: #ffffff;
+      color: #000000;
+    }
+    a { color: #3880ff; }
+    a:hover { color: #2d6ad4; }
+
+    .toolbar {
+      display: flex; align-items: center; height: 56px;
+      padding: 0 16px; font-size: 20px; font-weight: 500;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.13);
+    }
+    .divider {
+      display: flex; align-items: center; height: 32px;
+      padding: 0 16px; background: #f2f2f2;
+      font-size: 12px; color: #262626;
+      position: sticky; top: 0;
+    }
+    /* Row height 56px keeps the whole row a comfortable hit target; the spine
+       rail is drawn inside the row's own padding rather than as an overlay. */
+    .row {
+      display: flex; align-items: stretch; min-height: 56px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.13);
+    }
+    .rail { flex: 0 0 auto; position: relative; }
+    .rail .v {
+      position: absolute; left: 50%; width: 2px;
+      background: rgba(0, 0, 0, 0.2); transform: translateX(-1px);
+    }
+    .rail .h {
+      position: absolute; left: 50%; top: 27px; height: 2px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 9px 16px 9px 4px; }
+    .name { font-size: 16px; line-height: 1.35; }
+    .name.subject { font-weight: 600; color: #3880ff; }
+    .note { font-size: 0.82rem; line-height: 1.45; color: #6d7278; }
+    .label { font-weight: 600; opacity: 0.7; }
+    .ring {
+      flex: 0 0 auto; align-self: center; margin-right: 12px;
+      width: 8px; height: 8px; border-radius: 50%;
+      border: 2px solid rgba(0, 0, 0, 0.28); background: #fff;
+    }
+    .ring.spouse { border-color: rgba(56, 128, 255, 0.5); }
+    .ring.subject { border-color: #3880ff; background: #3880ff; }
+  </style>
+</helmet>
+
+<div style="width: 390px; min-height: 844px; box-sizing: border-box; display: flex; flex-direction: column;">
+
+  <div class="toolbar">Fred Shaw</div>
+
+  <div class="divider">Ancestors</div>
+
+  <!-- gen 1 -->
+  <div class="row">
+    <div class="rail" style="width: 24px;"><div class="v" style="top: 27px; bottom: 0;"></div></div>
+    <div class="ring"></div>
+    <div class="body">
+      <div class="name">Albert Shaw</div>
+      <div class="note"><span class="label">married to</span> Agnes Shaw</div>
+    </div>
+  </div>
+
+  <!-- gen 2 -->
+  <div class="row">
+    <div class="rail" style="width: 44px;">
+      <div class="v" style="top: 0; bottom: 0; left: 24px;"></div>
+      <div class="h" style="left: 24px; width: 16px;"></div>
+    </div>
+    <div class="ring"></div>
+    <div class="body">
+      <div class="name">Frank Shaw</div>
+      <div class="note"><span class="label">married to</span> Margaret Shaw</div>
+    </div>
+  </div>
+
+  <div class="divider">Fred &amp; Ellie</div>
+
+  <!-- subject -->
+  <div class="row" style="background: rgba(56, 128, 255, 0.04);">
+    <div class="rail" style="width: 64px;">
+      <div class="v" style="top: 0; bottom: 0; left: 44px;"></div>
+      <div class="h" style="left: 44px; width: 16px;"></div>
+    </div>
+    <div class="ring subject"></div>
+    <div class="body">
+      <div class="name subject">Fred Shaw</div>
+      <div class="note"><span class="label">siblings</span> Sally Baker</div>
+    </div>
+  </div>
+
+  <div class="row" style="background: rgba(56, 128, 255, 0.04);">
+    <div class="rail" style="width: 64px;">
+      <div class="v" style="top: 0; bottom: 0; left: 44px;"></div>
+    </div>
+    <div class="ring spouse"></div>
+    <div class="body">
+      <div class="name">Ellie Shaw</div>
+      <div class="note"><span class="label">married to</span> Fred Shaw</div>
+    </div>
+  </div>
+
+  <div class="divider">Children</div>
+
+  <div class="row">
+    <div class="rail" style="width: 84px;">
+      <div class="v" style="top: 0; bottom: 0; left: 64px;"></div>
+      <div class="h" style="left: 64px; width: 16px;"></div>
+    </div>
+    <div class="ring"></div>
+    <div class="body"><div class="name">Daisy Shaw</div></div>
+  </div>
+
+  <div class="row">
+    <div class="rail" style="width: 84px;">
+      <div class="v" style="top: 0; height: 27px; left: 64px;"></div>
+      <div class="h" style="left: 64px; width: 16px;"></div>
+    </div>
+    <div class="ring"></div>
+    <div class="body"><div class="name">Sam Shaw</div></div>
+  </div>
+
+  <div style="padding: 20px 16px; font-size: 0.82rem; line-height: 1.5; color: #6d7278;">
+    A drawn tree cannot survive 390px, so narrow width keeps the list and adds a
+    spine: indentation carries generation, the rail carries descent. It stays a
+    scrollable list of full-width rows, so hit targets never shrink to fit a
+    diagram.
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Overview — hourglass chart" },
+    { "file": "Focused.dc.html", "x": 1560, "y": 0, "w": 1000, "h": 760, "title": "Focused on one person" },
+    { "file": "Mobile.dc.html", "x": 2680, "y": 0, "w": 390, "h": 844, "title": "Narrow — 390px" },
+    { "file": "Notation.dc.html", "x": 0, "y": 1020, "w": 1040, "h": 720, "title": "Standard genealogical form" },
+    { "file": "Switches.dc.html", "x": 1160, "y": 1020, "w": 1100, "h": 720, "title": "Expansion switches" },
+    { "file": "CoupleUnit.dc.html", "x": 0, "y": 1860, "w": 1000, "h": 620, "title": "The couple unit" },
+    { "file": "EdgeCases.dc.html", "x": 1120, "y": 1860, "w": 1440, "h": 620, "title": "Edge cases" }
+  ],
+  "annotations": [
+    {
+      "id": "the-problem",
+      "x": 0,
+      "y": -150,
+      "w": 460,
+      "text": "The hard part isn't drawing a tree — it's that 44 people don't fit.\n\nGen 2 alone is 15 people. At a legible chip size that's ~1,600px, so sibling branches collapse behind a switch and the direct line stays whole."
+    },
+    {
+      "id": "read-order",
+      "x": 1560,
+      "y": -150,
+      "w": 440,
+      "text": "Three views, one primitive.\n\nStart at the couple unit (bottom left) — everything else is that, nested, or that with a part missing."
+    },
+    {
+      "id": "open-question",
+      "x": 2680,
+      "y": -150,
+      "w": 390,
+      "text": "Open question: does the wide overview earn its place at all, or is focused + narrow the whole product?\n\nThe overview is the only one needing horizontal scroll."
+    },
+    {
+      "id": "notation-warning",
+      "x": 0,
+      "y": 1840,
+      "w": 460,
+      "text": "Read the notation board before building any of this.\n\nTwo standard conventions need data the model doesn't hold — sex, and birth dates. Adopting the form without them produces a chart that reads as authoritative and misleads."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

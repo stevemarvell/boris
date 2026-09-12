@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, sans-serif;
+      background: #ffffff;
+      color: #000000;
+    }
+    a { color: #3880ff; }
+    a:hover { color: #2d6ad4; }
+
+    .chip {
+      display: flex; align-items: center; justify-content: center;
+      box-sizing: border-box;
+      width: 96px; height: 28px; padding: 0 8px;
+      border: 1px solid rgba(0, 0, 0, 0.13);
+      border-radius: 3px; background: #ffffff;
+      font-size: 11px; line-height: 1.2; text-align: center;
+    }
+    .bar { width: 14px; height: 2px; background: rgba(0, 0, 0, 0.34); }
+    .drop { width: 2px; background: rgba(0, 0, 0, 0.2); }
+    .bus { height: 2px; background: rgba(0, 0, 0, 0.2); }
+
+    table { border-collapse: collapse; width: 100%; }
+    th {
+      text-align: left; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: #6d7278;
+      padding: 0 12px 8px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.13);
+    }
+    td {
+      font-size: 12px; line-height: 1.5; color: #3d4043;
+      padding: 11px 12px 11px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.13);
+      vertical-align: top;
+    }
+    td .term { color: #000; font-weight: 600; }
+    .yes { color: #1a7f4b; font-weight: 600; }
+    .no { color: #b4341f; font-weight: 600; }
+    .caption { font-size: 12px; line-height: 1.5; color: #6d7278; }
+    .gap {
+      border: 1px solid rgba(180, 52, 31, 0.3); border-radius: 3px;
+      background: #fefaf9; padding: 14px 16px;
+    }
+  </style>
+</helmet>
+
+<div style="padding: 28px 32px; box-sizing: border-box; min-height: 720px; display: flex; gap: 36px;">
+
+  <div style="flex: 1 1 560px;">
+    <div style="font-size: 18px; font-weight: 600;">Standard genealogical form</div>
+    <div class="caption" style="margin: 6px 0 22px;">
+      What the conventions are, and which of them this data can actually support.
+    </div>
+
+    <table>
+      <tr><th style="width: 30%;">Convention</th><th style="width: 15%;">Used</th><th>Why</th></tr>
+      <tr>
+        <td><span class="term">Hourglass chart</span><br>ancestors above, descendants below one person</td>
+        <td class="yes">Yes</td>
+        <td>Exactly what the overview is. Worth calling it by its name — it is a form readers of genealogy already know how to scan.</td>
+      </tr>
+      <tr>
+        <td><span class="term">Drop-line descent</span><br>vertical line from the marriage line down to children</td>
+        <td class="yes">Yes</td>
+        <td>The couple unit is a drop-line chart. Unchanged from the standard.</td>
+      </tr>
+      <tr>
+        <td><span class="term">Sibship line</span><br>horizontal bracket grouping children of one union</td>
+        <td class="yes">Yes</td>
+        <td>Adopted, including the name — it was called a “bus” in the first draft, which is networking vocabulary, not genealogy.</td>
+      </tr>
+      <tr>
+        <td><span class="term">Marriage line</span><br>horizontal line joining two partners</td>
+        <td class="yes">Yes</td>
+        <td>Solid only. The standard also has dashed for cohabitation and slashed for divorce; the data records neither, so drawing them would be invention.</td>
+      </tr>
+      <tr>
+        <td><span class="term">Sex on the symbol</span><br>standard: male a square, female a circle</td>
+        <td style="color: #a8700f; font-weight: 600;">Adapted</td>
+        <td>
+          Drawn as a border colour instead — <span style="color:#2a4f9e; font-weight:600;">dark blue</span>
+          and <span style="color:#9e2a5f; font-weight:600;">dark pink</span>. Needs <code>sex</code>
+          added to a person; until then it is inferred from first names, which is a guess.
+          <br><br>
+          Colour is not a safe sole channel: roughly 1 in 12 men cannot separate these two
+          reliably, which is exactly why the standard uses shape. Shape should follow.
+        </td>
+      </tr>
+      <tr>
+        <td><span class="term">Birth order</span><br>siblings run oldest to youngest, left to right</td>
+        <td class="no">Cannot</td>
+        <td>No dates are stored. The sibship line currently sorts by name, which <em>looks</em> like birth order to anyone who knows the convention — and is not.</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="flex: 0 0 380px; display: flex; flex-direction: column; gap: 18px; padding-top: 52px;">
+
+    <div style="display: flex; flex-direction: column; align-items: center; padding: 18px; border: 1px solid rgba(0,0,0,0.13); border-radius: 3px;">
+      <div class="caption" style="margin-bottom: 12px;">The three lines, named</div>
+      <div style="display: flex; align-items: center;">
+        <div class="chip">Frank</div><div class="bar"></div><div class="chip">Margaret</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; margin: 2px 0 0;">
+        <div class="caption" style="font-size: 10px;">marriage line</div>
+      </div>
+      <div class="drop" style="height: 20px;"></div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="caption" style="font-size: 10px;">descent line</div>
+      </div>
+      <div class="bus" style="width: 170px; margin-top: 4px;"></div>
+      <div class="caption" style="font-size: 10px; margin-top: 3px;">sibship line</div>
+      <div style="display: flex; justify-content: space-between; width: 170px; margin-top: 4px;">
+        <div class="drop" style="height: 16px;"></div><div class="drop" style="height: 16px;"></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; width: 170px;">
+        <div class="chip" style="width: 76px;">Fred</div><div class="chip" style="width: 76px;">Sally</div>
+      </div>
+    </div>
+
+    <div class="gap">
+      <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px; color: #000;">The honest gap</div>
+      <div class="caption">
+        Two of the six conventions need data the app does not hold. Adopting the
+        standard form without them produces a chart that <em>looks</em>
+        authoritative and quietly misleads: a reader fluent in the notation will
+        take left-to-right as birth order.
+      </div>
+      <div class="caption" style="margin-top: 10px;">
+        Either add sex and birth date to a person — a real change to the model,
+        which currently stores a name, parents and a spouse — or say plainly in
+        the interface that siblings are in name order. Drawing it and hoping
+        nobody reads it as birth order is the one option that is not available.
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

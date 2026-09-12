@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, sans-serif;
+      background: #ffffff;
+      color: #000000;
+    }
+    a { color: #3880ff; }
+    a:hover { color: #2d6ad4; }
+
+    .chip {
+      display: flex; align-items: center; justify-content: center;
+      box-sizing: border-box;
+      width: 116px; height: 32px; padding: 0 10px;
+      border: 1px solid rgba(0, 0, 0, 0.13);
+      border-radius: 3px; background: #ffffff;
+      font-size: 12px; line-height: 1.2; text-align: center;
+    }
+    .chip.married-in { background: #fbfbfc; border-style: dashed; color: #3d4043; }
+
+    /* Sex is drawn on the border. Colour alone is not a safe sole channel —
+       see the notation board — so the standard square/circle stays the plan. */
+    .chip.m { border-color: #2a4f9e; }
+    .chip.f { border-color: #9e2a5f; }
+    .chip.focus.m { box-shadow: inset 0 0 0 1px #2a4f9e; border-color: #2a4f9e; }
+    .chip.focus.f { box-shadow: inset 0 0 0 1px #9e2a5f; border-color: #9e2a5f; }
+    .bar { width: 16px; height: 2px; background: rgba(0, 0, 0, 0.34); }
+    .drop { width: 2px; background: rgba(0, 0, 0, 0.2); }
+    .bus { height: 2px; background: rgba(0, 0, 0, 0.2); }
+
+    .case {
+      display: flex; flex-direction: column;
+      border: 1px solid rgba(0, 0, 0, 0.13); border-radius: 3px;
+      padding: 18px 18px 16px;
+      background: #ffffff;
+    }
+    .case h3 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+    .who { font-size: 11px; color: #3880ff; margin-bottom: 14px; }
+    .stage {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 190px; padding: 8px 0 14px;
+    }
+    .note { font-size: 12px; line-height: 1.5; color: #6d7278; }
+    .terminal {
+      width: 7px; height: 7px; border-radius: 50%;
+      border: 2px solid rgba(0, 0, 0, 0.2);
+    }
+  </style>
+</helmet>
+
+<div style="padding: 28px 32px; box-sizing: border-box; min-height: 600px;">
+
+  <div style="font-size: 18px; font-weight: 600;">Edge cases</div>
+  <div class="note" style="margin: 6px 0 22px; max-width: 720px;">
+    Every one of these exists in the real data, and none of them is a special
+    case in the drawing — each is the couple unit with a part absent.
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px;">
+
+    <div class="case">
+      <h3>Only child</h3>
+      <div class="who">Hugo Shaw</div>
+      <div class="stage">
+        <div style="display: flex; align-items: center;">
+          <div class="chip m">Felix Shaw</div><div class="bar"></div><div class="chip married-in f">Harriet Shaw</div>
+        </div>
+        <div class="drop" style="height: 30px;"></div>
+        <div class="chip m">Hugo Shaw</div>
+      </div>
+      <div class="note">
+        The bus has zero length, so it disappears and the drop runs straight
+        through. No branch, no stub — an only child looks like descent, which is
+        what it is.
+      </div>
+    </div>
+
+    <div class="case">
+      <h3>Unmarried, no children</h3>
+      <div class="who">Nora Pike</div>
+      <div class="stage">
+        <div style="display: flex; align-items: center;">
+          <div class="chip m">Douglas Pike</div><div class="bar"></div><div class="chip married-in f">Dorothy Pike</div>
+        </div>
+        <div class="drop" style="height: 22px;"></div>
+        <div class="bus" style="width: 150px;"></div>
+        <div style="display: flex; justify-content: space-between; width: 150px;">
+          <div class="drop" style="height: 18px;"></div><div class="drop" style="height: 18px;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; width: 150px;">
+          <div class="chip f" style="width: 66px; font-size: 11px;">Nancy</div>
+          <div class="chip f" style="width: 66px; font-size: 11px;">Nora</div>
+        </div>
+        <div class="terminal" style="margin-top: 14px;"></div>
+      </div>
+      <div class="note">
+        No bar and no drop below. The small ring marks a line that ends here
+        deliberately, rather than leaving the reader to wonder whether data is
+        missing.
+      </div>
+    </div>
+
+    <div class="case">
+      <h3>Married, no children</h3>
+      <div class="who">Olivia &amp; Peter Vance</div>
+      <div class="stage">
+        <div style="display: flex; align-items: center;">
+          <div class="chip f">Olivia Vance</div><div class="bar"></div><div class="chip married-in m">Peter Vance</div>
+        </div>
+        <div class="terminal" style="margin-top: 20px;"></div>
+      </div>
+      <div class="note">
+        The bar stays, the drop goes. This is the case a naive layout gets wrong
+        — reserving child space under every couple leaves a ragged gap across the
+        whole generation.
+      </div>
+    </div>
+
+    <div class="case">
+      <h3>Oldest generation</h3>
+      <div class="who">Albert &amp; Agnes Shaw</div>
+      <div class="stage">
+        <div style="display: flex; align-items: center;">
+          <div class="chip m">Albert Shaw</div><div class="bar"></div><div class="chip f">Agnes Shaw</div>
+        </div>
+        <div class="drop" style="height: 26px;"></div>
+        <div class="bus" style="width: 150px;"></div>
+        <div style="display: flex; justify-content: space-between; width: 150px;">
+          <div class="drop" style="height: 16px;"></div><div class="drop" style="height: 16px;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; width: 150px;">
+          <div class="chip m" style="width: 66px; font-size: 11px;">Frank</div>
+          <div class="chip f" style="width: 66px; font-size: 11px;">Fiona</div>
+        </div>
+      </div>
+      <div class="note">
+        Nothing above, and no stub reaching for it. Neither is drawn as
+        married-in, because with no parents recorded for either there is no blood
+        line to be the exception to.
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; gap: 28px; margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,0.13);">
+    <div class="note" style="flex: 1;">
+      <strong style="color: #000;">The rule underneath.</strong> Absence is drawn
+      as absence. A missing spouse removes the bar, missing children remove the
+      drop and the bus, a single child collapses the bus to nothing. No
+      placeholders and no dotted ghosts for people who are not there.
+    </div>
+    <div class="note" style="flex: 1;">
+      <strong style="color: #000;">Where the ring goes.</strong> Only on a line
+      that genuinely ends — someone with no children. It is not a badge for
+      being unmarried, which is why Olivia and Peter carry one and Nora carries
+      one, but for different halves of the same reason.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
