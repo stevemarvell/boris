@@ -1,1 +1,1 @@
-export declare function ports(cwd?: string): { api: number; web: number };
+export declare function ports(root?: string): { api: number; web: number };
