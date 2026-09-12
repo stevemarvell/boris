@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import type { Generation, Person } from './api';
@@ -82,6 +82,32 @@ describe('App', () => {
     render(<App />);
 
     await waitFor(() => expect(screen.queryByTestId('loading')).toBeNull());
+    expect(screen.queryAllByTestId('person')).toHaveLength(0);
+  });
+
+  it('filters the tree by name and reports how many matched', async () => {
+    mockGraphql({ generations: GENERATIONS });
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByTestId('person')).toHaveLength(3));
+
+    const input = document.querySelector('ion-searchbar input') as HTMLInputElement;
+    fireEvent.input(input, { target: { value: 'fred' } });
+
+    await waitFor(() => expect(screen.getAllByTestId('person')).toHaveLength(1));
+    expect(screen.getByTestId('match-count').textContent).toContain('1 of 3');
+    // The generation Fred is not in should disappear along with its heading.
+    expect(screen.getAllByTestId('generation')).toHaveLength(1);
+  });
+
+  it('says so when nobody matches', async () => {
+    mockGraphql({ generations: GENERATIONS });
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByTestId('person')).toHaveLength(3));
+
+    const input = document.querySelector('ion-searchbar input') as HTMLInputElement;
+    fireEvent.input(input, { target: { value: 'zzz' } });
+
+    await waitFor(() => expect(screen.getByTestId('no-matches')).toBeTruthy());
     expect(screen.queryAllByTestId('person')).toHaveLength(0);
   });
 
