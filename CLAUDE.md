@@ -19,6 +19,15 @@ tooling that belongs to a later stage.
 
 ## Rules
 
+- **`npm run verify` is the contract.** It runs ruff, pytest, typecheck,
+  eslint, the web tests, and the build. Never report work as done until it
+  passes — run it yourself rather than asking someone else to. A `Stop` hook
+  runs it automatically when tracked files have changed, so a red loop blocks
+  the turn rather than producing a claim.
+
+- **Every behaviour change ships with a test.** A bug fix means a test that
+  fails before the fix. A new feature means the happy path and the error path.
+
 - **Every change ships as a pull request.** Branch off `develop`, push the
   branch, then open a PR with `gh pr create --base develop`. Never commit or
   push directly to `develop` — a repository ruleset enforces this. Report the
@@ -68,7 +77,12 @@ npm install && npm run dev            # web app on http://localhost:5173
 cd apps/api && uv run uvicorn api.main:app --reload   # API on :8000
 ```
 
-Gates, run per workspace: `npm run typecheck`, `npm run lint`, `npm test`,
-`npm run build`; `uv run pytest` and `uv run ruff check` in `apps/api`.
-There is no aggregated `verify` yet, and no CI — that is the step-1 work of
-building a self-verification loop, and importing it early would skip the stage.
+```bash
+npm run verify        # everything: ruff, pytest, typecheck, eslint, vitest, build
+npm run verify:api    # ruff + pytest
+npm run verify:web    # typecheck + eslint + vitest + build
+```
+
+There is no CI yet, and no end-to-end suite. Both are the remaining step-1 work
+— until CI runs `verify` on every pull request, "it's green" is a claim rather
+than a fact.

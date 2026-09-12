@@ -1,12 +1,17 @@
 {
   "name": "boris",
   "private": true,
-  "workspaces": ["apps/web"],
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace @family-tree/web",
     "build": "npm run build --workspace @family-tree/web",
     "typecheck": "npm run typecheck --workspace @family-tree/web",
     "lint": "npm run lint --workspace @family-tree/web",
-    "test": "npm run test --workspace @family-tree/web"
+    "test": "npm run test --workspace @family-tree/web",
+    "verify": "npm run verify:api && npm run verify:web",
+    "verify:api": "uv run --directory apps/api ruff check . && uv run --directory apps/api pytest -q",
+    "verify:web": "npm run typecheck && npm run lint && npm run test && npm run build"
   }
 }
