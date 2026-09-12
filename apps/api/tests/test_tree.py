@@ -74,6 +74,47 @@ def test_siblings_share_a_parent(tree: FamilyTree) -> None:
     assert [s.name for s in tree.siblings("daisy-shaw")] == ["Sam Shaw"]
 
 
+def test_cousins_come_from_both_sides(tree: FamilyTree) -> None:
+    """Fred's cousins are Frank's nephews and nieces plus Margaret's."""
+    assert [c.name for c in tree.cousins("fred-shaw")] == [
+        "Gemma Hale",
+        "George Hale",
+        "Hugo Shaw",
+        "Isaac Clay",
+        "Ivy Clay",
+    ]
+
+
+def test_cousins_exclude_siblings_and_self(tree: FamilyTree) -> None:
+    cousins = {c.id for c in tree.cousins("daisy-shaw")}
+    assert cousins == {"rory-nunn", "rosie-nunn", "toby-baker"}
+    assert "sam-shaw" not in cousins
+    assert "daisy-shaw" not in cousins
+
+
+def test_descendants_reach_the_bottom_of_the_tree(tree: FamilyTree) -> None:
+    """Albert heads one line; the married-in partners below him are not his."""
+    assert [d.name for d in tree.descendants("albert-shaw")] == [
+        "Daisy Shaw",
+        "Felix Shaw",
+        "Fiona Hale",
+        "Frank Shaw",
+        "Fred Shaw",
+        "Gemma Hale",
+        "George Hale",
+        "Hugo Shaw",
+        "Sally Baker",
+        "Sam Shaw",
+        "Toby Baker",
+    ]
+    assert "harriet-shaw" not in {d.id for d in tree.descendants("albert-shaw")}
+
+
+def test_descendants_of_a_middle_generation(tree: FamilyTree) -> None:
+    assert [d.name for d in tree.descendants("fred-shaw")] == ["Daisy Shaw", "Sam Shaw"]
+    assert tree.descendants("ellie-shaw") == tree.descendants("fred-shaw")
+
+
 # -- the zero cases -----------------------------------------------------
 
 
@@ -91,6 +132,24 @@ def test_unmarried_person_has_no_spouse_and_no_children(tree: FamilyTree) -> Non
 def test_married_couple_with_no_children(tree: FamilyTree) -> None:
     assert tree.spouse("olivia-vance").id == "peter-vance"
     assert tree.children("olivia-vance") == []
+
+
+def test_oldest_generation_has_no_cousins(tree: FamilyTree) -> None:
+    assert tree.cousins("albert-shaw") == []
+
+
+def test_cousins_are_empty_when_the_parents_are_only_children(tree: FamilyTree) -> None:
+    """Nora's parents married in from nowhere, so there are no aunts to have children."""
+    assert tree.cousins("nora-pike") == []
+
+
+def test_youngest_generation_has_no_descendants(tree: FamilyTree) -> None:
+    assert tree.descendants("daisy-shaw") == []
+    assert tree.descendants("sam-shaw") == []
+
+
+def test_childless_person_has_no_descendants(tree: FamilyTree) -> None:
+    assert tree.descendants("nora-pike") == []
 
 
 def test_only_child_has_no_siblings(tree: FamilyTree) -> None:
@@ -120,6 +179,28 @@ def test_half_siblings_count_as_siblings() -> None:
 def test_person_with_no_parents_has_no_siblings() -> None:
     t = build(("a", (), None), ("b", (), None))
     assert t.siblings("a") == []
+
+
+def test_a_cousin_reachable_through_both_parents_is_listed_once() -> None:
+    t = build(
+        ("gp1", (), None),
+        ("gp2", (), None),
+        ("mum", ("gp1",), None),
+        ("aunt", ("gp1",), None),
+        ("dad", ("gp2",), None),
+        ("uncle", ("gp2",), None),
+        ("kid", ("mum", "dad"), None),
+        ("cousin", ("aunt", "uncle"), None),
+    )
+    assert [c.id for c in t.cousins("kid")] == ["cousin"]
+
+
+def test_descendants_terminate_on_a_parent_cycle() -> None:
+    """A cycle must not hang the walk; generations() is what reports it."""
+    t = build(("a", ("b",), None), ("b", ("a",), None))
+    assert [d.id for d in t.descendants("a")] == ["b"]
+    with pytest.raises(DataError, match="cycle"):
+        t.generations()
 
 
 def test_unknown_person_is_rejected(tree: FamilyTree) -> None:
