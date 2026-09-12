@@ -1,9 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import { ports } from '../../scripts/ports.mjs';
 
-// Ports are overridable so parallel agents can run the suite without
-// colliding once there is more than one of them.
-const API_PORT = Number(process.env['E2E_API_PORT'] ?? 8123);
-const WEB_PORT = Number(process.env['E2E_WEB_PORT'] ?? 4173);
+// Derived from the worktree directory so parallel agents do not collide.
+// E2E_API_PORT / E2E_WEB_PORT override.
+const { api: API_PORT, web: WEB_PORT } = ports();
 const API_URL = `http://127.0.0.1:${API_PORT}`;
 
 export default defineConfig({
