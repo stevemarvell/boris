@@ -34,8 +34,24 @@ tooling that belongs to a later stage.
   and children are *derived*, never stored — a file that can contradict itself
   will eventually contradict itself.
 
-- **Merging deploys.** `develop` publishes the Pages site, the Vercel frontend,
-  and the Railway API. The approval path and the release path are the same.
+- **Merging deploys** — the Pages site, and the Vercel frontend once it exists.
+  The approval path and the release path are meant to be the same.
+
+## Deployments
+
+| What | Where | Trigger |
+| --- | --- | --- |
+| Step-0 page | <https://stevemarvell.github.io/boris/> | merge to `develop` |
+| API | <https://api-production-edc5.up.railway.app> | `railway up` — **not** yet git-connected |
+| Web | not yet provisioned | — |
+
+Railway builds from `apps/api/Dockerfile`, selected by the `RAILWAY_DOCKERFILE_PATH`
+service variable. The `railway.json` builder setting is *not* honoured: Railpack
+reads the root `package.json`, decides the repo is Node, and never looks for a
+Dockerfile. The variable is what actually does the work.
+
+The web app reads `VITE_API_URL` at build time, defaulting to
+`http://localhost:8000`.
 
 ## Running it
 
