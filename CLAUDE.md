@@ -1,7 +1,10 @@
 # boris
 
-This repo holds one document: `docs/adoption.md`, a rendering of the
-stages-of-agentic-adoption document (Boris Cherny, Jul 2026).
+A practice ground for climbing the stages in `docs/adoption.md`, a rendering of
+the stages-of-agentic-adoption document (Boris Cherny, Jul 2026).
+
+`index.html` is published at <https://stevemarvell.github.io/boris/> by GitHub
+Pages, served from the `develop` branch. Merging a PR is the deploy.
 
 ## Rules
 
