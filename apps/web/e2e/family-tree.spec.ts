@@ -57,6 +57,23 @@ test.describe('the whole family tree', () => {
   });
 });
 
+test('person cards carry the padding that separates them', async ({ page }) => {
+  await page.goto('/');
+  const fred = page.locator('[data-person-id="fred-shaw"]');
+  await expect(fred).toBeVisible();
+
+  // Ionic pads through custom properties on the host, so read those rather
+  // than computed padding, which lands on a shadow-DOM child. Compare the
+  // number, not the string: the production build minifies 0.7rem to .7rem.
+  const padding = await fred.evaluate((node) => ({
+    top: getComputedStyle(node).getPropertyValue('--padding-top').trim(),
+    bottom: getComputedStyle(node).getPropertyValue('--padding-bottom').trim(),
+  }));
+  expect(padding.top).toMatch(/rem$/);
+  expect(parseFloat(padding.top)).toBeCloseTo(0.7);
+  expect(parseFloat(padding.bottom)).toBeCloseTo(0.7);
+});
+
 test.describe('filtering', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');

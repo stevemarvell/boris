@@ -25,3 +25,17 @@
   margin: 0.75rem 1rem 0;
   font-size: 0.82rem;
 }
+
+/* Ionic items pad through custom properties, not the host element's own
+   padding. The default is tight for a card carrying up to four relationship
+   lines, so rows run together when scanning a long generation. */
+[data-testid='person'] {
+  --padding-top: 0.7rem;
+  --padding-bottom: 0.7rem;
+  --padding-start: 1rem;
+  --inner-padding-end: 1rem;
+}
+
+[data-testid='person'] h2 {
+  margin-bottom: 0.3rem;
+}
