@@ -9,6 +9,7 @@ Ship the current working-tree changes:
 3. Commit. The subject is imperative and under 72 characters; the body says
    *why* the change exists, not what it does.
 4. Push and open a PR against `develop` with `gh pr create`.
-5. Report the PR URL. Do not merge — that is the maintainer's call.
+5. Report the PR URL. Merge once CI is green; stop and ask for anything
+   destructive, outward-facing, or beyond what was asked.
 
 $ARGUMENTS

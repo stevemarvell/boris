@@ -27,19 +27,31 @@
       "Bash(curl -s http://localhost:*)",
       "Bash(curl -s http://127.0.0.1:*)"
     ],
-    "deny": ["Bash(git push --force*)", "Bash(railway up*)"]
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(railway up*)"
+    ]
   },
   "hooks": {
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "node .claude/hooks/format-edited.mjs" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-edited.mjs\""
+          }
+        ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "node .claude/hooks/verify-on-stop.mjs", "timeout": 300 }
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-on-stop.mjs\"",
+            "timeout": 300
+          }
         ]
       }
     ]
