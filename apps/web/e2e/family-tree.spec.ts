@@ -57,6 +57,38 @@ test.describe('the whole family tree', () => {
   });
 });
 
+test.describe('filtering', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('person').first()).toBeVisible();
+  });
+
+  test('narrows the tree to matching people', async ({ page }) => {
+    await page.getByTestId('filter').locator('input').fill('pike');
+    await expect(page.getByTestId('match-count')).toContainText('of 44 people');
+    const shown = await page.getByTestId('person').count();
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(44);
+    await expect(page.locator('[data-person-id="fred-shaw"]')).toHaveCount(0);
+  });
+
+  test('drops generations that have nobody left', async ({ page }) => {
+    await page.getByTestId('filter').locator('input').fill('daisy');
+    await expect(page.getByTestId('person')).toHaveCount(1);
+    await expect(page.getByTestId('generation')).toHaveCount(1);
+  });
+
+  test('says so when nobody matches, and recovers when cleared', async ({ page }) => {
+    const input = page.getByTestId('filter').locator('input');
+    await input.fill('zzzzz');
+    await expect(page.getByTestId('no-matches')).toBeVisible();
+    await expect(page.getByTestId('person')).toHaveCount(0);
+
+    await input.fill('');
+    await expect(page.getByTestId('person')).toHaveCount(44);
+  });
+});
+
 test('shows an error rather than a blank page when the API is unreachable', async ({ page }) => {
   await page.route('**/graphql', (route) => route.abort('failed'));
   await page.goto('/');
