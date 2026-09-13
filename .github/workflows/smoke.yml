@@ -52,6 +52,33 @@ jobs:
           echo "web never served a bundle querying generations" >&2
           exit 1
 
+      - name: Check the API serves its own manual
+        run: |
+          # The manual ships inside the API image. If a Dockerfile change drops
+          # it, nothing else notices: the API keeps answering GraphQL and the
+          # documentation quietly 404s.
+          page=$(curl -fsS --max-time 30 "$API/")
+          printf '%s' "$page" | grep -q 'Family Tree API' \
+            || { echo "the API root is not serving the manual" >&2; exit 1; }
+          printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'" \
+            || { echo "the manual's console is not querying its own origin" >&2; exit 1; }
+          curl -fsS --max-time 30 -o /dev/null "$API/app-generations.jpg" \
+            || { echo "the manual's screenshots did not ship with it" >&2; exit 1; }
+
+      - name: Check the web deployment serves the docs
+        run: |
+          # These pages are built by a prebuild step, so a broken build shows up
+          # as missing documentation rather than as a failed deploy.
+          for path in /docs/ /docs/adoption.html /docs/backlog.html \
+                      /docs/step-0.html /docs/manual/web/; do
+            curl -fsS --max-time 30 -o /dev/null "$WEB$path" \
+              || { echo "missing $path" >&2; exit 1; }
+            echo "ok $path"
+          done
+          curl -fsS --max-time 30 "$WEB/docs/adoption.html" \
+            | grep -q 'Stages of agentic adoption' \
+            || { echo "adoption.html did not render its heading" >&2; exit 1; }
+
       - name: Check CORS from the deployed origin
         run: |
           allowed=$(curl -fsS -o /dev/null -w '%{http_code}' -X OPTIONS "$API/graphql" \

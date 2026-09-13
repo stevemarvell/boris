@@ -5,8 +5,9 @@ A family tree application, built as a practice ground for climbing the stages in
 (Boris Cherny, Jul 2026). Each stage of the climb is deliberate; do not reach for
 tooling that belongs to a later stage.
 
-`index.html` at the root is the step-0 artifact, published at
-<https://stevemarvell.github.io/boris/> by GitHub Pages from `develop`.
+`index.html` at the root is the step-0 artifact. It used to be published by
+GitHub Pages; it is now republished at `/docs/step-0.html` on the Vercel
+deployment, along with the rest of the documentation — see "Documentation".
 
 ## Layout
 
@@ -15,7 +16,8 @@ tooling that belongs to a later stage.
 | `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
 | `data/` | The family tree itself, stored as files in this repository. |
-| `docs/` | `adoption.md`, the ladder being climbed. |
+| `docs/` | `adoption.md`, the ladder being climbed, and `BACKLOG.md`. |
+| `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
 
 ## Rules
 
@@ -43,8 +45,9 @@ tooling that belongs to a later stage.
   and children are *derived*, never stored — a file that can contradict itself
   will eventually contradict itself.
 
-- **Merging deploys.** `develop` publishes the Pages site, the Vercel frontend,
-  and the Railway API. The approval path and the release path are the same.
+- **Merging deploys.** `develop` publishes the Vercel frontend and its docs,
+  and the Railway API and its manual. The approval path and the release path
+  are the same.
 
 - **Deployment config lives in the repo, not in dashboards.** A setting only
   visible in a web console is invisible to everyone working here.
@@ -53,9 +56,14 @@ tooling that belongs to a later stage.
 
 | What | Where | Built from |
 | --- | --- | --- |
-| Step-0 page | <https://stevemarvell.github.io/boris/> | `index.html`, Pages, `develop` |
 | API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
 | Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
+| Docs | `/docs/` on the Vercel deployment | `scripts/build-docs.mjs`, run by the web `prebuild` |
+| API manual | `/` on the Railway API | `manual/api/`, copied into the image |
+
+There is no GitHub Pages entry any more. Pages on a private repository needs a
+paid plan, so everything it published moved onto the two deployments this
+project already has.
 
 Three settings are load-bearing and non-obvious:
 
@@ -95,6 +103,39 @@ preview frontend would be built against production and show production's data.
 `VERCEL_GIT_PULL_REQUEST_ID` and pointing the build at that PR's own API. The
 host pattern is a Railway convention rather than a contract; override it with
 `RAILWAY_PR_API_TEMPLATE` if it changes.
+
+## Documentation
+
+Everything GitHub Pages used to publish is now served by the two deployments
+this project already had. Nothing is hosted anywhere a private repository
+cannot reach.
+
+| URL | Source | Carried by |
+| --- | --- | --- |
+| `/docs/` | `scripts/build-docs.mjs` | Vercel |
+| `/docs/adoption.html`, `/docs/backlog.html` | `docs/*.md` | Vercel |
+| `/docs/manual/web/` | `manual/web/` | Vercel |
+| `/docs/step-0.html` | `index.html` | Vercel |
+| `/` on the API | `manual/api/` | the API image |
+
+The web app's `prebuild` runs `scripts/build-docs.mjs`, which renders the
+Markdown with `scripts/markdown.mjs` and writes `apps/web/public/docs/`. That
+directory is generated, gitignored, and deleted on every run — edit the
+sources, never the output.
+
+The API manual is the one that does **not** go to Vercel. It ships inside the
+API image and is mounted at the service root, so:
+
+- its "try it" console posts to `/graphql` on the origin it was loaded from,
+  which means a pull request environment's manual exercises *that* API rather
+  than production's;
+- it needs no CORS allowance at all, which is why `stevemarvell.github.io` is
+  no longer in `ALLOWED_ORIGIN_REGEX`.
+
+The mount is a catch-all at `/`, registered after `/graphql` and `/health` so
+those still win. A missing manual disables the mount rather than failing
+startup; `smoke` fetches it after every merge, so a build that drops it fails
+there instead.
 
 ## Running it
 

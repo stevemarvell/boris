@@ -36,6 +36,10 @@ COPY --chown=api:api apps/api/src ./src
 # so the api user keeps its normal read access but cannot write it, matching
 # that the API only ever reads the tree.
 COPY data ./data
+# The reference manual is served from the root of this service, so it ships
+# with it — see default_manual_path() in api.main. Read-only to the api user
+# for the same reason the tree is: nothing here should ever write to it.
+COPY manual/api ./manual/api
 RUN uv sync --frozen --no-dev
 
 ENV PORT=8000

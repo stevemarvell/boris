@@ -16,13 +16,21 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       public from the first push and nobody chose it. Fine for a practice
       project with invented family data; not fine if anything real lands here.
       It is the doc's *data governance* guardrail, and the one step-0 axis with
-      no control at all. Note that GitHub Pages on a private repository needs a
-      paid plan, and Vercel preview URLs are currently public by deliberate
+      no control at all. Vercel preview URLs are currently public by deliberate
       choice so agents can read them.
 
       The security review of 2026-09-12 leaned on this one twice: the `@claude`
       workflow can be triggered by any stranger's comment, and the API is open
       to the world. Both are only acceptable while the data is invented.
+
+      The GitHub Pages obstacle is gone. Pages on a private repository needs a
+      paid plan, so everything it published — the step-0 page, both manuals,
+      the Markdown in this directory — moved onto the deployments this project
+      already pays nothing for: `/docs/` on Vercel, and the API manual at the
+      root of the Railway service. Flipping the repository to private now costs
+      no published page. It also deleted a CORS allowance:
+      `stevemarvell.github.io` existed only so the Pages-hosted API manual
+      could call the API, and the manual is same-origin now.
 
 - [ ] **No rate limiting anywhere.** The depth limit from #34 caps what a
       *single* query can cost. It does nothing about a thousand cheap ones.

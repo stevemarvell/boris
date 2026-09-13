@@ -89,17 +89,17 @@ export function assertValidPullRequestId(value, context) {
 }
 
 /**
- * Returns what it did, so this is testable without reading the filesystem.
+ * Decides which API URL this build belongs to, without touching the disk.
  *
- * The generated file is always removed first. It is gitignored and survives
- * between builds, so leaving a previous run's value in place would silently
- * override the fallback — Vite loads .env.production.local ahead of
- * .env.production.
+ * Split out from writeApiUrl so that scripts/build-docs.mjs can ask the same
+ * question — the docs index links to the API's own manual, and a pull request
+ * preview's docs must point at that pull request's API rather than at
+ * production. One rule, two callers.
+ *
+ * The 'fallback' case carries no url: the answer then lives in the committed
+ * .env.production, which only a caller that reads files can see.
  */
-export function writeApiUrl(env = process.env, webDir = WEB_DIR) {
-  const target = join(webDir, '.env.production.local');
-  rmSync(target, { force: true });
-
+export function chooseApiUrl(env = process.env) {
   const explicitUrl = env['VITE_API_URL'];
   if (explicitUrl) {
     assertValidApiUrl(explicitUrl, 'VITE_API_URL');
@@ -111,18 +111,37 @@ export function writeApiUrl(env = process.env, webDir = WEB_DIR) {
     assertValidPullRequestId(pullRequest, 'VERCEL_GIT_PULL_REQUEST_ID');
     const url = prApiUrl(pullRequest, env['RAILWAY_PR_API_TEMPLATE']);
     assertValidApiUrl(url, 'the pull request API URL');
-    writeFileSync(target, `VITE_API_URL=${url}\n`, 'utf8');
     return { action: 'pr', url };
   }
 
   const apiUrl = env['API_URL'];
   if (apiUrl) {
     assertValidApiUrl(apiUrl, 'API_URL');
-    writeFileSync(target, `VITE_API_URL=${apiUrl}\n`, 'utf8');
     return { action: 'mapped', url: apiUrl };
   }
 
   return { action: 'fallback' };
+}
+
+/**
+ * Returns what it did, so this is testable without reading the filesystem.
+ *
+ * The generated file is always removed first. It is gitignored and survives
+ * between builds, so leaving a previous run's value in place would silently
+ * override the fallback — Vite loads .env.production.local ahead of
+ * .env.production.
+ */
+export function writeApiUrl(env = process.env, webDir = WEB_DIR) {
+  const target = join(webDir, '.env.production.local');
+  rmSync(target, { force: true });
+
+  const chosen = chooseApiUrl(env);
+  // An explicit VITE_API_URL is already in the environment Vite will read, and
+  // the fallback is the committed file; neither needs a generated one.
+  if (chosen.action === 'pr' || chosen.action === 'mapped') {
+    writeFileSync(target, `VITE_API_URL=${chosen.url}\n`, 'utf8');
+  }
+  return chosen;
 }
 
 const MESSAGES = {
