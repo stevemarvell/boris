@@ -55,7 +55,9 @@ deployment, along with the rest of the documentation — see "Documentation".
 - **Known gaps live in GitHub issues, not in a file.** There was a
   `docs/BACKLOG.md`; it went stale exactly as it predicted it would, because
   nothing connected a merge to a line in it. Close an item the way the work
-  closes it — `Closes #51` in a pull request body. Labels carry what the file's
+  closes it — a `Closes #<n>` line in a pull request body. Write that example
+  with a placeholder, never a real number: #66 spelled one out to illustrate
+  the rule and GitHub closed that issue on merge. Labels carry what the file's
   headings used to: `aia0`/`aia1`/`aia2` for the adoption step, `p1`/`p2`/`p3`
   for priority, `security` for exposure.
 
