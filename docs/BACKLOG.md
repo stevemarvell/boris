@@ -24,7 +24,7 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       workflow can be triggered by any stranger's comment, and the API is open
       to the world. Both are only acceptable while the data is invented.
 
-- [ ] **No rate limiting anywhere.** The depth limit in flight caps what a
+- [ ] **No rate limiting anywhere.** The depth limit from #34 caps what a
       *single* query can cost. It does nothing about a thousand cheap ones.
       Railway has no WAF and the service runs a single instance with
       `sleepApplication: true`, so the floor is low. The two honest options are
@@ -48,10 +48,18 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       ever stops being public, this page has to move to the preview API or lose
       the Run button.
 
+- [ ] **`origin/HEAD` is not set on the remote.** There is no `main` branch —
+      only `develop` — and nothing tells a clone which branch is the default.
+      Any tool that resolves `origin/HEAD` to find the base of a change fails
+      outright; `/security-review` did exactly that on 2026-09-12, which is why
+      it reviewed the whole codebase instead of a diff. One command fixes it:
+      `git remote set-head origin -a`. Left unrecorded it will bite the next
+      tool that assumes a default branch exists.
+
 ## aia1
 
-- [ ] **No telemetry.** Nothing measures token use, active time, or output per
-      merged change. A subagent already died mid-task on a session limit, which
+- [x] **No telemetry.** ~~Nothing measures token use, active time, or output per
+      merged change.~~ Shipped in #29, merged 2026-09-13. A subagent already died mid-task on a session limit, which
       is the cheap version of this problem.
 
       Cost in dollars is a function of the plan, so the signals worth having are
@@ -70,11 +78,39 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       backend. Prompts, responses and tool inputs are redacted by default; leave
       them that way. <https://code.claude.com/docs/en/monitoring-usage>
 
-      In flight: PR #29 skips the console step and ships the durable version —
-      OTLP collector, Prometheus, Grafana, `telemetry/`. Metrics only, so the
-      redaction above is preserved by never opening the events pipe. Verified
-      against the running stack, which is how it was caught that the first
-      version of the scrub silently did not scrub.
+      #29 skipped the console step and shipped the durable version — OTLP
+      collector, Prometheus, Grafana, `telemetry/`, `telemetry/check.sh`.
+      Metrics only, so the redaction above is preserved by never opening the
+      events pipe. Verified against the running stack, which is how it was
+      caught that the first version of the scrub silently did not scrub.
+
+- [ ] **The dashboard has only ever seen synthetic metrics.** `telemetry/check.sh`
+      pushes a made-up payload and proves the pipeline carries it, which is what
+      caught the scrub bug — but no panel has yet rendered a real Claude Code
+      session. The exporter settings are read at session start, so the first
+      genuine data arrives only after a restart. Check then that every panel has
+      data and none reads "No data", which is what a metric-name mismatch looks
+      like.
+
+- [ ] **The API image has no automated regression test.** #31 dropped the
+      container to an unprivileged user and that was verified by building and
+      running the image by hand — `id` reporting uid 999, `data/` unwritable,
+      `/health` serving 44 people. Nothing stops the next Dockerfile edit
+      putting root back. A CI job building the image on pull requests is the
+      natural guard; it was left out of #31 because adding a job changes shared
+      CI, and `verify` is the only required check.
+
+- [ ] **Merge notifications are inert until two secrets exist.** #35 ships a
+      workflow that messages Telegram on every merged pull request, and it skips
+      with an explanatory log line until `TELEGRAM_BOT_TOKEN` and
+      `TELEGRAM_CHAT_ID` are set on the repository. The send path itself is
+      proven — a message was delivered through the same Bot API call the
+      workflow makes.
+
+      Worth deciding at the same time: that token also drives the Claude Code
+      Telegram channel, and this repository is public. A second bot from
+      BotFather used only for notifications would mean a leak in Actions costs
+      nothing else.
 
 ## aia2
 
@@ -93,10 +129,31 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       stale while another merges, and the Railway PR-environment ceiling.
 
       2026-09-12 pushed this to four agents at once on the security findings,
-      still on deliberately disjoint files, plus four simultaneous Railway PR
-      environments and four concurrent `npm run verify` runs. Whatever that run
-      taught belongs here; the remaining untested cases are the ones where two
-      agents want the same file.
+      still on deliberately disjoint files. What it taught:
+
+      - **Four held.** Four worktrees, four simultaneous Railway PR
+        environments, four concurrent `npm run verify` runs, no collisions.
+        `scripts/ports.mjs` deriving ports from the worktree directory name is
+        what made the last of those a non-event.
+      - **Sequential merges needed no rebasing.** All four stayed
+        `MERGEABLE/CLEAN` as the others landed, because the ruleset does not
+        require branches to be up to date. Disjoint files plus that setting is
+        why "a PR going stale while another merges" never arose — it is not
+        yet evidence that it would not.
+      - **A brief with a wrong API in it is recoverable.** Two agents
+        contradicted their instructions and were right to: `StrawberryConfig`
+        has no `disable_introspection` field in 0.327.7 (the extension is the
+        mechanism), and `vi.mock` does not reliably intercept Node builtins
+        from inside an ESM module under test. Both said so and chose
+        differently. A brief is a starting position, not a spec.
+      - **Cleanup is the ragged edge.** `git worktree remove --force`
+        deregistered all four but could not delete the directories: Windows
+        held locks on `node_modules` and `.venv`. The registry and the disk
+        disagreed afterwards, which is a trap for the next run that reuses a
+        name.
+
+      Still untested: five or more, and the case that actually matters — two
+      agents wanting the same file.
 
 - [ ] **The backlog cannot be claimed.** This file is a document *about* work,
       sitting outside the system that does the work. Four agents running at once
