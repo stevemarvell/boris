@@ -3,13 +3,22 @@
 Closes the `aia1` gap in [`../docs/BACKLOG.md`](../docs/BACKLOG.md): *nothing
 measures token use, active time, or output per merged change.*
 
-Claude Code emits OpenTelemetry metrics. This directory is the collector that
-catches them — OTLP in, Prometheus in the middle, one Grafana dashboard on top.
-Everything runs on loopback; no data leaves the machine.
+Claude Code emits OpenTelemetry metrics and events. This directory is the
+collector that catches them — OTLP in, Prometheus in the middle, one Grafana
+dashboard on top.
 
 ```
 claude ──OTLP/gRPC:4317──▶ otel-collector ──:8889──▶ prometheus ──▶ grafana:3000
 ```
+
+By default every port is bound to loopback and nothing leaves the machine. Two
+things deliberately change that, and both are opt-in:
+
+- the **cloud overlay** below, which also forwards to Grafana Cloud
+- the **GitHub Actions runs**, which cannot reach this laptop and so report to
+  Grafana Cloud directly
+
+Neither is on until a credential exists.
 
 ## The number this exists to produce
 
@@ -46,12 +55,31 @@ looks empty for the first half-minute. That is the stack working, not failing.
 config, so the setting is visible to everyone working here rather than living
 in somebody's shell profile — the same rule the deployment config follows.
 
-**Metrics only.** `OTEL_LOGS_EXPORTER` is deliberately unset. Turning it on
-ships *events* — including `claude_code.user_prompt` and
-`claude_code.tool_result` — and the content controls (`OTEL_LOG_USER_PROMPTS`,
-`OTEL_LOG_TOOL_CONTENT`) then decide how much of your prompts and file contents
-get written to disk. The backlog entry says to leave redaction on. This leaves
-it on by not opening the pipe at all.
+**Events on, content off.** `OTEL_LOGS_EXPORTER=otlp` is set, because Grafana
+Cloud's Claude Code integration reads events as well as metrics and its
+dashboards are half empty without them.
+
+The line that matters is one step further in. Events on their own carry
+*metadata* — which tool ran, how long it took, which model, which session.
+Three separate variables turn them into the prompts and file contents
+themselves:
+
+```
+OTEL_LOG_USER_PROMPTS      # your prompts
+OTEL_LOG_TOOL_DETAILS      # tool inputs
+OTEL_LOG_TOOL_CONTENT      # file contents read and written
+```
+
+**None of them is set anywhere in this repository, and none should be.** Unset
+is off. They are deliberately absent rather than set to `0`, because `"0"` is a
+truthy string in more places than it ought to be and absence cannot be
+misread.
+
+This is what the backlog meant by *"prompts, responses and tool inputs are
+redacted by default; leave them that way"* — the redaction is those three flags,
+not the pipe itself. An earlier version of this file kept the pipe shut
+entirely, which was stricter than the rule asked and cost the integration's
+dashboards.
 
 The collector also deletes `user.email`, `user.id`, `user.account_uuid`,
 `user.account_id` and `organization.id` before anything is stored. A
@@ -139,15 +167,34 @@ Two deliberate choices in those workflow blocks:
 
 ### Switching it on
 
-1. Create a Grafana Cloud stack and open its **OTLP** page. It gives an
-   endpoint and a token.
-2. Set two repository secrets:
+Grafana Cloud ships a **Claude Code integration** — Connections, the Claude Code
+tile, Install. It provisions four dashboards (Claude Code, stats, usage
+breakdown, productivity), which is why there is no cloud copy of the local
+dashboard in this repository: theirs is better and already exists.
+
+1. Grafana Cloud Portal, your stack, the **OpenTelemetry** tile, Configure.
+   Generate a token; it prints the `OTEL_*` variables ready-made.
+2. Install the **Claude Code** integration from Connections.
+3. Set two repository secrets:
    - `GRAFANA_CLOUD_OTLP_ENDPOINT` — the endpoint, ending `/otlp`
-   - `GRAFANA_CLOUD_OTLP_AUTH` — `Authorization=Basic <base64 of instanceID:token>`
-3. Optionally put the same credential in `.env` and run the overlay, so the
+   - `GRAFANA_CLOUD_OTLP_AUTH` — the whole `OTEL_EXPORTER_OTLP_HEADERS` value,
+     `Authorization=Basic <base64>`
+4. Optionally put the same credential in `.env` and run the overlay, so the
    laptop reports to the same store. The spelling differs between the two —
    see `.env.example`.
 
-Until step 2, both workflows run with telemetry off, exactly as before.
+Until step 3, both workflows run with telemetry off, exactly as before.
+
+### The variable that decides whether any of it works
+
+`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative`, required by the
+integration and set in all three places here.
+
+Claude Code can emit *delta* temporality. A Prometheus-backed store — Grafana
+Cloud's, and the local one — drops delta sums on the floor. There is no error,
+no warning, and nothing in any log: the panels simply read "No data", which
+looks exactly like a wrong metric name, a broken scrape, or a session that never
+reported. It went unnoticed here until Grafana's own integration docs spelled it
+out.
 
 <https://code.claude.com/docs/en/monitoring-usage>
