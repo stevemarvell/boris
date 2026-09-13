@@ -4,7 +4,10 @@ Relationship fields resolve through `FamilyTree`, so nothing here reads a
 stored sibling or child list — there is none to read.
 """
 
+from collections.abc import Callable
+
 import strawberry
+from strawberry.extensions import DisableIntrospection, QueryDepthLimiter, SchemaExtension
 from strawberry.types import Info
 
 from api.tree import FamilyTree
@@ -89,4 +92,36 @@ class Query:
         ]
 
 
-schema = strawberry.Schema(query=Query)
+# Person's relationship fields are mutually recursive (cousins calls siblings
+# per parent and children per aunt/uncle, siblings and grandparents fan out
+# again one level down), so nesting them costs roughly 3.5x per extra level.
+# A security review measured `{ people { cousins^7 { name } } }` -- depth 8
+# by this limiter's count, since it counts fields-with-a-subselection from the
+# root and a leaf field like `name` adds no level -- at 3.1 CPU-seconds and
+# 2.2 MB against the 44-person tree in data/family.json, rising to 23.7s at
+# depth 10. The deepest query the app or the manual ever send is depth 3 (the
+# GENERATIONS query in apps/web/src/api.ts: generations -> people -> spouse
+# { name }). Depth 6 leaves that query more than double the room to grow: the
+# worst case it still admits, `{ people { cousins^5 { name } } }`, ran in
+# 0.14s against the same data when measured here, against 3.1s at depth 8 --
+# comfortably clear of where the exponential blow-up starts to bite.
+MAX_QUERY_DEPTH = 6
+
+
+def create_schema(*, disable_introspection: bool) -> strawberry.Schema:
+    """Build the schema, with introspection off for anything internet-facing.
+
+    Introspection hands out the exact shape of `Person`'s recursive fields
+    for free -- the information an attacker needs to build the queries
+    above -- so `api.main` disables it whenever the app is not explicitly
+    running in development.
+    """
+    # Factories, not instances: strawberry constructs a fresh extension per
+    # request from these, which is what it now expects (passing an instance
+    # is deprecated).
+    extensions: list[Callable[[], SchemaExtension]] = [
+        lambda: QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH)
+    ]
+    if disable_introspection:
+        extensions.append(DisableIntrospection)
+    return strawberry.Schema(query=Query, extensions=extensions)
