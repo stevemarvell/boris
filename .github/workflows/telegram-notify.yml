@@ -1,8 +1,8 @@
 name: telegram-notify
 
 # One Telegram message per merged pull request. Merging is the moment that
-# matters here, because merging deploys — Pages, Vercel and Railway all move on
-# a push to develop — so this is the release notification, not a courtesy.
+# matters here, because merging deploys — Vercel and Railway both move on a
+# push to develop — so this is the release notification, not a courtesy.
 #
 # Needs two repository secrets:
 #   TELEGRAM_BOT_TOKEN  the bot that sends the message
@@ -65,7 +65,7 @@ jobs:
 
           # A merge to develop is a deployment, so say so.
           if [ "$PR_BASE" = "develop" ]; then
-            text=$(printf '%s\n\n%s' "$text" "Deploying: Pages, Vercel, Railway. Smoke runs next.")
+            text=$(printf '%s\n\n%s' "$text" "Deploying: Vercel, Railway. Smoke runs next.")
           fi
 
           # No --fail-with-body: Telegram answers 200 with ok:false for a bad
