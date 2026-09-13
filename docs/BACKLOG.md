@@ -100,6 +100,19 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       natural guard; it was left out of #31 because adding a job changes shared
       CI, and `verify` is the only required check.
 
+- [ ] **CI telemetry is inert until two secrets exist.** #37 wires
+      `claude-code-review` and the `@claude` workflow to ship metrics, which is
+      the spend least likely to be noticed — nobody watches either run. It needs
+      a Grafana Cloud stack and two repository secrets,
+      `GRAFANA_CLOUD_OTLP_ENDPOINT` and `GRAFANA_CLOUD_OTLP_AUTH`, and until
+      they exist `CLAUDE_CODE_ENABLE_TELEMETRY` is deliberately `0` rather than
+      pointing at a `localhost` nothing listens on. Verified inert: #37's own
+      review job ran green with the secrets absent.
+
+      The same credential in `telemetry/.env` plus the compose overlay makes
+      the laptop report to the same store, which is the point — otherwise there
+      are two stores and no single answer to what the loop costs.
+
 - [ ] **Merge notifications are inert until two secrets exist.** #35 ships a
       workflow that messages Telegram on every merged pull request, and it skips
       with an explanatory log line until `TELEGRAM_BOT_TOKEN` and
