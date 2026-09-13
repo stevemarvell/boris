@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
 
+from api.limits import install_rate_limiting
 from api.schema import create_schema
 from api.tree import FamilyTree
 
@@ -74,6 +75,16 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
     is_development = (environment or API_ENVIRONMENT) == "development"
 
     app = FastAPI(title="family-tree-api")
+
+    # Rate limiting on /graphql -- and only there; api.limits explains why
+    # /health and the manual are left alone.
+    #
+    # Added *before* CORS, which puts it inside it: add_middleware inserts at
+    # the front of the stack, so the last one added is the outermost. CORS has
+    # to stay outside, or a 429 would reach a browser without the header that
+    # lets it read the body, and a preflight would spend a client's budget
+    # instead of being answered by CORSMiddleware before the limiter sees it.
+    install_rate_limiting(app)
 
     app.add_middleware(
         CORSMiddleware,
