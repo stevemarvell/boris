@@ -158,16 +158,37 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       review job is the first that will run with a credential; the one carrying
       this edit is that pull request.
 
-      The first credentialed runs produced nothing at all. #40 and #41 both ran
-      `Claude Code Review` with `CLAUDE_CODE_ENABLE_TELEMETRY: 1`, an endpoint,
-      a header and `environment=ci` in `OTEL_RESOURCE_ATTRIBUTES` — and Grafana
-      Cloud showed no Linux host over the following 24 hours, only Windows. A
-      failed OTLP export writes nothing to the Actions log, so a runner looks
-      identical whether the credential works or not, which is the same silent
-      class of failure as the temporality gap #39 fixed. Both secrets were
-      re-set at 13:45Z from the credential already proven to work in
-      `~/.claude/settings.json`; that removes the likeliest cause, and the next
-      review run is still the only thing that can prove it.
+      The first credentialed runs produced nothing at all. #40, #41 and #42 all
+      ran `Claude Code Review` with `CLAUDE_CODE_ENABLE_TELEMETRY: 1`, an
+      endpoint, a header and `environment=ci` in `OTEL_RESOURCE_ATTRIBUTES` —
+      and Grafana Cloud showed no Linux host at all, only Windows. A failed OTLP
+      export writes nothing to the Actions log, so a runner looks identical
+      whether the credential works or not, which is the same silent class of
+      failure as the temporality gap #39 fixed. Re-setting both secrets from the
+      credential already proven to work changed nothing, because the credential
+      was never the problem.
+
+      The cause was the same precedence rule that had just been found hiding
+      this project from the cloud dashboard, one layer further out: **a settings
+      file beats the process environment.** `.claude/settings.json` is checked
+      out on the runner like any other file, and it points
+      `OTEL_EXPORTER_OTLP_ENDPOINT` at `http://localhost:4317` for a laptop's
+      collector. The workflow exported Grafana Cloud's endpoint; the checked-out
+      file overwrote it; every run exported to a port nothing was listening on.
+
+      Fixed by writing `.claude/settings.local.json` — *project local*, so it
+      outranks the committed file — from `scripts/write-ci-telemetry-settings.mjs`
+      before the action runs. That also carries
+      `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`, which
+      `claude-code-action` does not forward: it passes exactly nine `OTEL_*`
+      variables from `env` and that is not one of them, so the workflow could
+      not have set it by any means.
+
+      Worth keeping, because it is the third time in this file: every telemetry
+      failure so far has been silent by construction. A wrong temporality, a
+      wrong endpoint and an unforwarded variable all present as a green run and
+      an empty panel, and the only thing that found any of them was reading the
+      store's own attributes rather than trusting the config.
 
       The same credential in `telemetry/.env` plus the compose overlay makes
       the laptop report to the same store, which is the point — otherwise there

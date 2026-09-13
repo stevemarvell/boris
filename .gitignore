@@ -26,3 +26,7 @@ design/*.html
 # committed apps/web/.env.production is a public URL and is deliberately not
 # matched by this.
 .env
+
+# Written by scripts/write-ci-telemetry-settings.mjs on a runner, and by
+# anyone overriding project settings locally. Never committed.
+.claude/settings.local.json
