@@ -158,44 +158,58 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       review job is the first that will run with a credential; the one carrying
       this edit is that pull request.
 
+      The first credentialed runs produced nothing at all. #40 and #41 both ran
+      `Claude Code Review` with `CLAUDE_CODE_ENABLE_TELEMETRY: 1`, an endpoint,
+      a header and `environment=ci` in `OTEL_RESOURCE_ATTRIBUTES` — and Grafana
+      Cloud showed no Linux host over the following 24 hours, only Windows. A
+      failed OTLP export writes nothing to the Actions log, so a runner looks
+      identical whether the credential works or not, which is the same silent
+      class of failure as the temporality gap #39 fixed. Both secrets were
+      re-set at 13:45Z from the credential already proven to work in
+      `~/.claude/settings.json`; that removes the likeliest cause, and the next
+      review run is still the only thing that can prove it.
+
       The same credential in `telemetry/.env` plus the compose overlay makes
       the laptop report to the same store, which is the point — otherwise there
-      are two stores and no single answer to what the loop costs. That half has
-      not been done; see the next item.
+      are two stores and no single answer to what the loop costs. That half is
+      done; see the next item.
 
-- [ ] **The laptop reports only to the local Prometheus.** The item above
+- [x] **The laptop reports only to the local Prometheus.** ~~The item above
       switches CI on. Nothing switched the laptop over to follow it, so the two
-      halves of the same number are about to land in two different stores.
+      halves of the same number are about to land in two different stores.~~
+      Done on 2026-09-13: the credential is in `telemetry/.env` and the stack
+      runs with both compose files, so the collector fans out to Prometheus and
+      to Grafana Cloud.
 
-      Both facts are visible rather than assumed. The collector container runs
-      with `--config=/etc/otel/config.yaml` and nothing else — the cloud overlay
-      adds a second `--config`, and it is not loaded. And `telemetry/.env` holds
-      only `GF_SECURITY_ADMIN_USER` and `GF_SECURITY_ADMIN_PASSWORD`; neither
-      `GRAFANA_CLOUD_OTLP_ENDPOINT` nor `GRAFANA_CLOUD_AUTH_HEADER` is set.
+      Switching it on immediately exposed something nobody had looked for, and
+      it is the more useful half of this item. Settings merge with the *project*
+      winning, so `.claude/settings.json` here — pointing at
+      `http://localhost:4317` — overrides the machine-wide
+      `~/.claude/settings.json` that sends every other project straight to
+      Grafana Cloud. The repository that built the telemetry was the only one
+      absent from the store it built. The cloud dashboard read one session and
+      one active user, and that session was from a different project entirely.
 
-      That produces exactly the outcome `telemetry/README.md` says the overlay
-      exists to prevent: interactive sessions land in a Prometheus that CI
-      cannot reach, review runs land in a cloud stack the laptop does not write
-      to, and tokens per merged pull request can only ever be computed over half
-      of the work. The two would not even be comparable — the split by
-      `OTEL_RESOURCE_ATTRIBUTES` was designed to tell laptop from CI *within one
-      store*, and it does nothing across two.
+      A second discovery followed within a minute of the overlay coming up. The
+      collector's identity scrub, written for a local Prometheus, was being
+      applied to the cloud export as well — and there it protected nothing,
+      because every other session and every CI run reaches that same store
+      carrying `user.email` directly. It did not remove the address from
+      anywhere; it split one person in two. "Cost by team member" read
+      `Value $0.57` beside a real address at `$0.49`, and "Active users" said 2
+      for one human. The scrub now follows the destination rather than the
+      source: anonymous on the way to disk here, intact on the way to the store
+      that already holds it. `check.sh`'s `canary@example.com` is filtered out
+      of the cloud pipelines by `service.name`, so proving the local scrub can
+      never invent a team member in the shared one.
 
-      The fix is the same credential in `.env` — spelled
-      `GRAFANA_CLOUD_AUTH_HEADER` there rather than `GRAFANA_CLOUD_OTLP_AUTH`,
-      which is a trap worth reading `.env.example` for — and then bringing the
-      stack up with both compose files:
+      Left open deliberately: with Docker down, a session in *this* repository
+      now reports nowhere, while a session in any other project still reaches
+      Grafana Cloud. The local collector is a single point of failure for this
+      project's telemetry alone, and that is the price of keeping offline
+      history.
 
-      ```bash
-      cd telemetry
-      docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
-      ```
-
-      Deciding *not* to is a legitimate answer, but it should be a
-      decision: it means the local dashboard is the interactive story, Grafana
-      Cloud is the CI story, and nothing ever adds them up.
-
-- [ ] **Merge notifications are credentialed, and the first live attempts
+- [x] **Merge notifications are credentialed, and the first live attempts
       failed.** #35 ships a workflow that messages Telegram on every merged pull
       request, and ~~it skips with an explanatory log line until
       `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set on the repository.~~
@@ -209,8 +223,10 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       `{"ok":false,"error_code":404,"description":"Not Found"}`. A 404 on
       `/bot<token>/sendMessage` is Telegram saying the *token* is wrong rather
       than the chat — the path itself does not resolve, so nothing was even
-      looked up. The token was re-set at 13:09Z, after all three runs, so the
-      fix is unproven until the next merge fires the workflow.
+      looked up. ~~The token was re-set at 13:09Z, after all three runs, so the
+      fix is unproven until the next merge fires the workflow.~~ Proven: the
+      merges of #40 at 13:27Z and #41 at 13:30Z both ran the workflow green and
+      both messages arrived. A wrong token was the whole of it.
 
       Two things the workflow got right, and both are why this was a red cross
       rather than a silence. The skip guard worked in the direction nobody
