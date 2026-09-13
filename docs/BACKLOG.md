@@ -48,13 +48,23 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       ever stops being public, this page has to move to the preview API or lose
       the Run button.
 
-- [ ] **`origin/HEAD` is not set on the remote.** There is no `main` branch —
+- [x] **`origin/HEAD` is not set on the remote.** ~~There is no `main` branch —
       only `develop` — and nothing tells a clone which branch is the default.
       Any tool that resolves `origin/HEAD` to find the base of a change fails
       outright; `/security-review` did exactly that on 2026-09-12, which is why
       it reviewed the whole codebase instead of a diff. One command fixes it:
       `git remote set-head origin -a`. Left unrecorded it will bite the next
-      tool that assumes a default branch exists.
+      tool that assumes a default branch exists.~~ Run on 2026-09-13; this
+      checkout now resolves `refs/remotes/origin/HEAD` to `origin/develop`, and
+      a tool looking for the base of a change finds one.
+
+      The title was always slightly wrong, and the difference is how far the fix
+      reaches. `origin/HEAD` is a property of each clone, not of the remote —
+      the command wrote a local ref and pushed nothing. A fresh clone of this
+      repository gets its default from GitHub's default-branch setting, which is
+      `develop` and therefore right; but that is a different mechanism answering
+      the same question. Fixed for this working copy; anywhere else it rests on
+      that setting staying correct.
 
 ## aia1
 
@@ -80,17 +90,47 @@ Gaps against `adoption.md`, tagged by the step they belong to.
 
       #29 skipped the console step and shipped the durable version — OTLP
       collector, Prometheus, Grafana, `telemetry/`, `telemetry/check.sh`.
-      Metrics only, so the redaction above is preserved by never opening the
-      events pipe. Verified against the running stack, which is how it was
+      ~~Metrics only, so the redaction above is preserved by never opening the
+      events pipe.~~ Verified against the running stack, which is how it was
       caught that the first version of the scrub silently did not scrub.
 
-- [ ] **The dashboard has only ever seen synthetic metrics.** `telemetry/check.sh`
-      pushes a made-up payload and proves the pipeline carries it, which is what
-      caught the scrub bug — but no panel has yet rendered a real Claude Code
-      session. The exporter settings are read at session start, so the first
-      genuine data arrives only after a restart. Check then that every panel has
-      data and none reads "No data", which is what a metric-name mismatch looks
-      like.
+      That last sentence was true of #29 and is no longer the rule. #39 opened
+      the events pipe on purpose — `OTEL_LOGS_EXPORTER=otlp` in
+      `.claude/settings.json` and in both workflows — because Grafana Cloud's
+      Claude Code integration reads events as well as metrics and its dashboards
+      are half empty without them. Keeping the pipe shut was stricter than the
+      rule asked and cost those dashboards.
+
+      The redaction now lives where it always meant to: `OTEL_LOG_USER_PROMPTS`,
+      `OTEL_LOG_TOOL_DETAILS` and `OTEL_LOG_TOOL_CONTENT`, which turn events from
+      *which tool ran, how long, which model* into the prompts and file contents
+      themselves. None of the three is set anywhere in this repository, and they
+      are deliberately absent rather than `"0"` — `"0"` is a truthy string in too
+      many places, and absence cannot be misread.
+
+- [ ] **The dashboard has real data now, and nobody has opened it.**
+      ~~`telemetry/check.sh` pushes a made-up payload and proves the pipeline
+      carries it, which is what caught the scrub bug — but no panel has yet
+      rendered a real Claude Code session. The exporter settings are read at
+      session start, so the first genuine data arrives only after a restart.~~
+      A real session reached the local Prometheus on 2026-09-13:
+      `claude_code_token_usage`, `claude_code_cost_usage`,
+      `claude_code_active_time_total` and `claude_code_session_count` all carry
+      one, split by model and token type the way the panels expect. The scrub
+      held on live data as well as synthetic — no `user_email`, `user_id` or
+      `organization_id` label exists on any series.
+
+      One metric has no series at all: `claude_code_pull_request_count`, which
+      Claude Code emits only once a session actually opens a pull request. Worth
+      recording precisely, because it is exactly the "No data" that means
+      nothing is wrong — and it is the expensive one to misread, since tokens
+      per merged pull request, the number this whole directory exists to
+      produce, is the one panel that cannot render until that metric arrives.
+
+      What is left is the part no query substitutes for: open the dashboard and
+      walk it panel by panel. "No data" over a metric that *does* have series is
+      a wrong name or a wrong query and needs fixing; "No data" over
+      `pull_request_count` is the pipeline waiting, and needs nothing.
 
 - [ ] **The API image has no automated regression test.** #31 dropped the
       container to an unprivileged user and that was verified by building and
@@ -100,25 +140,86 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       natural guard; it was left out of #31 because adding a job changes shared
       CI, and `verify` is the only required check.
 
-- [ ] **CI telemetry is inert until two secrets exist.** #37 wires
-      `claude-code-review` and the `@claude` workflow to ship metrics, which is
-      the spend least likely to be noticed — nobody watches either run. It needs
-      a Grafana Cloud stack and two repository secrets,
-      `GRAFANA_CLOUD_OTLP_ENDPOINT` and `GRAFANA_CLOUD_OTLP_AUTH`, and until
-      they exist `CLAUDE_CODE_ENABLE_TELEMETRY` is deliberately `0` rather than
-      pointing at a `localhost` nothing listens on. Verified inert: #37's own
-      review job ran green with the secrets absent.
+- [ ] **CI telemetry is wired and credentialed, and has never exported
+      anything.** #37 wires `claude-code-review` and the `@claude` workflow to
+      ship metrics, which is the spend least likely to be noticed — nobody
+      watches either run. ~~It needs a Grafana Cloud stack and two repository
+      secrets, `GRAFANA_CLOUD_OTLP_ENDPOINT` and `GRAFANA_CLOUD_OTLP_AUTH`, and
+      until they exist `CLAUDE_CODE_ENABLE_TELEMETRY` is deliberately `0` rather
+      than pointing at a `localhost` nothing listens on.~~ Both secrets were set
+      on 2026-09-13 — the endpoint at 13:04Z, the auth header at 13:07Z — so the
+      gate that holds `CLAUDE_CODE_ENABLE_TELEMETRY` at `0` now opens.
+
+      Nothing has run through it. The most recent `Claude Code Review` run was
+      08:34Z on #39, hours before either secret existed, so not one metric has
+      ever left a runner. What is proven is the *inert* path — #37's own review
+      job ran green with the secrets absent — and that is the opposite of what
+      needs proving now. The next pull request to open is the test, because its
+      review job is the first that will run with a credential; the one carrying
+      this edit is that pull request.
 
       The same credential in `telemetry/.env` plus the compose overlay makes
       the laptop report to the same store, which is the point — otherwise there
-      are two stores and no single answer to what the loop costs.
+      are two stores and no single answer to what the loop costs. That half has
+      not been done; see the next item.
 
-- [ ] **Merge notifications are inert until two secrets exist.** #35 ships a
-      workflow that messages Telegram on every merged pull request, and it skips
-      with an explanatory log line until `TELEGRAM_BOT_TOKEN` and
-      `TELEGRAM_CHAT_ID` are set on the repository. The send path itself is
-      proven — a message was delivered through the same Bot API call the
-      workflow makes.
+- [ ] **The laptop reports only to the local Prometheus.** The item above
+      switches CI on. Nothing switched the laptop over to follow it, so the two
+      halves of the same number are about to land in two different stores.
+
+      Both facts are visible rather than assumed. The collector container runs
+      with `--config=/etc/otel/config.yaml` and nothing else — the cloud overlay
+      adds a second `--config`, and it is not loaded. And `telemetry/.env` holds
+      only `GF_SECURITY_ADMIN_USER` and `GF_SECURITY_ADMIN_PASSWORD`; neither
+      `GRAFANA_CLOUD_OTLP_ENDPOINT` nor `GRAFANA_CLOUD_AUTH_HEADER` is set.
+
+      That produces exactly the outcome `telemetry/README.md` says the overlay
+      exists to prevent: interactive sessions land in a Prometheus that CI
+      cannot reach, review runs land in a cloud stack the laptop does not write
+      to, and tokens per merged pull request can only ever be computed over half
+      of the work. The two would not even be comparable — the split by
+      `OTEL_RESOURCE_ATTRIBUTES` was designed to tell laptop from CI *within one
+      store*, and it does nothing across two.
+
+      The fix is the same credential in `.env` — spelled
+      `GRAFANA_CLOUD_AUTH_HEADER` there rather than `GRAFANA_CLOUD_OTLP_AUTH`,
+      which is a trap worth reading `.env.example` for — and then bringing the
+      stack up with both compose files:
+
+      ```bash
+      cd telemetry
+      docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+      ```
+
+      Deciding *not* to is a legitimate answer, but it should be a
+      decision: it means the local dashboard is the interactive story, Grafana
+      Cloud is the CI story, and nothing ever adds them up.
+
+- [ ] **Merge notifications are credentialed, and the first live attempts
+      failed.** #35 ships a workflow that messages Telegram on every merged pull
+      request, and ~~it skips with an explanatory log line until
+      `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set on the repository.~~
+      both are now set — `TELEGRAM_CHAT_ID` at 08:13Z on 2026-09-13, which is
+      the moment the job stopped skipping and started sending. The send path
+      itself is proven — a message was delivered through the same Bot API call
+      the workflow makes — but not from a runner.
+
+      Every merge since then failed: #37, #38 and #39, at 08:18Z, 08:20Z and
+      08:36Z, each answered
+      `{"ok":false,"error_code":404,"description":"Not Found"}`. A 404 on
+      `/bot<token>/sendMessage` is Telegram saying the *token* is wrong rather
+      than the chat — the path itself does not resolve, so nothing was even
+      looked up. The token was re-set at 13:09Z, after all three runs, so the
+      fix is unproven until the next merge fires the workflow.
+
+      Two things the workflow got right, and both are why this was a red cross
+      rather than a silence. The skip guard worked in the direction nobody
+      tests: it let the job run precisely because both secrets were non-empty.
+      And the verdict came from the *response body*, not the HTTP status —
+      Telegram answers 200 with `"ok":false` for some of these, so a status
+      check would have reported a clean success while no message arrived. That
+      is the failure mode this workflow was written to avoid, and avoiding it is
+      what made a wrong token visible within two minutes of the first merge.
 
       Worth deciding at the same time: that token also drives the Claude Code
       Telegram channel, and this repository is public. A second bot from
