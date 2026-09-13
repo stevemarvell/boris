@@ -55,10 +55,13 @@ jobs:
     env:
       CLAUDE_CODE_ENABLE_TELEMETRY: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH != '' && '1' || '0' }}
       OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: cumulative
       OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
       OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
       OTEL_METRIC_EXPORT_INTERVAL: '5000'
+      OTEL_LOGS_EXPORT_INTERVAL: '5000'
       OTEL_RESOURCE_ATTRIBUTES: >-
         environment=ci,ci_provider=github-actions,workflow=claude-mention,run_id=${{ github.run_id }},run_attempt=${{ github.run_attempt }}
 

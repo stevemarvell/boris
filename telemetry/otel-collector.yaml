@@ -54,6 +54,15 @@ processors:
         action: delete
 
 exporters:
+  # Claude Code now also emits events on the logs protocol, because Grafana
+  # Cloud's Claude Code integration needs them for its dashboards. This stack
+  # has no log store — adding Loki to run one dashboard nobody opens is not
+  # worth it — but a logs pipeline has to exist all the same: without one the
+  # collector rejects every logs export and the session spends its life
+  # retrying. So locally they are accepted and dropped, and the cloud overlay
+  # is what gives them somewhere to go.
+  nop: {}
+
   prometheus:
     endpoint: 0.0.0.0:8889
     # Without this the exporter appends unit and _total suffixes, so
@@ -69,6 +78,12 @@ service:
       receivers: [otlp]
       processors: [resource/scrub, attributes/scrub, batch]
       exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      # The same scrub. Events carry the identity attributes too, and an event
+      # is a richer thing to leak than a counter.
+      processors: [resource/scrub, attributes/scrub, batch]
+      exporters: [nop]
   telemetry:
     logs:
       level: warn

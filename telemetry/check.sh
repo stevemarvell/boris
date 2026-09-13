@@ -61,4 +61,25 @@ if echo "$series" | grep -qE 'user_email|user_account_uuid'; then
 fi
 echo "ok: identity attributes scrubbed"
 
+# The logs pipeline exists purely so the collector will accept events at all.
+# Without one the OTLP receiver does not register the handler and every export
+# gets a 404, which Claude Code retries for the life of the session.
+logs_payload=$(cat <<JSON
+{"resourceLogs":[{"resource":{"attributes":[
+  {"key":"service.name","value":{"stringValue":"claude-code-check"}}]},
+ "scopeLogs":[{"scope":{"name":"com.anthropic.claude_code"},"logRecords":[
+  {"timeUnixNano":"$now","severityText":"INFO",
+   "body":{"stringValue":"claude_code.tool_result"}}]}]}]}
+JSON
+)
+
+logs_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${OTLP%/v1/metrics}/v1/logs" \
+  -H 'content-type: application/json' --data-binary "$logs_payload")
+[ "$logs_code" = "200" ] || {
+  echo "FAIL: the collector refused an event (HTTP $logs_code)." >&2
+  echo "      The logs pipeline is missing from otel-collector.yaml." >&2
+  exit 1
+}
+echo "ok: events accepted"
+
 echo "ok: pipeline healthy"

@@ -41,7 +41,21 @@ jobs:
     env:
       CLAUDE_CODE_ENABLE_TELEMETRY: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH != '' && '1' || '0' }}
       OTEL_METRICS_EXPORTER: otlp
+
+      # Events as well as metrics, because Grafana Cloud's Claude Code
+      # integration reads both. OTEL_LOG_USER_PROMPTS, OTEL_LOG_TOOL_DETAILS
+      # and OTEL_LOG_TOOL_CONTENT are deliberately ABSENT and must stay that
+      # way: those are what turn events from "which tools ran, how long, which
+      # model" into the prompts and file contents themselves. Unset is off.
+      OTEL_LOGS_EXPORTER: otlp
+
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+
+      # Required by the Grafana integration, and not a detail. Claude Code can
+      # emit delta temporality, which a Prometheus-backed store silently drops
+      # — the symptom is every panel reading "No data" with nothing in any log
+      # to explain it.
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: cumulative
       OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
       OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
 
@@ -54,6 +68,7 @@ jobs:
       # the job ends and a flush on exit is not documented, so a short review
       # could otherwise finish between exports and report nothing.
       OTEL_METRIC_EXPORT_INTERVAL: '5000'
+      OTEL_LOGS_EXPORT_INTERVAL: '5000'
 
       # Without this, CI spend is indistinguishable from laptop spend in the
       # same store, and "tokens per merged PR" quietly absorbs it.
