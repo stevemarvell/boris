@@ -57,7 +57,7 @@ tooling that belongs to a later stage.
 | API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
 | Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
 
-Two settings are load-bearing and non-obvious:
+Three settings are load-bearing and non-obvious:
 
 - Railway ignores `railway.json`'s `builder` field. Railpack reads the root
   `package.json`, concludes the repo is Node, and fails with *"No start command
@@ -66,6 +66,12 @@ Two settings are load-bearing and non-obvious:
 - Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
   `vercel.json` at the repository root is never read — Vercel looks for it
   inside the root directory. Put Vercel config in `apps/web/`.
+- The API's `API_ENVIRONMENT` Railway service variable gates the GraphQL IDE
+  and introspection (see `apps/api/src/api/main.py`). It defaults to
+  `production` — introspection and the IDE off — so a variable nobody set
+  fails closed rather than open; it is never set on Railway, since the
+  deployed API should always behave this way. Local development sets
+  `API_ENVIRONMENT=development` to get both back (see "Running it" below).
 
 `VITE_API_URL` is read at build time. The Railway integration syncs the API
 service's `API_URL` variable into Vercel, and `scripts/write-api-url.mjs` maps
@@ -94,8 +100,12 @@ host pattern is a Railway convention rather than a contract; override it with
 
 ```bash
 npm install && npm run dev            # web app on http://localhost:5173
-cd apps/api && uv run uvicorn api.main:app --reload   # API on :8000
+cd apps/api && API_ENVIRONMENT=development uv run uvicorn api.main:app --reload   # API on :8000
 ```
+
+`API_ENVIRONMENT=development` opts back into the GraphQL IDE at `/graphql` and
+schema introspection, both off by default. Omit it and the API behaves exactly
+as it does in production.
 
 ```bash
 npm run verify        # everything, about a minute
