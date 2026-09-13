@@ -29,6 +29,7 @@ set the variable is still protected -- it fails closed rather than open.
 """
 
 import os
+import uuid
 
 from fastapi import FastAPI
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -57,6 +58,10 @@ RATE_LIMIT = os.environ.get("API_RATE_LIMIT", DEFAULT_RATE_LIMIT)
 
 # The prefix the GraphQL router is mounted at in api.main.
 LIMITED_PREFIX = "/graphql"
+
+# TEMPORARY DIAGNOSTIC -- deleted before this branch merges. Distinct per
+# process, so a burst against the probe below says how many processes answer.
+PROCESS_TOKEN = uuid.uuid4().hex[:8]
 
 
 def is_limited_path(path: str) -> bool:
@@ -162,4 +167,16 @@ def install_rate_limiting(app: FastAPI, *, limit: str | None = None) -> Limiter:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(GraphQLRateLimitMiddleware)
+
+    # TEMPORARY DIAGNOSTIC -- deleted before this branch merges.
+    @app.get("/__ratelimit-probe")
+    def probe(request: Request) -> dict:
+        return {
+            "process": PROCESS_TOKEN,
+            "pid": os.getpid(),
+            "socket": request.client.host if request.client else None,
+            "key": client_key(request),
+            "headers": dict(request.headers),
+        }
+
     return limiter
