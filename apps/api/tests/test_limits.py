@@ -22,9 +22,12 @@ from api.main import app, create_app
 
 STATUS_QUERY = {"query": "{ status }"}
 
-# Two hops: what Railway's edge produces when a caller sends their own
-# X-Forwarded-For. The address Railway observed is the one it appended, last.
-SPOOFED_THEN_REAL = "198.51.100.9, 203.0.113.7"
+# One caller, and the pool of edge nodes their requests arrive through. The
+# deployed environment showed five distinct nodes across 150 concurrent
+# requests from a single address; these stand in for them.
+CALLER = "31.48.12.206"
+OTHER_CALLER = "198.51.100.9"
+EDGE_POOL = ["152.233.29.1", "152.233.29.2", "152.233.29.3", "152.233.29.4", "152.233.29.5"]
 
 
 def limited_client(monkeypatch: pytest.MonkeyPatch, limit: str, **kwargs: object) -> TestClient:
@@ -33,9 +36,26 @@ def limited_client(monkeypatch: pytest.MonkeyPatch, limit: str, **kwargs: object
     return TestClient(create_app(), **kwargs)  # type: ignore[arg-type]
 
 
-def post_graphql(client: TestClient, forwarded_for: str | None = None):
-    headers = {"x-forwarded-for": forwarded_for} if forwarded_for else {}
+def post_graphql(
+    client: TestClient,
+    forwarded_for: str | None = None,
+    real_ip: str | None = None,
+):
+    headers = {}
+    if forwarded_for:
+        headers["x-forwarded-for"] = forwarded_for
+    if real_ip:
+        headers["x-real-ip"] = real_ip
     return client.post("/graphql", json=STATUS_QUERY, headers=headers)
+
+
+def railway_headers(caller: str, edge: str) -> str:
+    """An X-Forwarded-For shaped exactly as Railway's edge sends it.
+
+    Measured against the deployed PR environment: "<caller>, <edge node>",
+    where the edge node comes from a pool and varies between requests.
+    """
+    return f"{caller}, {edge}"
 
 
 def test_requests_under_the_limit_are_served(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,15 +90,40 @@ def test_a_second_client_keeps_its_own_budget(monkeypatch: pytest.MonkeyPatch) -
     assert post_graphql(client, "198.51.100.4").status_code == 200
 
 
-def test_a_forged_forwarded_for_does_not_mint_a_new_budget(
+def test_one_caller_behind_a_pool_of_edge_nodes_is_one_bucket(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the hop Railway appended counts, so faking the left of it buys nothing."""
-    client = limited_client(monkeypatch, "2/minute")
-    for _ in range(2):
-        assert post_graphql(client, SPOOFED_THEN_REAL).status_code == 200
+    """The regression test for what shipped broken.
 
-    assert post_graphql(client, "192.0.2.55, 203.0.113.7").status_code == 429
+    Railway's edge is a pool, and the hop it appends is the node that handled
+    the request, so consecutive requests from one caller arrive with different
+    *rightmost* hops. Keying on that hop gave one caller a counter per node:
+    120/minute let 571 requests through in twelve seconds against the deployed
+    PR environment. Every request here is the same caller.
+    """
+    client = limited_client(monkeypatch, "3/minute")
+    for edge in EDGE_POOL[:3]:
+        assert post_graphql(client, railway_headers(CALLER, edge)).status_code == 200
+
+    # A fourth request, through a fourth node. Same caller, so no new budget.
+    assert post_graphql(client, railway_headers(CALLER, EDGE_POOL[3])).status_code == 429
+
+
+def test_the_edge_set_real_ip_is_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
+    """X-Real-IP is what Railway sends alongside X-Forwarded-For, with nothing to parse."""
+    client = limited_client(monkeypatch, "2/minute")
+    for edge in EDGE_POOL[:2]:
+        response = post_graphql(client, railway_headers(CALLER, edge), real_ip=CALLER)
+        assert response.status_code == 200
+
+    refused = post_graphql(client, railway_headers(CALLER, EDGE_POOL[2]), real_ip=CALLER)
+    assert refused.status_code == 429
+
+    # A different caller through the same edge node still has its budget.
+    assert (
+        post_graphql(client, railway_headers(OTHER_CALLER, EDGE_POOL[2]), OTHER_CALLER).status_code
+        == 200
+    )
 
 
 def test_the_socket_address_is_used_when_there_is_no_proxy(
@@ -177,6 +222,35 @@ def test_the_limit_is_configurable_by_environment_variable(
         importlib.reload(limits)
 
     assert limits.RATE_LIMIT == limits.DEFAULT_RATE_LIMIT
+
+
+def make_request(headers: dict[str, str], client: tuple[str, int] | None = None) -> Request:
+    raw = [(name.lower().encode(), value.encode()) for name, value in headers.items()]
+    return Request({"type": "http", "headers": raw, "client": client})
+
+
+def test_the_key_is_the_caller_not_the_edge_node() -> None:
+    """The exact headers the deployed environment sends, keyed the way it must be."""
+    request = make_request(
+        {
+            "x-forwarded-for": f"{CALLER}, {EDGE_POOL[3]}",
+            "x-real-ip": CALLER,
+        },
+        client=("100.64.0.8", 40000),
+    )
+
+    assert limits.client_key(request) == CALLER
+
+
+def test_the_leftmost_hop_is_the_fallback_when_there_is_no_real_ip() -> None:
+    request = make_request({"x-forwarded-for": f"{CALLER}, {EDGE_POOL[0]}"})
+
+    assert limits.client_key(request) == CALLER
+
+
+def test_the_socket_peer_is_the_last_resort() -> None:
+    """Railway's mesh address, 100.64.0.0/10, is never the caller -- but locally the peer is."""
+    assert limits.client_key(make_request({}, client=("127.0.0.1", 40000))) == "127.0.0.1"
 
 
 def test_a_client_with_no_address_at_all_still_gets_a_key() -> None:

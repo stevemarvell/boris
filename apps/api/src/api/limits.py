@@ -29,7 +29,6 @@ set the variable is still protected -- it fails closed rather than open.
 """
 
 import os
-import uuid
 
 from fastapi import FastAPI
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -59,10 +58,6 @@ RATE_LIMIT = os.environ.get("API_RATE_LIMIT", DEFAULT_RATE_LIMIT)
 # The prefix the GraphQL router is mounted at in api.main.
 LIMITED_PREFIX = "/graphql"
 
-# TEMPORARY DIAGNOSTIC -- deleted before this branch merges. Distinct per
-# process, so a burst against the probe below says how many processes answer.
-PROCESS_TOKEN = uuid.uuid4().hex[:8]
-
 
 def is_limited_path(path: str) -> bool:
     """Whether a request path is subject to the limit. See the module docstring."""
@@ -70,33 +65,56 @@ def is_limited_path(path: str) -> bool:
 
 
 def client_key(request: Request) -> str:
-    """Identify the caller to count against.
+    """Identify the caller to count against: one caller, one bucket.
 
-    Railway terminates TLS at its edge, so `request.client.host` is the proxy
-    for every request that arrives in production: counting by it would put the
-    whole internet in one bucket and let one abuser lock out everybody.
-    X-Forwarded-For is what carries the real address.
+    This is the part that was wrong first time round, and the reasoning below
+    is measured against the deployed PR environment rather than derived from
+    how proxies are supposed to behave. Railway's edge sends, verbatim:
 
-    The *rightmost* entry is used, not the leftmost. A proxy appends the
-    address it received the connection from, so with Railway's edge in front
-    the last entry is the one Railway observed and the only one a caller
-    cannot choose. A caller who sends their own X-Forwarded-For only adds
-    entries to the left of it, which are ignored.
+        x-forwarded-for: 31.48.12.206, 152.233.29.4
+        x-real-ip:       31.48.12.206
+        socket peer:     100.64.0.8
 
-    slowapi ships get_remote_address (proxy-blind) and get_ipaddr (which looks
-    for a header named "X_FORWARDED_FOR", with underscores, and so never
-    matches a real one). Neither is right here.
+    * The **leftmost** X-Forwarded-For hop is the caller. It was identical
+      across 150 concurrent requests.
+    * The **rightmost** hop is the edge node that handled the request, and
+      Railway's edge is a *pool*: those 150 requests came through five of them
+      (152.233.29.1 through .5). Keying on it -- which an earlier version of
+      this file did, reasoning that the last hop is the one a caller cannot
+      forge -- split one caller across five counters, each filling to its own
+      120. A 120/minute limit passed 571 requests in twelve seconds.
+    * X-Real-IP carries the same address as the leftmost hop, with nothing to
+      parse. It is what this uses, with the leftmost hop as the fallback.
+    * The socket peer is useless: it is Railway's internal mesh (100.64.0.0/10,
+      fifteen distinct addresses across the same burst), not the caller.
 
-    The failure mode to watch for: if the platform in front of this ever stops
-    sending the header, every caller lands in the same bucket and the first 120
-    requests a minute lock out everyone else. It shows up as 429s nobody can
-    explain, on a service nobody is attacking.
+    **The key is a header, and headers can be forged. That is the trade, and it
+    is the standard one.** What makes it safe enough here is measured too: a
+    request sent with `X-Real-IP: 9.9.9.9` arrived as `x-real-ip: 31.48.12.206`
+    and one sent with `X-Forwarded-For: 9.9.9.9` arrived as
+    `x-forwarded-for: 31.48.12.206, 152.233.29.5`. Railway's edge *replaces*
+    both headers rather than appending to what the caller sent, so a caller
+    cannot choose their own bucket while the only route in is that edge. If
+    this app is ever exposed directly, or moved to a platform that passes an
+    inbound X-Forwarded-For through, that stops being true and an attacker can
+    mint a fresh budget per request by varying the header. The fallback to the
+    socket peer is what makes local development (no proxy, no headers) still
+    tell two clients apart.
+
+    slowapi's own helpers are no use: get_remote_address is proxy-blind, and
+    get_ipaddr looks for a header named "X_FORWARDED_FOR", with underscores,
+    which no proxy sends.
     """
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
+
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
         if hops:
-            return hops[-1]
+            return hops[0]
+
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -153,8 +171,22 @@ def install_rate_limiting(app: FastAPI, *, limit: str | None = None) -> Limiter:
 
     The limiter is created per app: two apps in one process (as the tests
     build) count independently, which is what makes them able to run in any
-    order. In the deployment there is exactly one app and one process, so the
-    counters are that process's memory -- and they are lost when it sleeps.
+    order.
+
+    **The counters are one process's memory, so the real ceiling is the limit
+    times the number of processes serving traffic.** Measured, not assumed: a
+    burst of 150 concurrent requests at the deployed PR environment was
+    answered by a single process (one pid, one per-process token), and the
+    Dockerfile's CMD starts one uvicorn with no --workers, so today that
+    multiplier is 1 and the ceiling is the configured limit. Scale the service
+    to N replicas and it becomes N x the limit, silently -- nothing in this
+    file can detect that. A limit that has to hold across replicas needs shared
+    storage (slowapi takes a storage_uri; Redis is the usual answer), which is
+    another service to run and is not worth it at this size.
+
+    The counters are also lost on every deploy and every wake from
+    sleepApplication, which is the other reason this is a ceiling on abuse
+    rather than a quota.
     """
     limiter = Limiter(
         key_func=client_key,
@@ -167,16 +199,4 @@ def install_rate_limiting(app: FastAPI, *, limit: str | None = None) -> Limiter:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(GraphQLRateLimitMiddleware)
-
-    # TEMPORARY DIAGNOSTIC -- deleted before this branch merges.
-    @app.get("/__ratelimit-probe")
-    def probe(request: Request) -> dict:
-        return {
-            "process": PROCESS_TOKEN,
-            "pid": os.getpid(),
-            "socket": request.client.host if request.client else None,
-            "key": client_key(request),
-            "headers": dict(request.headers),
-        }
-
     return limiter
