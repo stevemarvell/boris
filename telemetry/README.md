@@ -27,6 +27,10 @@ cp .env.example .env        # then set your own Grafana admin credentials
 docker compose up -d
 ```
 
+Then **restart Claude Code**. The exporter settings are read when a session
+starts, so the session you are sitting in when you first pull this will not be
+reporting — that is the setting not being live yet, not the stack being broken.
+
 Grafana is at <http://localhost:3000>, dashboard **Claude Code — cost of the
 loop**. Prometheus is at <http://localhost:9090> if you want to poke at raw
 series. Metrics land within `OTEL_METRIC_EXPORT_INTERVAL` (10s), and counters
@@ -54,9 +58,32 @@ The collector also deletes `user.email`, `user.id`, `user.account_uuid`,
 single-developer stack does not need to know who the developer is, and metric
 labels are forever.
 
+That scrub takes **two** processors, `resource/scrub` and `attributes/scrub`,
+and the duplication is load-bearing. Claude Code sends identity as *resource*
+attributes; the `attributes` processor only sees datapoint attributes; and
+`resource_to_telemetry_conversion` promotes resource attributes to Prometheus
+labels inside the exporter, which runs after every processor. A config carrying
+only the `attributes` processor reads as though it scrubs and does not. That was
+not theory — the first version of this file had exactly that bug, and a test
+payload arrived in Prometheus labelled `user_email="steve@example.com"`. If you
+edit these processors, re-run the check below.
+
 `add_metric_suffixes: false` on the Prometheus exporter keeps the names as
 Claude Code spells them — `claude_code_token_usage`, not
 `claude_code_token_usage_tokens_total`. The dashboard queries the short names.
+
+## Checking it works
+
+```bash
+docker compose up -d && ./check.sh
+```
+
+`check.sh` pushes one synthetic payload through the collector and asserts what
+Prometheus ends up holding: that the metric names survive unsuffixed, and that
+the identity attributes are gone. Both failure modes are silent otherwise — a
+suffixed name shows up as a dashboard full of "No data" with nothing visibly
+wrong, and a failed scrub shows up as nothing at all until someone reads the
+labels.
 
 ## No Docker? Start here instead
 
