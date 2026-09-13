@@ -21,3 +21,8 @@ playwright-report/
 # Seeded design canvases are ~2.5MB and regenerate from the .dc.html sources.
 design/*.html
 !design/*.dc.html
+
+# Local secrets — telemetry/.env holds the Grafana admin password. The
+# committed apps/web/.env.production is a public URL and is deliberately not
+# matched by this.
+.env

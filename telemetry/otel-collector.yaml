@@ -1,0 +1,49 @@
+# Receives Claude Code's OTLP metrics and re-exposes them for Prometheus to
+# scrape. Nothing is forwarded off the machine — the whole stack is local.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+
+  # Drop the identity attributes before anything is stored. A single-developer
+  # stack does not need them to answer "tokens per merged change", and
+  # user.email in particular has no business sitting in a metrics store.
+  attributes/scrub:
+    actions:
+      - key: user.email
+        action: delete
+      - key: user.id
+        action: delete
+      - key: user.account_uuid
+        action: delete
+      - key: user.account_id
+        action: delete
+      - key: organization.id
+        action: delete
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Without this the exporter appends unit and _total suffixes, so
+    # claude_code.token.usage lands as claude_code_token_usage_tokens_total.
+    # The dashboard queries the unsuffixed names, so keep them predictable.
+    add_metric_suffixes: false
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [attributes/scrub, batch]
+      exporters: [prometheus]
+  telemetry:
+    logs:
+      level: warn
