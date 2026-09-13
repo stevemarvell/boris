@@ -190,6 +190,24 @@ Gaps against `adoption.md`, tagged by the step they belong to.
       an empty panel, and the only thing that found any of them was reading the
       store's own attributes rather than trusting the config.
 
+      A fourth, found while trying to prove the third: **the review job does not
+      run on a pull request that edits a workflow file.** #43, which carried the
+      fix, reported `claude-review` green in 11 seconds without starting a
+      session at all —
+
+      > Action skipped due to workflow validation error. This is expected when
+      > adding Claude Code workflows to new repositories or on PRs with workflow
+      > changes. If you're seeing this, your workflow will begin working once
+      > you merge your PR.
+
+      Sensible — a pull request must not be able to rewrite the workflow that
+      reviews it — but it has two consequences worth holding on to. A change to
+      CI can never be tested by its own pull request, so the first real exercise
+      is always a *later* one; this entry is that later one. And `claude-review`
+      reports success when it has done nothing, so a green tick on a
+      workflow-touching pull request means "not reviewed", not "reviewed and
+      clean".
+
       The same credential in `telemetry/.env` plus the compose overlay makes
       the laptop report to the same store, which is the point — otherwise there
       are two stores and no single answer to what the loop costs. That half is
