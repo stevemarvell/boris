@@ -29,6 +29,37 @@ jobs:
       issues: read
       id-token: write
 
+    # Telemetry for the unattended runs. This job fires on every pull request
+    # and nobody watches it, which makes it the spend most worth measuring and
+    # the spend least likely to be noticed. claude-code-action reads each of
+    # these from env (see its action.yml), so setting them here is what reaches
+    # the CLI.
+    #
+    # Gated on the credential existing: with telemetry on and no endpoint, the
+    # exporter falls back to localhost:4317, which in a runner is nothing, and
+    # every run would spend its exit retrying a connection to itself.
+    env:
+      CLAUDE_CODE_ENABLE_TELEMETRY: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH != '' && '1' || '0' }}
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
+
+      # Metrics only, exactly as locally. OTEL_LOGS_EXPORTER is left unset on
+      # purpose: the events it would ship include claude_code.user_prompt and
+      # claude_code.tool_result, and this repository's rule is to leave that
+      # redaction alone. Not opening the pipe is how that is enforced.
+
+      # 5s rather than the 10s used locally. A runner is torn down the moment
+      # the job ends and a flush on exit is not documented, so a short review
+      # could otherwise finish between exports and report nothing.
+      OTEL_METRIC_EXPORT_INTERVAL: '5000'
+
+      # Without this, CI spend is indistinguishable from laptop spend in the
+      # same store, and "tokens per merged PR" quietly absorbs it.
+      OTEL_RESOURCE_ATTRIBUTES: >-
+        environment=ci,ci_provider=github-actions,workflow=claude-code-review,run_id=${{ github.run_id }},run_attempt=${{ github.run_attempt }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
