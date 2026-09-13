@@ -82,9 +82,11 @@ entirely, which was stricter than the rule asked and cost the integration's
 dashboards.
 
 The collector also deletes `user.email`, `user.id`, `user.account_uuid`,
-`user.account_id` and `organization.id` before anything is stored. A
+`user.account_id` and `organization.id` before anything is stored **locally**. A
 single-developer stack does not need to know who the developer is, and metric
-labels are forever.
+labels are forever. The cloud pipelines deliberately do not scrub — see
+"Identity follows the destination, not the source" below for why scrubbing there
+made the shared store *less* accurate rather than more private.
 
 That scrub takes **two** processors, `resource/scrub` and `attributes/scrub`,
 and the duplication is load-bearing. Claude Code sends identity as *resource*
@@ -168,9 +170,12 @@ Two deliberate choices in those workflow blocks:
 ### Switching it on
 
 Grafana Cloud ships a **Claude Code integration** — Connections, the Claude Code
-tile, Install. It provisions four dashboards (Claude Code, stats, usage
-breakdown, productivity), which is why there is no cloud copy of the local
-dashboard in this repository: theirs is better and already exists.
+tile, Install. It provisions **one** dashboard, "Claude Code", with an Overview
+section (cost, tokens, sessions, active users, cost by model and by team member,
+API latency, OS/arch/terminal/version) and a Productivity section (lines of
+code, commits, pull requests, active time, session outcome). An earlier version
+of this file said four; there is one, and it is still better than a cloud copy
+of the local dashboard, which is why this repository does not ship one.
 
 1. Grafana Cloud Portal, your stack, the **OpenTelemetry** tile, Configure.
    Generate a token; it prints the `OTEL_*` variables ready-made.
@@ -179,11 +184,60 @@ dashboard in this repository: theirs is better and already exists.
    - `GRAFANA_CLOUD_OTLP_ENDPOINT` — the endpoint, ending `/otlp`
    - `GRAFANA_CLOUD_OTLP_AUTH` — the whole `OTEL_EXPORTER_OTLP_HEADERS` value,
      `Authorization=Basic <base64>`
-4. Optionally put the same credential in `.env` and run the overlay, so the
-   laptop reports to the same store. The spelling differs between the two —
-   see `.env.example`.
+4. Put the same credential in `.env` and run the overlay, so this repository's
+   sessions reach the same store. The spelling differs between the two — see
+   `.env.example`. This is no longer optional if the number is meant to mean
+   anything; see "Every session, one store" below.
 
 Until step 3, both workflows run with telemetry off, exactly as before.
+
+### Every session, one store
+
+Settings merge with the project winning, and that is the trap. A machine-wide
+`~/.claude/settings.json` pointing `OTEL_EXPORTER_OTLP_ENDPOINT` at Grafana
+Cloud covers every project — except one that sets the same key itself.
+[`../.claude/settings.json`](../.claude/settings.json) sets it to
+`http://localhost:4317`, so sessions *in this repository* reach the local
+collector and nothing else. Left there, the repository that built the telemetry
+is the only one missing from the store it built — which is exactly what
+happened: the cloud dashboard read one session and one active user while this
+project's entire history sat on the laptop.
+
+The overlay is what closes it. Sessions here keep pointing at the local
+collector, and the collector fans out — Prometheus for offline history, Grafana
+Cloud so every source lands in one place.
+
+One consequence worth knowing: with the overlay off, or Docker down, a session
+in this repository reports **nowhere**, while a session in any other project
+still reaches Grafana Cloud directly. The local collector is a single point of
+failure for this project's telemetry alone.
+
+### Identity follows the destination, not the source
+
+The collector deletes `user.email`, `user.id`, `user.account_uuid`,
+`user.account_id` and `organization.id` on the way to Prometheus, and does not
+on the way to Grafana Cloud. That asymmetry is deliberate, and it is a
+correction rather than a compromise.
+
+Scrubbing the cloud export protected nothing. Every other Claude Code session on
+this machine reports to Grafana Cloud *directly* from `~/.claude/settings.json`,
+carrying `user.email`, and so does every GitHub Actions run — the store already
+holds that address. Stripping it from this one source did not remove it from
+anywhere; it split one person into two. Observed on the integration dashboard
+the moment the overlay was switched on: "Cost by team member" read
+`Value $0.57` next to a real address at `$0.49`, and "Active users" said 2 for
+one human.
+
+So the local store stays anonymous, because a single-developer Prometheus does
+not need to know who the developer is and metric labels are forever. The shared
+store gets the label it already has everywhere else, because an aggregate that
+double-counts is worse than one that identifies.
+
+`check.sh`'s canary is the exception that proves the rule. It pushes a synthetic
+payload carrying `canary@example.com` to assert the local scrub works, and the
+cloud pipelines drop anything whose `service.name` is `claude-code-check` —
+otherwise the canary would arrive in the shared store as a second team member
+who does not exist.
 
 ### The variable that decides whether any of it works
 

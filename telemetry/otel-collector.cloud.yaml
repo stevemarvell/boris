@@ -1,15 +1,32 @@
 # Overlay, not a replacement. The collector accepts --config more than once and
-# merges them in order, so this file carries only the delta: one extra exporter,
-# and the metrics pipeline rewritten to fan out to both.
+# merges them in order, so this file carries only the delta: one extra exporter
+# and two extra pipelines.
 #
 # Why this exists at all: the GitHub runners cannot reach localhost:4317, so CI
 # ships straight to Grafana Cloud. If the laptop kept its metrics purely local
 # there would be two stores and no single answer to "what did this cost". This
-# sends local metrics to both — Prometheus for offline history, Grafana Cloud so
-# the laptop and the runners land in one place.
+# sends local telemetry to both — Prometheus for offline history, Grafana Cloud
+# so every source lands in one place.
 #
 # The credential is never committed. It arrives from telemetry/.env, which is
 # gitignored, via env substitution below.
+
+processors:
+  # check.sh proves the local pipeline by pushing a synthetic payload carrying a
+  # deliberately fake identity — canary@example.com — and asserting it does not
+  # reach Prometheus as a label. That canary must never leave the machine: the
+  # cloud pipelines below no longer scrub, so without this it would arrive in
+  # the shared store as a second team member who does not exist, and metric
+  # labels are forever. Dropped by service name, which check.sh sets to
+  # claude-code-check precisely so it can be told apart from a real session.
+  filter/local-only:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'resource.attributes["service.name"] == "claude-code-check"'
+    logs:
+      log_record:
+        - 'resource.attributes["service.name"] == "claude-code-check"'
 
 exporters:
   otlphttp/grafanacloud:
@@ -30,12 +47,34 @@ exporters:
 
 service:
   pipelines:
-    metrics:
-      # Merging replaces this list rather than appending to it, so the local
-      # Prometheus exporter has to be named again here or it is dropped.
-      exporters: [prometheus, otlphttp/grafanacloud]
-    logs:
-      # Locally the events are dropped; here they get somewhere to go, which is
-      # what Grafana Cloud's Claude Code dashboards read. `nop` is deliberately
-      # not repeated — there is no reason to discard a copy as well.
+    # Separate pipelines rather than extra exporters on the existing ones, and
+    # the difference is the whole point of this file.
+    #
+    # The local pipelines scrub identity, because a single-developer Prometheus
+    # does not need to know who the developer is and metric labels are forever.
+    # Applying that same scrub to the cloud export was actively wrong: every
+    # other Claude Code session on this machine reports to Grafana Cloud
+    # directly from ~/.claude/settings.json, carrying user.email, and so does
+    # every GitHub Actions run. Stripping it from this one source did not
+    # protect anything — the store already holds that address — it just split
+    # one person into two. Observed, not predicted: with the scrub applied,
+    # "Cost by team member" read `Value $0.57` next to
+    # `steve@stevemarvell.com $0.49`, and "Active users" said 2 for one human.
+    #
+    # So: scrubbed on the way to disk here, intact on the way to the store that
+    # has it anyway. The identity decision now follows the destination rather
+    # than the source, which is the only way the aggregate can be correct.
+    metrics/cloud:
+      receivers: [otlp]
+      processors: [filter/local-only, batch]
+      exporters: [otlphttp/grafanacloud]
+    logs/cloud:
+      receivers: [otlp]
+      # Events, which the Claude Code integration's dashboards read. The base
+      # config sends these to `nop`; that pipeline stays, so locally they are
+      # still discarded. What is never set anywhere is OTEL_LOG_USER_PROMPTS,
+      # OTEL_LOG_TOOL_DETAILS and OTEL_LOG_TOOL_CONTENT — those are what would
+      # turn an event from "which tool ran, how long, which model" into the
+      # prompt and the file contents. That is the redaction; the pipe is not.
+      processors: [filter/local-only, batch]
       exporters: [otlphttp/grafanacloud]
