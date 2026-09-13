@@ -425,20 +425,26 @@
             <tr>
               <td class="name">/graphql</td>
               <td class="type">GET</td>
-              <td>GraphiQL, the in-browser explorer Strawberry ships with. Open it in a tab.</td>
+              <td>GraphiQL, the in-browser explorer Strawberry ships with. Development only — see <a href="#console">Try it</a>.</td>
             </tr>
             <tr>
               <td class="name">/health</td>
               <td class="type">GET</td>
               <td>Liveness, plus the number of people loaded.</td>
             </tr>
+            <tr>
+              <td class="name">/</td>
+              <td class="type">GET</td>
+              <td>This manual. It ships inside the API image, so it is always the manual for the deployment serving it.</td>
+            </tr>
           </tbody>
         </table>
       </div>
 
       <p>
-        There is nothing at <code>/</code>; it returns <code>404</code>. The
-        smallest useful request is a single round trip with <code>curl</code>:
+        The page you are reading is what <code>/</code> returns; everything
+        else here is JSON. The smallest useful request is a single round trip
+        with <code>curl</code>:
       </p>
 
 <pre><code>curl -s https://api-production-53f7b.up.railway.app/graphql \

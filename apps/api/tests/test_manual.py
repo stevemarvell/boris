@@ -96,6 +96,17 @@ def test_production_keeps_the_manual_whole() -> None:
     assert body.rstrip().endswith("</html>")
 
 
+def test_the_manual_does_not_claim_the_root_is_empty() -> None:
+    """It said so until the manual moved onto the API, and stayed wrong after.
+
+    A page whose whole job is to describe this service cannot be wrong about
+    the URL it is served from.
+    """
+    body = client.get("/").text
+    assert "There is nothing at" not in body
+    assert "The page you are reading is what <code>/</code> returns" in body
+
+
 def test_the_manual_names_the_host_it_came_from_in_both_environments() -> None:
     """The origin rewrite is documentation, so it is outside the console gate.
 
