@@ -87,4 +87,55 @@ describe('writeApiUrl', () => {
     writeApiUrl({ API_URL: 'https://fresh.example' }, dir);
     expect(readFileSync(local(), 'utf8')).toContain('fresh.example');
   });
+
+  it('refuses an API_URL with an embedded newline rather than writing it', () => {
+    // new URL() strips tab/newline characters instead of rejecting them, so
+    // this has to be caught before the value ever reaches the URL parser —
+    // otherwise it would silently inject a second line into the env file.
+    expect(() =>
+      writeApiUrl({ API_URL: 'https://evil.example\nVITE_SOMETHING=injected' }, dir),
+    ).toThrow(/control characters/);
+    expect(existsSync(local())).toBe(false);
+  });
+
+  it('refuses a malformed API_URL', () => {
+    expect(() => writeApiUrl({ API_URL: 'not a url' }, dir)).toThrow(/well-formed/);
+    expect(existsSync(local())).toBe(false);
+  });
+
+  it('refuses an API_URL with a non-http(s) scheme', () => {
+    expect(() => writeApiUrl({ API_URL: 'ftp://example.com' }, dir)).toThrow(/http or https/);
+    expect(existsSync(local())).toBe(false);
+  });
+
+  it('refuses a non-numeric VERCEL_GIT_PULL_REQUEST_ID before it reaches prApiUrl', () => {
+    expect(() =>
+      writeApiUrl({ VERCEL_GIT_PULL_REQUEST_ID: '20; rm -rf /', API_URL: 'https://x.example' }, dir),
+    ).toThrow(/pull request id/);
+    expect(existsSync(local())).toBe(false);
+  });
+
+  it('refuses a VERCEL_GIT_PULL_REQUEST_ID that is not a plain positive integer', () => {
+    for (const bad of ['0', '-1', '1.5', ' 1', '1 ', '01', 'one']) {
+      expect(() => writeApiUrl({ VERCEL_GIT_PULL_REQUEST_ID: bad }, dir)).toThrow(/pull request id/);
+    }
+  });
+
+  it('refuses a RAILWAY_PR_API_TEMPLATE that resolves to a malformed URL', () => {
+    expect(() =>
+      writeApiUrl(
+        {
+          VERCEL_GIT_PULL_REQUEST_ID: '20',
+          RAILWAY_PR_API_TEMPLATE: 'not-a-url-{pr}',
+        },
+        dir,
+      ),
+    ).toThrow(/well-formed/);
+    expect(existsSync(local())).toBe(false);
+  });
+
+  it('refuses an explicit VITE_API_URL that is malformed', () => {
+    expect(() => writeApiUrl({ VITE_API_URL: 'javascript:alert(1)' }, dir)).toThrow(/http or https/);
+    expect(existsSync(local())).toBe(false);
+  });
 });
