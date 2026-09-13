@@ -157,12 +157,32 @@ metrics to the same place. One store, both sources, told apart by
 Without that split, tokens per merged PR quietly absorbs the review bot and
 stops meaning what the panel title says.
 
-Two deliberate choices in those workflow blocks:
+The settings are not exported as environment variables, and the reason is the
+trap that cost three silent runs. **A settings file beats the process
+environment** — "Claude Code writes each `env` entry into the process
+environment, replacing the value inherited from the shell"
+(<https://code.claude.com/docs/en/env-vars>). `.claude/settings.json` is checked
+out on the runner along with everything else, and it points
+`OTEL_EXPORTER_OTLP_ENDPOINT` at `http://localhost:4317` for the benefit of a
+laptop. So the workflow exported Grafana Cloud's endpoint, the checked-out file
+overwrote it, and every run shipped its metrics to a port nothing was listening
+on. Nothing failed: the job was green, the credential was present, the log was
+clean, and the dashboard was empty.
+
+`scripts/write-ci-telemetry-settings.mjs` writes
+`.claude/settings.local.json` instead, which is *project local* and therefore
+outranks the committed `.claude/settings.json`. Working with the precedence
+rather than against it also sidesteps a second limit: `claude-code-action`
+forwards exactly nine `OTEL_*` variables from `env` into the CLI, and
+`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` is not among them — a value
+written into the settings file arrives regardless.
+
+Two deliberate choices in that script:
 
 - **Gated on the credential.** `CLAUDE_CODE_ENABLE_TELEMETRY` is `1` only when
-  `GRAFANA_CLOUD_OTLP_AUTH` is set. With telemetry on and no endpoint the
-  exporter falls back to `localhost:4317` and every run ends retrying a
-  connection to itself.
+  both secrets are set, and the file is written *either way*: with no block at
+  all the committed `localhost:4317` would apply and the run would spend its
+  life retrying a connection to itself.
 - **5s export interval, not 10.** A runner is destroyed the moment the job
   ends, and a flush on exit is not documented. A short review could otherwise
   finish between exports and report nothing at all.

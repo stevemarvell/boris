@@ -31,50 +31,27 @@ jobs:
 
     # Telemetry for the unattended runs. This job fires on every pull request
     # and nobody watches it, which makes it the spend most worth measuring and
-    # the spend least likely to be noticed. claude-code-action reads each of
-    # these from env (see its action.yml), so setting them here is what reaches
-    # the CLI.
+    # the spend least likely to be noticed.
     #
-    # Gated on the credential existing: with telemetry on and no endpoint, the
-    # exporter falls back to localhost:4317, which in a runner is nothing, and
-    # every run would spend its exit retrying a connection to itself.
+    # Only the credential lives here. Everything else the session needs is
+    # written into .claude/settings.local.json by the step below, because a
+    # settings file beats the process environment — see that script's header,
+    # and note that this job exported the right endpoint for three runs while
+    # the checked-out .claude/settings.json quietly overrode it with
+    # localhost:4317.
     env:
-      CLAUDE_CODE_ENABLE_TELEMETRY: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH != '' && '1' || '0' }}
-      OTEL_METRICS_EXPORTER: otlp
-
-      # Events as well as metrics, because Grafana Cloud's Claude Code
-      # integration reads both. OTEL_LOG_USER_PROMPTS, OTEL_LOG_TOOL_DETAILS
-      # and OTEL_LOG_TOOL_CONTENT are deliberately ABSENT and must stay that
-      # way: those are what turn events from "which tools ran, how long, which
-      # model" into the prompts and file contents themselves. Unset is off.
-      OTEL_LOGS_EXPORTER: otlp
-
-      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-
-      # Required by the Grafana integration, and not a detail. Claude Code can
-      # emit delta temporality, which a Prometheus-backed store silently drops
-      # — the symptom is every panel reading "No data" with nothing in any log
-      # to explain it.
-      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: cumulative
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
-      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
-
-      # 5s rather than the 10s used locally. A runner is torn down the moment
-      # the job ends and a flush on exit is not documented, so a short review
-      # could otherwise finish between exports and report nothing.
-      OTEL_METRIC_EXPORT_INTERVAL: '5000'
-      OTEL_LOGS_EXPORT_INTERVAL: '5000'
-
-      # Without this, CI spend is indistinguishable from laptop spend in the
-      # same store, and "tokens per merged PR" quietly absorbs it.
-      OTEL_RESOURCE_ATTRIBUTES: >-
-        environment=ci,ci_provider=github-actions,workflow=claude-code-review,run_id=${{ github.run_id }},run_attempt=${{ github.run_attempt }}
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
+      GRAFANA_CLOUD_OTLP_AUTH: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
+      CI_TELEMETRY_WORKFLOW: claude-code-review
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Point this session's telemetry at Grafana Cloud
+        run: node scripts/write-ci-telemetry-settings.mjs
 
       - name: Run Claude Code Review
         id: claude-review
