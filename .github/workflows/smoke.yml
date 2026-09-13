@@ -67,8 +67,16 @@ jobs:
             page=$(curl -fsS --max-time 30 "$API/" || true)
             if printf '%s' "$page" | grep -q 'Family Tree API'; then
               echo "attempt $attempt: manual served"
-              printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'" \
-                || { echo "the manual's console is not querying its own origin" >&2; exit 1; }
+              # Production serves the manual, not its query console: the
+              # console is gated on API_ENVIRONMENT, which is unset on Railway
+              # and so reads "production". The endpoint string is the console's
+              # fetch target, and nothing else in the page contains it.
+              if printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'"; then
+                echo "the production API is serving a query console for itself" >&2
+                exit 1
+              fi
+              printf '%s' "$page" | grep -q 'without its query console' \
+                || { echo "the manual does not explain the missing console" >&2; exit 1; }
               curl -fsS --max-time 30 -o /dev/null "$API/app-generations.jpg" \
                 || { echo "the manual's screenshots did not ship with it" >&2; exit 1; }
               exit 0

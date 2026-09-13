@@ -83,12 +83,16 @@ Three settings are load-bearing and non-obvious:
 - Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
   `vercel.json` at the repository root is never read — Vercel looks for it
   inside the root directory. Put Vercel config in `apps/web/`.
-- The API's `API_ENVIRONMENT` Railway service variable gates the GraphQL IDE
-  and introspection (see `apps/api/src/api/main.py`). It defaults to
-  `production` — introspection and the IDE off — so a variable nobody set
-  fails closed rather than open; it is never set on Railway, since the
-  deployed API should always behave this way. Local development sets
-  `API_ENVIRONMENT=development` to get both back (see "Running it" below).
+- The API's `API_ENVIRONMENT` Railway service variable gates the GraphQL IDE,
+  introspection, and the API manual's query console (see
+  `apps/api/src/api/main.py`). It defaults to `production` — all three off —
+  so a variable nobody set fails closed rather than open; it is never set on
+  Railway, since the deployed API should always behave this way. Local
+  development sets `API_ENVIRONMENT=development` to get them back (see
+  "Running it" below). The same default reaches pull request environments,
+  which therefore serve the manual without its console; set
+  `API_ENVIRONMENT=development` on the pull request environment to get it
+  back there, remembering that it opens GraphiQL and introspection too.
 
 `VITE_API_URL` is read at build time. The Railway integration syncs the API
 service's `API_URL` variable into Vercel, and `scripts/write-api-url.mjs` maps
@@ -135,9 +139,9 @@ sources, never the output.
 The API manual is the one that does **not** go to Vercel. It ships inside the
 API image and is mounted at the service root, so:
 
-- its "try it" console posts to `/graphql` on the origin it was loaded from,
-  which means a pull request environment's manual exercises *that* API rather
-  than production's;
+- its "try it" console, where `API_ENVIRONMENT=development` enables it, posts
+  to `/graphql` on the origin it was loaded from, which means a pull request
+  environment's manual exercises *that* API rather than production's;
 - it needs no CORS allowance at all, which is why `stevemarvell.github.io` is
   no longer in `ALLOWED_ORIGIN_REGEX`.
 
@@ -153,9 +157,11 @@ npm install && npm run dev            # web app on http://localhost:5173
 cd apps/api && API_ENVIRONMENT=development uv run uvicorn api.main:app --reload   # API on :8000
 ```
 
-`API_ENVIRONMENT=development` opts back into the GraphQL IDE at `/graphql` and
-schema introspection, both off by default. Omit it and the API behaves exactly
-as it does in production.
+`API_ENVIRONMENT=development` opts back into the GraphQL IDE at `/graphql`,
+schema introspection, and the query console in the manual at `/`, all three off
+by default. Omit it and the API behaves exactly as it does in production. The
+manual itself is served whole either way — production drops the console and
+says so in its place, rather than dropping the documentation.
 
 ```bash
 npm run verify        # everything, about a minute
