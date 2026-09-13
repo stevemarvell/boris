@@ -72,8 +72,9 @@ Gaps against `adoption.md`, tagged by the step they belong to.
 
       In flight: PR #29 skips the console step and ships the durable version —
       OTLP collector, Prometheus, Grafana, `telemetry/`. Metrics only, so the
-      redaction above is preserved by never opening the events pipe. Not
-      verified running; the Docker daemon was down when it was written.
+      redaction above is preserved by never opening the events pipe. Verified
+      against the running stack, which is how it was caught that the first
+      version of the scrub silently did not scrub.
 
 ## aia2
 
