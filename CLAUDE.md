@@ -16,7 +16,7 @@ deployment, along with the rest of the documentation — see "Documentation".
 | `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
 | `data/` | The family tree itself, stored as files in this repository. |
-| `docs/` | `adoption.md`, the ladder being climbed, and `BACKLOG.md`. |
+| `docs/` | `adoption.md`, the ladder being climbed. |
 | `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
 
 ## Rules
@@ -51,6 +51,13 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 - **Deployment config lives in the repo, not in dashboards.** A setting only
   visible in a web console is invisible to everyone working here.
+
+- **Known gaps live in GitHub issues, not in a file.** There was a
+  `docs/BACKLOG.md`; it went stale exactly as it predicted it would, because
+  nothing connected a merge to a line in it. Close an item the way the work
+  closes it — `Closes #51` in a pull request body. Labels carry what the file's
+  headings used to: `aia0`/`aia1`/`aia2` for the adoption step, `p1`/`p2`/`p3`
+  for priority, `security` for exposure.
 
 ## Deployments
 
@@ -113,7 +120,7 @@ cannot reach.
 | URL | Source | Carried by |
 | --- | --- | --- |
 | `/docs/` | `scripts/build-docs.mjs` | Vercel |
-| `/docs/adoption.html`, `/docs/backlog.html` | `docs/*.md` | Vercel |
+| `/docs/adoption.html` | `docs/adoption.md` | Vercel |
 | `/docs/manual/web/` | `manual/web/` | Vercel |
 | `/docs/step-0.html` | `index.html` | Vercel |
 | `/` on the API | `manual/api/` | the API image |

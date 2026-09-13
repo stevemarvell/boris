@@ -10,7 +10,7 @@ test.describe('the docs Vercel serves', () => {
     await page.goto('/docs/');
     await expect(page.getByRole('heading', { name: 'boris docs' })).toBeVisible();
 
-    for (const name of ['Stages of agentic adoption', 'Backlog', 'Web app manual', 'API manual']) {
+    for (const name of ['Stages of agentic adoption', 'Web app manual', 'API manual']) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
   });
@@ -20,13 +20,6 @@ test.describe('the docs Vercel serves', () => {
     await expect(page.getByRole('heading', { name: 'Stages of agentic adoption' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '0: Gated' })).toBeVisible();
     await expect(page.locator('body')).not.toContainText('**');
-  });
-
-  test('renders the backlog, checkboxes and tables included', async ({ page }) => {
-    await page.goto('/docs/backlog.html');
-    await expect(page.getByRole('heading', { name: 'Backlog' })).toBeVisible();
-    await expect(page.locator('table')).toBeVisible();
-    await expect(page.locator('input[type=checkbox]').first()).toBeVisible();
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {
