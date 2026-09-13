@@ -43,11 +43,6 @@ export const MARKDOWN_PAGES = [
     source: join('docs', 'adoption.md'),
     blurb: 'The ladder this project is climbing, kept in its original wording.',
   },
-  {
-    slug: 'backlog',
-    source: join('docs', 'BACKLOG.md'),
-    blurb: 'What is still missing, tagged by the step it belongs to.',
-  },
 ];
 
 const STYLE = `

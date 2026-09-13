@@ -1,6 +1,6 @@
 # Telemetry
 
-Closes the `aia1` gap in [`../docs/BACKLOG.md`](../docs/BACKLOG.md): *nothing
+Closes the `aia1` gap recorded in the issue tracker: *nothing
 measures token use, active time, or output per merged change.*
 
 Claude Code emits OpenTelemetry metrics and events. This directory is the
@@ -75,7 +75,7 @@ is off. They are deliberately absent rather than set to `0`, because `"0"` is a
 truthy string in more places than it ought to be and absence cannot be
 misread.
 
-This is what the backlog meant by *"prompts, responses and tool inputs are
+This is what that gap meant by *"prompts, responses and tool inputs are
 redacted by default; leave them that way"* — the redaction is those three flags,
 not the pipe itself. An earlier version of this file kept the pipe shut
 entirely, which was stricter than the rule asked and cost the integration's

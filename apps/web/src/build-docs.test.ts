@@ -19,8 +19,7 @@ beforeEach(() => {
   mkdirSync(join(root, 'manual', 'web'), { recursive: true });
   mkdirSync(join(root, 'apps', 'web'), { recursive: true });
 
-  writeFileSync(join(root, 'docs', 'adoption.md'), '# Stages\n\nA **step**.\n');
-  writeFileSync(join(root, 'docs', 'BACKLOG.md'), '# Backlog\n\n- [ ] a gap\n');
+  writeFileSync(join(root, 'docs', 'adoption.md'), '# Stages\n\nA **step**.\n\n- [ ] a gap\n');
   writeFileSync(join(root, 'index.html'), '<h1>Hello, world</h1>\n');
   writeFileSync(join(root, 'manual', 'web', 'index.html'), '<h1>Web manual</h1>\n');
   writeFileSync(join(root, 'manual', 'web', 'shot.jpg'), 'not really a jpeg');
@@ -69,16 +68,15 @@ describe('buildDocs', () => {
     const result = build();
 
     expect(result.written).toEqual(
-      expect.arrayContaining(['adoption.html', 'backlog.html', 'index.html', 'step-0.html']),
+      expect.arrayContaining(['adoption.html', 'index.html', 'step-0.html']),
     );
     expect(read('adoption.html')).toContain('<strong>step</strong>');
-    expect(read('backlog.html')).toContain('<input type="checkbox" disabled> a gap');
+    expect(read('adoption.html')).toContain('<input type="checkbox" disabled> a gap');
   });
 
   it('titles each page from its own first heading', () => {
     build();
     expect(read('adoption.html')).toContain('<title>Stages</title>');
-    expect(read('backlog.html')).toContain('<title>Backlog</title>');
     expect(read('index.html')).toContain('>Stages</a>');
   });
 
