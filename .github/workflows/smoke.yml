@@ -87,7 +87,7 @@ jobs:
           # the deployment this one is replacing.
           for attempt in $(seq 1 30); do
             missing=''
-            for path in /docs/ /docs/adoption.html \
+            for path in /docs/ /docs/adoption.html /docs/data-governance.html \
                         /docs/step-0.html /docs/manual/web/; do
               curl -fsS --max-time 30 -o /dev/null "$WEB$path" || missing="$missing $path"
             done
@@ -96,6 +96,9 @@ jobs:
               curl -fsS --max-time 30 "$WEB/docs/adoption.html" \
                 | grep -q 'Stages of agentic adoption' \
                 || { echo "adoption.html did not render its heading" >&2; exit 1; }
+              curl -fsS --max-time 30 "$WEB/docs/data-governance.html" \
+                | grep -q 'Data governance' \
+                || { echo "data-governance.html did not render its heading" >&2; exit 1; }
               exit 0
             fi
             echo "attempt $attempt: missing$missing"

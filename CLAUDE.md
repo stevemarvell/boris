@@ -16,7 +16,7 @@ deployment, along with the rest of the documentation — see "Documentation".
 | `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
 | `data/` | The family tree itself, stored as files in this repository. |
-| `docs/` | `adoption.md`, the ladder being climbed. |
+| `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments expose and why. |
 | `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
 
 ## Rules
@@ -44,6 +44,14 @@ deployment, along with the rest of the documentation — see "Documentation".
   records only their parents and their spouse. Siblings, grandparents, cousins
   and children are *derived*, never stored — a file that can contradict itself
   will eventually contradict itself.
+
+- **The deployed data is invented, and public on purpose.** The API is
+  unauthenticated and the tree is one anonymous POST away, which is fine
+  because `data/family.json` contains nobody. `docs/data-governance.md` records
+  what is exposed, what bounds it, and the trigger that voids the decision:
+  real data. Read it before adding anything that serves, stores, or exposes
+  data — and before proposing authentication, because CORS has to move in the
+  same change.
 
 - **Merging deploys.** `develop` publishes the Vercel frontend and its docs,
   and the Railway API and its manual. The approval path and the release path
@@ -123,6 +131,7 @@ cannot reach.
 | --- | --- | --- |
 | `/docs/` | `scripts/build-docs.mjs` | Vercel |
 | `/docs/adoption.html` | `docs/adoption.md` | Vercel |
+| `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
 | `/docs/manual/web/` | `manual/web/` | Vercel |
 | `/docs/step-0.html` | `index.html` | Vercel |
 | `/` on the API | `manual/api/` | the API image |

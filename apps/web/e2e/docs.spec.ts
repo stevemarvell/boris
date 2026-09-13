@@ -10,7 +10,12 @@ test.describe('the docs Vercel serves', () => {
     await page.goto('/docs/');
     await expect(page.getByRole('heading', { name: 'boris docs' })).toBeVisible();
 
-    for (const name of ['Stages of agentic adoption', 'Web app manual', 'API manual']) {
+    for (const name of [
+      'Stages of agentic adoption',
+      'Data governance',
+      'Web app manual',
+      'API manual',
+    ]) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
   });
@@ -20,6 +25,15 @@ test.describe('the docs Vercel serves', () => {
     await expect(page.getByRole('heading', { name: 'Stages of agentic adoption' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '0: Gated' })).toBeVisible();
     await expect(page.locator('body')).not.toContainText('**');
+  });
+
+  test('publishes the data governance decision', async ({ page }) => {
+    // The decision is only a decision if someone who has never seen this
+    // repository can read it, so it has to reach the deployment.
+    await page.goto('/docs/data-governance.html');
+    await expect(page.getByRole('heading', { name: 'Data governance' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The trigger to revisit' })).toBeVisible();
+    await expect(page.locator('body')).toContainText('invented');
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {
