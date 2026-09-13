@@ -1,0 +1,36 @@
+# Overlay, not a replacement. The collector accepts --config more than once and
+# merges them in order, so this file carries only the delta: one extra exporter,
+# and the metrics pipeline rewritten to fan out to both.
+#
+# Why this exists at all: the GitHub runners cannot reach localhost:4317, so CI
+# ships straight to Grafana Cloud. If the laptop kept its metrics purely local
+# there would be two stores and no single answer to "what did this cost". This
+# sends local metrics to both — Prometheus for offline history, Grafana Cloud so
+# the laptop and the runners land in one place.
+#
+# The credential is never committed. It arrives from telemetry/.env, which is
+# gitignored, via env substitution below.
+
+exporters:
+  otlphttp/grafanacloud:
+    endpoint: ${env:GRAFANA_CLOUD_OTLP_ENDPOINT}
+    headers:
+      # Just the value — "Basic <base64>". This differs from the GitHub secret,
+      # which holds "Authorization=Basic <base64>", because the OTel SDK parses
+      # its header env var as key=value pairs while the collector takes a map
+      # with the name already supplied by the key. Same credential, two
+      # spellings, and getting them the wrong way round produces a 401 that
+      # reads like a bad token.
+      Authorization: ${env:GRAFANA_CLOUD_AUTH_HEADER}
+    retry_on_failure:
+      enabled: true
+      # The laptop is not always online. Retry for a while, then drop rather
+      # than growing the queue without bound.
+      max_elapsed_time: 300s
+
+service:
+  pipelines:
+    metrics:
+      # Merging replaces this list rather than appending to it, so the local
+      # Prometheus exporter has to be named again here or it is dropped.
+      exporters: [prometheus, otlphttp/grafanacloud]

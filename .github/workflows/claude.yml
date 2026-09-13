@@ -46,6 +46,22 @@ jobs:
       issues: read
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
+
+    # Same telemetry wiring as claude-code-review.yml — see the long comment
+    # there for why each line is the way it is. The only difference is the
+    # workflow label in OTEL_RESOURCE_ATTRIBUTES, which is what lets the two
+    # kinds of unattended run be told apart: a review that happens on every
+    # pull request, and a tagged session somebody asked for.
+    env:
+      CLAUDE_CODE_ENABLE_TELEMETRY: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH != '' && '1' || '0' }}
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
+      OTEL_METRIC_EXPORT_INTERVAL: '5000'
+      OTEL_RESOURCE_ATTRIBUTES: >-
+        environment=ci,ci_provider=github-actions,workflow=claude-mention,run_id=${{ github.run_id }},run_attempt=${{ github.run_attempt }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

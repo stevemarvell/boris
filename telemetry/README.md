@@ -102,11 +102,52 @@ CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER=console \
 only — this repository is public, so a password committed here is a password
 published here.
 
-## Known rough edge
+## The unattended runs
 
-`.claude/settings.json` applies in CI too, where nothing is listening on
-`localhost:4317`. Exports fail quietly rather than breaking a run. If it ever
-gets noisy, set `CLAUDE_CODE_ENABLE_TELEMETRY: "0"` in the workflow's `env:`
-block rather than removing it here.
+Claude also runs in GitHub Actions — `claude-code-review.yml` on every pull
+request, and `claude.yml` whenever someone tags `@claude`. That is the spend
+least likely to be noticed, because nobody is sitting there while it happens.
+
+It used to be invisible, and not for the reason this section previously
+claimed. `claude-code-action` passes the nine OTel variables through from `env`
+(see its `action.yml`), and all nine were empty — so CI telemetry was not
+failing quietly against `localhost`, it was simply off.
+
+Both workflows now set them. A runner cannot reach the collector on this
+laptop, so CI ships straight to Grafana Cloud, and the overlay above sends local
+metrics to the same place. One store, both sources, told apart by
+`OTEL_RESOURCE_ATTRIBUTES`:
+
+| Attribute | Laptop | CI |
+| --- | --- | --- |
+| `environment` | unset | `ci` |
+| `workflow` | unset | `claude-code-review` or `claude-mention` |
+| `run_id`, `run_attempt` | unset | the GitHub run |
+
+Without that split, tokens per merged PR quietly absorbs the review bot and
+stops meaning what the panel title says.
+
+Two deliberate choices in those workflow blocks:
+
+- **Gated on the credential.** `CLAUDE_CODE_ENABLE_TELEMETRY` is `1` only when
+  `GRAFANA_CLOUD_OTLP_AUTH` is set. With telemetry on and no endpoint the
+  exporter falls back to `localhost:4317` and every run ends retrying a
+  connection to itself.
+- **5s export interval, not 10.** A runner is destroyed the moment the job
+  ends, and a flush on exit is not documented. A short review could otherwise
+  finish between exports and report nothing at all.
+
+### Switching it on
+
+1. Create a Grafana Cloud stack and open its **OTLP** page. It gives an
+   endpoint and a token.
+2. Set two repository secrets:
+   - `GRAFANA_CLOUD_OTLP_ENDPOINT` — the endpoint, ending `/otlp`
+   - `GRAFANA_CLOUD_OTLP_AUTH` — `Authorization=Basic <base64 of instanceID:token>`
+3. Optionally put the same credential in `.env` and run the overlay, so the
+   laptop reports to the same store. The spelling differs between the two —
+   see `.env.example`.
+
+Until step 2, both workflows run with telemetry off, exactly as before.
 
 <https://code.claude.com/docs/en/monitoring-usage>
