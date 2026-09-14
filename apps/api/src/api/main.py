@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
 
 from api.limits import install_rate_limiting
+from api.rest import create_router
 from api.schema import create_schema
 from api.security_headers import install_security_headers
 from api.tree import FamilyTree
@@ -154,7 +155,15 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
         CORSMiddleware,
         allow_origin_regex=ALLOWED_ORIGIN_REGEX,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["content-type"],
+        # x-person-id is what /me reads to decide who is asking (see api.rest).
+        # Without it here, a browser's preflight refuses the header and /me is
+        # reachable only from curl. It is admitted as an ordinary header, not a
+        # credential: allow_credentials stays off, nothing is a secret, and
+        # naming yourself gets you a record any caller could fetch by id
+        # anyway. Real authentication would change that, and would mean
+        # revisiting this block properly -- the consequence docs/data-governance.md
+        # records against the decision not to have any.
+        allow_headers=["content-type", "x-person-id"],
     )
 
     # Added last, which makes it the outermost middleware -- the same ordering
@@ -186,6 +195,11 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
     @app.get("/health")
     def health() -> dict[str, bool | int | str | None]:
         return {"ok": True, "people": len(tree.people), "commit": DEPLOYED_COMMIT}
+
+    # The REST view: /person/{id} and /me. Registered before the manual mount
+    # for the same reason /graphql and /health are -- the mount at "/" matches
+    # everything, and routes are tried in the order they were added.
+    app.include_router(create_router(tree))
 
     # The API's own reference manual, served from the root of this service.
     #
