@@ -1,0 +1,41 @@
+[project]
+name = "family-tree-mcp"
+version = "0.1.0"
+description = "MCP server exposing the family tree over api.tree.FamilyTree."
+requires-python = ">=3.12"
+dependencies = [
+    "family-tree-api",
+    "mcp>=1.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+# apps/api is its own uv project (its own pyproject.toml, its own lockfile),
+# not a workspace member of this one. A path source is enough to depend on
+# it cleanly without folding the two projects together: uv installs
+# `family-tree-api` editable from ../api, so `import api.tree` resolves to
+# the real module and there is exactly one FamilyTree implementation.
+[tool.uv.sources]
+family-tree-api = { path = "../api", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/family_mcp"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

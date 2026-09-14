@@ -10,8 +10,9 @@
     "typecheck": "npm run typecheck --workspace @family-tree/web",
     "lint": "npm run lint --workspace @family-tree/web",
     "test": "npm run test --workspace @family-tree/web",
-    "verify": "npm run verify:api && npm run verify:web && npm run verify:e2e",
+    "verify": "npm run verify:api && npm run verify:mcp && npm run verify:web && npm run verify:e2e",
     "verify:api": "uv run --directory apps/api ruff check . && uv run --directory apps/api pytest -q",
+    "verify:mcp": "uv run --directory apps/mcp ruff check . && uv run --directory apps/mcp pytest -q",
     "verify:web": "npm run typecheck && npm run lint && npm run test && npm run build",
     "verify:e2e": "npm run e2e --workspace @family-tree/web",
     "bootstrap": "node scripts/bootstrap.mjs"
