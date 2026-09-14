@@ -1,0 +1,28 @@
+version: 2
+
+# Actions in .github/workflows are pinned to commit SHAs, which is what stops
+# a tag being repointed under us — and also what freezes them. This is the
+# other half: Dependabot resolves each pinned SHA back to its tag, notices a
+# newer release, and opens a pull request that moves the SHA *and* rewrites
+# the trailing `# v4` comment. Without it the pins are a promise never to take
+# a security fix.
+#
+# Only github-actions is declared. npm and uv are the application's own
+# dependency sets and belong to a separate decision about how much unattended
+# PR traffic this repository wants.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A bumped action is one line in one file; batching them keeps a routine
+    # week down to a single pull request rather than five.
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: ci
+    # No `labels:` here on purpose. A label named in this file has to already
+    # exist on the repository or Dependabot errors; left out, it creates and
+    # applies its own `dependencies` label.
