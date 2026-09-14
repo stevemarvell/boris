@@ -109,7 +109,10 @@ Five settings are load-bearing and non-obvious:
   must therefore name every path `apps/api/Dockerfile` copies — `apps/api/`,
   `data/`, and `manual/api/` — or a change to the family tree or the manual
   deploys nothing and says nothing. `/health` reports
-  `RAILWAY_GIT_COMMIT_SHA` so `smoke` can catch it if that drifts again.
+  `RAILWAY_GIT_COMMIT_SHA` so `smoke` can catch it if that drifts again —
+  and `smoke` only demands a match when the push actually touched one of
+  those paths, because most merges here change docs or the web app and
+  correctly leave the API where it was.
 - Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
   `vercel.json` at the repository root is never read — Vercel looks for it
   inside the root directory. Put Vercel config in `apps/web/`.
