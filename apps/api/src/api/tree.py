@@ -56,10 +56,20 @@ class FamilyTree:
             if person.spouse is not None:
                 if person.spouse not in self.people:
                     raise DataError(f"{person.id} names unknown spouse {person.spouse}")
+                # Checked before reciprocity, which reads `x != x` for a
+                # self-married person and so is satisfied by saying nothing.
+                if person.spouse == person.id:
+                    raise DataError(f"{person.id} is married to themselves")
                 if self.people[person.spouse].spouse != person.id:
                     raise DataError(f"{person.id} and {person.spouse} disagree about marriage")
             if person.id in person.parents:
                 raise DataError(f"{person.id} is their own parent")
+            # Two people who are each other's parent each descend from
+            # themselves. `generations()` reports longer cycles, but this one
+            # is local to the person, so it is named here rather than as a
+            # cycle among a list of ids.
+            if any(person.id in self.people[parent].parents for parent in person.parents):
+                raise DataError(f"{person.id} is their own grandparent")
 
     # -- lookups ---------------------------------------------------------
 
@@ -149,7 +159,9 @@ class FamilyTree:
 
         Someone who married into the family has no parents here, so descent
         alone would place them in the oldest generation. A second pass lifts
-        them to sit beside their spouse.
+        them to sit beside their spouse. By then every person has a depth and
+        `_check_references` has ruled out a self-married one, so the partner
+        lookup is a plain subscript: nobody levels against themselves.
         """
         depth: dict[str, int] = {}
         limit = len(self.people) + 2
@@ -180,7 +192,7 @@ class FamilyTree:
             for person in self.people.values():
                 if person.parents or person.spouse is None:
                     continue
-                partner_depth = depth.get(person.spouse, 0)
+                partner_depth = depth[person.spouse]
                 if partner_depth > depth[person.id]:
                     depth[person.id] = partner_depth
                     changed = True
