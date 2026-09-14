@@ -57,6 +57,36 @@ jobs:
           echo "web never served a bundle querying generations" >&2
           exit 1
 
+      - name: Wait for the API to report this commit
+        run: |
+          # The one check that tells a *current* deployment from a stale one.
+          #
+          # Issue #50: railway.json watched only apps/api/**, while the
+          # Dockerfile also copies data/ and manual/api/, so a commit changing
+          # only the family tree or only the manual never rebuilt. Every check
+          # below still passed, because each asks whether the deployed API is
+          # correct and none asked whether it is *this* one. Probes on the
+          # pull request environment confirmed the behaviour: a manual-only
+          # commit did not redeploy under the old patterns and did under the
+          # widened ones.
+          #
+          # /health reports RAILWAY_GIT_COMMIT_SHA, which Railway injects per
+          # deployment. Matching it against the commit this run is for makes a
+          # deploy that silently did not happen a red check.
+          echo "waiting for $GITHUB_SHA"
+          for attempt in $(seq 1 40); do
+            body=$(curl -fsS --max-time 30 "$API/health" || true)
+            deployed=$(printf '%s' "$body" | python3 -c \
+              'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
+            echo "attempt $attempt: deployed=${deployed:-<none>}"
+            case "$deployed" in
+              "$GITHUB_SHA") echo "the deployed image is this commit"; exit 0;;
+            esac
+            sleep 15
+          done
+          echo "the API never reported $GITHUB_SHA; it is serving an older image" >&2
+          exit 1
+
       - name: Wait for the API to serve its own manual
         run: |
           # The manual ships inside the API image. If a Dockerfile change drops

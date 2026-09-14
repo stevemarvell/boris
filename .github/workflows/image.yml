@@ -119,7 +119,11 @@ jobs:
               sleep 2
             done
             echo "health: $health"
-            [ "$health" = "{\"ok\":true,\"people\":$people}" ] \
+            # commit is RAILWAY_GIT_COMMIT_SHA, which only Railway sets, so in
+            # a container built here it is null — and asserting that is worth
+            # doing: a non-null value would mean the build is reading a commit
+            # from somewhere it should not.
+            [ "$health" = "{\"ok\":true,\"people\":$people,\"commit\":null}" ] \
               || { docker logs "$id"; echo "unexpected /health" >&2; exit 1; }
 
             # The served page is the committed manual with one region removed.

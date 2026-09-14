@@ -39,6 +39,23 @@ ALLOWED_ORIGIN_REGEX = os.environ.get(
 # variable rather than something set in this repository's own config files.
 API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 
+# The commit this image was built from, reported by /health so that a caller
+# can tell a current deployment from a stale one.
+#
+# This exists because of the failure recorded in issue #50: railway.json's
+# watchPatterns listed only apps/api/**, while the Dockerfile also copies
+# data/ and manual/api/, so a commit changing only the family tree or only the
+# manual never triggered a rebuild. Nothing reported it -- verify was green,
+# the deploy was green because there was no deploy, and smoke passed because
+# it asserted the manual was *present* rather than *current*.
+#
+# Fixing the patterns closes the cause. This closes the detection: smoke
+# compares this value against the commit it is running for, so a deployment
+# that silently did not happen fails a check instead of going unnoticed.
+# Railway injects RAILWAY_GIT_COMMIT_SHA into every service; it is absent
+# locally and in the container tests, where None is the honest answer.
+DEPLOYED_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+
 
 def default_manual_path() -> Path | None:
     """Locate manual/api by walking up from this module, as the tree loader does.
@@ -167,8 +184,8 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
     )
 
     @app.get("/health")
-    def health() -> dict[str, bool | int]:
-        return {"ok": True, "people": len(tree.people)}
+    def health() -> dict[str, bool | int | str | None]:
+        return {"ok": True, "people": len(tree.people), "commit": DEPLOYED_COMMIT}
 
     # The API's own reference manual, served from the root of this service.
     #

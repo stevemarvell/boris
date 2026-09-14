@@ -1,7 +1,9 @@
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
+from api import main
 from api.main import app
 
 client = TestClient(app)
@@ -22,7 +24,7 @@ def data(document: str) -> dict[str, Any]:
 def test_health_reports_the_loaded_tree() -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "people": 44}
+    assert response.json() == {"ok": True, "people": 44, "commit": None}
 
 
 def test_graphql_status() -> None:
@@ -153,3 +155,31 @@ def test_cors_refuses_every_github_pages_origin() -> None:
             },
         )
         assert response.headers.get("access-control-allow-origin") is None, origin
+
+
+def test_health_reports_the_commit_it_was_built_from(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Railway injects RAILWAY_GIT_COMMIT_SHA; smoke compares it to its own ref.
+
+    Without it a deployment that silently did not happen is indistinguishable
+    from one that did -- which is the detection half of issue #50.
+    """
+    monkeypatch.setattr(main, "DEPLOYED_COMMIT", "0123456789abcdef")
+    stamped = TestClient(main.create_app())
+
+    assert stamped.get("/health").json() == {
+        "ok": True,
+        "people": 44,
+        "commit": "0123456789abcdef",
+    }
+
+
+def test_health_reports_no_commit_when_the_platform_does_not_say(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local runs and the container tests have no Railway variable to read."""
+    monkeypatch.setattr(main, "DEPLOYED_COMMIT", None)
+    bare = TestClient(main.create_app())
+
+    assert bare.get("/health").json()["commit"] is None

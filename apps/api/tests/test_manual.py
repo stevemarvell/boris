@@ -118,7 +118,7 @@ def test_the_manual_names_the_host_it_came_from_in_both_environments() -> None:
 
 def test_the_mount_does_not_swallow_the_api() -> None:
     """A mount at "/" matches everything, so it has to be registered last."""
-    assert client.get("/health").json() == {"ok": True, "people": 44}
+    assert client.get("/health").json() == {"ok": True, "people": 44, "commit": None}
 
     response = client.post("/graphql", json={"query": "{ status }"})
     assert response.status_code == 200
@@ -146,7 +146,7 @@ def test_an_app_without_a_manual_still_serves_graphql(
     monkeypatch.setattr(main, "default_manual_path", lambda: None)
     bare = TestClient(create_app())
 
-    assert bare.get("/health").json() == {"ok": True, "people": 44}
+    assert bare.get("/health").json() == {"ok": True, "people": 44, "commit": None}
     assert bare.post("/graphql", json={"query": "{ status }"}).status_code == 200
     assert bare.get("/").status_code == 404
 

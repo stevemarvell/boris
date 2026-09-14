@@ -82,12 +82,21 @@ There is no GitHub Pages entry any more. Pages on a private repository needs a
 paid plan, so everything it published moved onto the two deployments this
 project already has.
 
-Four settings are load-bearing and non-obvious:
+Five settings are load-bearing and non-obvious:
 
 - Railway ignores `railway.json`'s `builder` field. Railpack reads the root
   `package.json`, concludes the repo is Node, and fails with *"No start command
   detected"* without looking for a Dockerfile. The `RAILWAY_DOCKERFILE_PATH`
   service variable is what actually selects it.
+- Railway *does* honour `railway.json`'s `watchPatterns`, unlike `builder` —
+  so the two keys next to each other behave differently, and the only way to
+  know which is which is to test it. Measured on a pull request environment: a
+  commit changing only `manual/api/` did not redeploy under
+  `["apps/api/**"]` and did redeploy once `manual/api/**` was added. The list
+  must therefore name every path `apps/api/Dockerfile` copies — `apps/api/`,
+  `data/`, and `manual/api/` — or a change to the family tree or the manual
+  deploys nothing and says nothing. `/health` reports
+  `RAILWAY_GIT_COMMIT_SHA` so `smoke` can catch it if that drifts again.
 - Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
   `vercel.json` at the repository root is never read — Vercel looks for it
   inside the root directory. Put Vercel config in `apps/web/`.
@@ -169,6 +178,14 @@ startup; `smoke` fetches it after every merge, so a build that drops it fails
 there instead.
 
 ## Running it
+
+**Editing dependencies needs npm 11.** npm 10 cannot resolve `vitest` 4's
+optional peer set — its arborist crashes with *"Cannot read properties of
+null (reading 'edgesOut')"* on `npm install`, `npm install --workspace` and
+`npm ci` alike. The committed lockfile was regenerated with `npx npm@11`, is
+still lockfileVersion 3, and `npm ci` reads it fine under npm 10 — which is
+what CI runs. But if you change a dependency, do the lock step with
+`npx npm@11 install`.
 
 ```bash
 npm install && npm run dev            # web app on http://localhost:5173
