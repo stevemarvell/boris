@@ -195,6 +195,39 @@ jobs:
           echo "the API never served a manual with its console gated" >&2
           exit 1
 
+      - name: Wait for the API to withhold its OpenAPI schema
+        run: |
+          # FastAPI serves /docs, /redoc and /openapi.json by default, so they
+          # were live and unauthenticated on this host: Swagger UI is an
+          # interactive console with a "Try it out" button, and openapi.json
+          # publishes the parameters and response schemas of every route. They
+          # are now gated on API_ENVIRONMENT, the same mechanism as the
+          # GraphiQL IDE, introspection and the manual's console, which is
+          # unset on Railway and so reads "production".
+          #
+          # The assertion is the wait, for the reason the manual step above
+          # records: this is something a new build changes, so a non-404 has to
+          # mean "go round again", never "fail". The commit gate earlier only
+          # runs when the push touched a watched path, so nothing before this
+          # point is guaranteed to have proved the new image is live. A cold
+          # start or a proxy error answers with neither 404 nor a served page,
+          # and is retried for the same reason.
+          for attempt in $(seq 1 30); do
+            open_paths=''
+            for path in /docs /redoc /openapi.json; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API$path" || echo 000)
+              [ "$code" = 404 ] || open_paths="$open_paths $path=$code"
+            done
+            if [ -z "$open_paths" ]; then
+              echo "attempt $attempt: /docs, /redoc and /openapi.json all 404"
+              exit 0
+            fi
+            echo "attempt $attempt: schema surface still answering:$open_paths"
+            sleep 15
+          done
+          echo "the API never stopped serving /docs, /redoc and /openapi.json" >&2
+          exit 1
+
       - name: Wait for the web deployment to serve the docs
         run: |
           # These pages are built by a prebuild step, so a broken build shows up
