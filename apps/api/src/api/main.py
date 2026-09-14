@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from strawberry.fastapi import GraphQLRouter
 
@@ -57,6 +58,51 @@ def default_manual_path() -> Path | None:
         if (candidate / "index.html").exists():
             return candidate
     return None
+
+
+def _without_regions(html: str, start: str, end: str) -> str:
+    """Drop every `start`...`end` region, markers included.
+
+    An unterminated region runs to the end of the document. That is the
+    fail-closed reading: a mistyped marker loses documentation, which the
+    tests and the smoke workflow both notice, rather than leaking the half
+    that was meant to be dropped -- or refusing to start over a typo in HTML.
+    """
+    kept: list[str] = []
+    rest = html
+    while True:
+        before, marker, after = rest.partition(start)
+        kept.append(before)
+        if not marker:
+            return "".join(kept)
+        _, _, rest = after.partition(end)
+
+
+def render_manual(html: str, is_development: bool) -> str:
+    """Serve the half of the manual that belongs in this environment.
+
+    The manual carries both: the interactive console between `console:*`
+    markers, and the note that stands in for it between `no-console:*` ones.
+    Exactly one is dropped here, so what production serves does not contain
+    the console -- not a hidden one, not a disabled one, none.
+
+    Gated on the same API_ENVIRONMENT as the GraphQL IDE and introspection,
+    for the same reason and with the same default. A deployment that serves
+    the data should not also host an unauthenticated console for querying it.
+
+    Consequence worth knowing: API_ENVIRONMENT is not set on Railway at all,
+    so it reads "production" on pull request environments as well, and their
+    manuals lose the console too -- which is most of what putting the manual
+    on the API bought. The fix is one service variable,
+    API_ENVIRONMENT=development, on the pull request environment; note that it
+    also turns on GraphiQL and introspection there, which is fine on invented
+    data in a throwaway environment and is not fine on production.
+
+    A manual with neither marker -- a stub, a different document -- is
+    returned unchanged.
+    """
+    dropped = "no-console" if is_development else "console"
+    return _without_regions(html, f"<!-- {dropped}:start -->", f"<!-- {dropped}:end -->")
 
 
 # Read once at startup. The data is a file in the repository, so it only
@@ -122,11 +168,43 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
     # exercises that pull request's API instead of production, and the CORS
     # allowance it needed disappears.
     #
+    # The manual's console is gated the same way the IDE above is, and for the
+    # same reason: it is an unauthenticated GraphQL console, and serving it
+    # from the host that serves the data is an invitation. See render_manual().
+    #
     # Mounted last, and last on purpose: a mount at "/" matches everything, so
     # it must come after /graphql and /health, which are matched in the order
     # they were registered.
     directory = manual if manual is not None else default_manual_path()
     if directory is not None:
+        index = directory / "index.html"
+        if index.exists():
+            # The one document that varies is served by a route; everything
+            # else -- the screenshots -- still comes off the static mount
+            # below, untouched.
+            #
+            # Why this rather than the alternatives:
+            #
+            # - Two files, one per environment, would duplicate 1,400 lines of
+            #   manual and let the halves drift. The markers keep both versions
+            #   of the "Try it" section in one file, next to each other.
+            # - Hiding the console with JavaScript would still ship it: the
+            #   markup, the endpoint and the run logic would all be in the page
+            #   for anyone who opens the source. The point is not to hide the
+            #   button, it is not to serve it.
+            # - Asking an endpoint for the environment would mean the page
+            #   renders, then changes -- and would put the gate on the client,
+            #   which is the wrong side of it.
+            #
+            # Rendered once, at startup, because the file only changes when a
+            # deployment does -- the same reasoning as loading the tree once.
+            page = render_manual(index.read_text(encoding="utf-8"), is_development)
+
+            @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+            @app.get("/index.html", response_class=HTMLResponse, include_in_schema=False)
+            def manual_page() -> HTMLResponse:
+                return HTMLResponse(page)
+
         app.mount("/", StaticFiles(directory=directory, html=True), name="manual")
 
     return app

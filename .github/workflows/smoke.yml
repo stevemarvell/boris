@@ -63,20 +63,46 @@ jobs:
           # nothing before this point proves the new image is live. The first
           # run of this step failed for exactly that reason, 10 seconds after
           # a merge, against an API that was still the old build.
+          #
+          # Which is why the assertion is the wait. Anything a new build
+          # changes has to be a reason to go round again, never a reason to
+          # fail: "Family Tree API" matches the old manual exactly as well as
+          # the new one, so on its own it cannot tell a live deployment from a
+          # stale one. Only once the page is in the state this build put it in
+          # do the remaining checks — the ones a correct build cannot fail —
+          # become hard failures. A check added here belongs inside the retry,
+          # not after it.
           for attempt in $(seq 1 30); do
             page=$(curl -fsS --max-time 30 "$API/" || true)
-            if printf '%s' "$page" | grep -q 'Family Tree API'; then
-              echo "attempt $attempt: manual served"
-              printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'" \
-                || { echo "the manual's console is not querying its own origin" >&2; exit 1; }
-              curl -fsS --max-time 30 -o /dev/null "$API/app-generations.jpg" \
-                || { echo "the manual's screenshots did not ship with it" >&2; exit 1; }
-              exit 0
+
+            if ! printf '%s' "$page" | grep -q 'Family Tree API'; then
+              echo "attempt $attempt: the API root is not serving the manual yet"
+              sleep 15
+              continue
             fi
-            echo "attempt $attempt: the API root is not serving the manual yet"
-            sleep 15
+
+            # Production serves the manual, not its query console: the console
+            # is gated on API_ENVIRONMENT, which is unset on Railway and so
+            # reads "production". The endpoint string is the console's fetch
+            # target and appears nowhere else in the page — which is also what
+            # makes it the signal for "this is the new image", since the image
+            # before it genuinely does carry a console.
+            if printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'"; then
+              echo "attempt $attempt: the manual still carries its console; waiting for the new image"
+              sleep 15
+              continue
+            fi
+
+            echo "attempt $attempt: manual served, console gated"
+
+            # The new build is live, so nothing below is timing-dependent.
+            printf '%s' "$page" | grep -q 'without its query console' \
+              || { echo "the manual does not explain the missing console" >&2; exit 1; }
+            curl -fsS --max-time 30 -o /dev/null "$API/app-generations.jpg" \
+              || { echo "the manual's screenshots did not ship with it" >&2; exit 1; }
+            exit 0
           done
-          echo "the API never served its manual" >&2
+          echo "the API never served a manual with its console gated" >&2
           exit 1
 
       - name: Wait for the web deployment to serve the docs

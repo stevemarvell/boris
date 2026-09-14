@@ -26,6 +26,11 @@ export default defineConfig({
       // should fail here rather than in production.
       command: `uv run --directory ../api uvicorn api.main:app --host 127.0.0.1 --port ${API_PORT}`,
       url: `${API_URL}/health`,
+      // The same variable CLAUDE.md's "Running it" sets by hand, for the same
+      // reason: a developer's API is a development API. It restores the
+      // GraphiQL IDE, schema introspection, and the manual's query console —
+      // all three off by default so a forgotten variable fails closed.
+      env: { API_ENVIRONMENT: 'development' },
       reuseExistingServer: !process.env['CI'],
       timeout: 120_000,
     },

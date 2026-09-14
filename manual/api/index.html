@@ -425,20 +425,26 @@
             <tr>
               <td class="name">/graphql</td>
               <td class="type">GET</td>
-              <td>GraphiQL, the in-browser explorer Strawberry ships with. Open it in a tab.</td>
+              <td>GraphiQL, the in-browser explorer Strawberry ships with. Development only — see <a href="#console">Try it</a>.</td>
             </tr>
             <tr>
               <td class="name">/health</td>
               <td class="type">GET</td>
               <td>Liveness, plus the number of people loaded.</td>
             </tr>
+            <tr>
+              <td class="name">/</td>
+              <td class="type">GET</td>
+              <td>This manual. It ships inside the API image, so it is always the manual for the deployment serving it.</td>
+            </tr>
           </tbody>
         </table>
       </div>
 
       <p>
-        There is nothing at <code>/</code>; it returns <code>404</code>. The
-        smallest useful request is a single round trip with <code>curl</code>:
+        The page you are reading is what <code>/</code> returns; everything
+        else here is JSON. The smallest useful request is a single round trip
+        with <code>curl</code>:
       </p>
 
 <pre><code>curl -s https://api-production-53f7b.up.railway.app/graphql \
@@ -787,6 +793,14 @@
       </figure>
     </section>
 
+<!--
+  Everything between console:start and console:end is stripped before this page
+  is served unless API_ENVIRONMENT=development; everything between
+  no-console:start and no-console:end is stripped when it is. See
+  render_manual() in apps/api/src/api/main.py. Both halves live here, in one
+  file, so the console and the note that replaces it cannot drift apart.
+-->
+<!-- console:start -->
     <section id="console">
       <h2>Try it</h2>
       <p class="section-note">Edit the query and run it against the live service. Responses below are not canned — they come from the deployed API.</p>
@@ -819,6 +833,51 @@
         <a href="#cors">CORS</a>.
       </p>
     </section>
+<!-- console:end -->
+<!-- no-console:start -->
+    <section id="console">
+      <h2>Try it</h2>
+      <p class="section-note">This deployment serves the manual without its query console. The queries are all still here — run them yourself with <code>curl</code>.</p>
+
+      <p>
+        In development this section is an editable box with a
+        <strong>Run query</strong> button that posts to
+        <code>/graphql</code> on this origin. A deployment serving real data
+        should not also host an unauthenticated console for querying it, so the
+        console is gated on the same <code>API_ENVIRONMENT</code> variable that
+        gates the GraphQL IDE and schema introspection, and like them it is off
+        unless the variable says <code>development</code>.
+      </p>
+
+      <p>
+        Nothing else is withheld. Every query below is exactly the one the
+        console would have sent, and every response is one the service returned.
+        Send one yourself in a single round trip:
+      </p>
+
+<pre><code>curl -s <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"{ status }"}'</code></pre>
+
+<pre><code>{"data":{"status":"ok"}}</code></pre>
+
+      <p>
+        Swap <code>{ status }</code> for any query in
+        <a href="#examples">Worked examples</a> — it is a JSON string, so the
+        newlines a multi-line query needs become <code>\n</code>, or pass the
+        body from a file with <code>-d @query.json</code>.
+      </p>
+
+      <p>
+        To get the console back, run the API with
+        <code>API_ENVIRONMENT=development</code>. That also restores the
+        GraphQL IDE at <code>/graphql</code>, which is the better tool once you
+        are editing queries rather than reading them — and it is why the
+        variable belongs on a throwaway pull request environment rather than on
+        one serving data that matters.
+      </p>
+    </section>
+<!-- no-console:end -->
 
     <section id="examples">
       <h2>Worked examples</h2>
@@ -1264,10 +1323,11 @@
       <p>
         The page you are reading is not in that table, and does not need to be.
         This manual is served by the API itself, from the root of this same
-        service, so its "try it" console posts to <code>/graphql</code> on the
-        origin it was loaded from — same-origin, no preflight, no allowance.
-        That also means the console on a pull request environment's manual
-        exercises that environment's API rather than production's.
+        service, so its <a href="#console">"try it" console</a>, where it is
+        enabled, posts to <code>/graphql</code> on the origin it was loaded
+        from — same-origin, no preflight, no allowance. That also means the
+        console on a pull request environment's manual exercises that
+        environment's API rather than production's.
       </p>
 
       <p>
@@ -1332,18 +1392,30 @@
 (function () {
   'use strict';
 
-  // Relative, because this manual is served by the API itself. Same-origin, so
-  // the console needs no CORS allowance, and a pull request environment's
-  // manual queries that environment's API rather than production's.
-  var ENDPOINT = '/graphql';
-
   // The hardcoded hostnames in the markup are the no-JavaScript fallback —
   // production, which is what a reader is most likely looking at. With
   // scripting they are replaced by wherever this page actually came from.
+  //
+  // Deliberately outside the console markers: naming the host this page came
+  // from is documentation, not a way to run a query, so the production manual
+  // keeps it — which is what makes a pull request environment's manual say it
+  // is a pull request environment's manual.
   Array.prototype.forEach.call(document.querySelectorAll('[data-origin]'), function (node) {
     node.textContent =
       node.getAttribute('data-origin') === 'host' ? location.host : location.origin;
   });
+})();
+</script>
+
+<!-- console:start -->
+<script>
+(function () {
+  'use strict';
+
+  // Relative, because this manual is served by the API itself. Same-origin, so
+  // the console needs no CORS allowance, and a pull request environment's
+  // manual queries that environment's API rather than production's.
+  var ENDPOINT = '/graphql';
 
   var EXAMPLES = {
     status: '{\n  status\n}',
@@ -1467,6 +1539,7 @@
   });
 })();
 </script>
+<!-- console:end -->
 
 </body>
 </html>
