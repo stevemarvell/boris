@@ -70,15 +70,102 @@ project's central rule and is not something a test would catch being broken.
 
 **Arms:** `implementer` at `opus`, `implementer` at `sonnet`. Same brief.
 
-**Status:** running.
+**Result.** Both arms shipped: Sonnet #90, Opus #92. Both green in CI, both reused
+`FamilyTree` without re-deriving anything, both independently found three things the
+brief did not mention — the SDK had moved to `mcp` 2.x (`FastMCP` is now `MCPServer`),
+the SDK replaces any non-`ToolError` message with a generic string, and
+`data/family.json` contains no half-siblings at all.
 
-| | Opus | Sonnet |
+| | Opus #92 | Sonnet #90 |
 | --- | --- | --- |
-| Tokens | | |
-| Wall-clock | | |
-| `verify` first time | | |
-| Rework rounds | | |
-| Slop findings | | |
-| Verdict | | |
+| Tokens | 143,958 | 137,066 |
+| Wall-clock | 17m 18s | 9m 27s |
+| Tests written | 73 | 24 |
+| `verify` green first time | yes | yes |
+| Rework rounds | 0 | 0 |
 
-Results below once both arms report.
+**Mutation testing of both suites.** Self-reports are not evidence, so each suite was
+run against deliberate breakage:
+
+| Mutation | Sonnet | Opus |
+| --- | --- | --- |
+| Swap the `parent`/`child` result | 2 fail | 5 fail |
+| Remove the `ToolError` message translation | 2 fail | 4 fail |
+
+Neither suite is vacuous. Opus has more redundancy; both catch what matters.
+
+**The difference that decided it, and it was not found by mutation.** Sonnet's
+`verify:mcp` omits `--frozen`, so `apps/mcp`'s lockfile resolves live and drifts
+silently. `verify.yml` carries that guard for `apps/api` with a comment explaining
+exactly why. Opus included it and said why. Mutation testing missed this because it
+mutates logic, and this is dependency configuration — a reminder that an oracle only
+covers what it observes.
+
+Opus also centralised the error translation in one site against Sonnet's two, drove
+the server over real stdio in a separate process rather than only in-process, and
+worked out that `editable = true` is load-bearing because `default_data_path()` walks
+up from the module's own location.
+
+**Verdict on implementation:** Sonnet reached the same place for 5% fewer tokens in
+55% of the wall-clock, and left one inert-control defect behind. Viable **with a
+review gate**. Not viable without one.
+
+---
+
+## Trial 2 — can the review tier down
+
+Same pull request (#90), same brief, two reviewer models.
+
+| | Sonnet | Haiku |
+| --- | --- | --- |
+| Tokens | 84,940 | 76,327 |
+| Wall-clock | 226s | 232s |
+| Findings | 2 | **0** |
+| Found the `--frozen` gap | yes, **reproduced** it | no |
+| Verdict given | would not merge | would merge |
+
+Haiku's review is articulate and specific — it names individual tests, quotes the
+comment about circular tests, confirms the reuse constraint. It reads like diligence
+and contains nothing. It cost 10% fewer tokens than Sonnet's and missed every finding.
+
+Sonnet's reviewer did not know more. It **ran an experiment**: pinned
+`pytest==8.0.0`, ran `npm run verify:mcp`, and watched `uv.lock` get rewritten with no
+failure and no warning. Haiku read the diff and described it.
+
+---
+
+## What these two trials say
+
+**The line is not difficulty. It is whether the model's output is itself the check.**
+
+- Where output is **checkable by something else** — an implementation behind `verify`,
+  a retrieval answer with citations — a cheaper model is safe, because a mistake is
+  caught mechanically. Sonnet implementing behind a review gate; Haiku answering a
+  documentation lookup that was afterwards verified verbatim against the source.
+- Where the output **is** the check — a code review, a security review, a judgement
+  about whether a guard actually guards — a cheaper model fails silently and
+  expensively. There is nothing downstream to catch it, and the failure arrives
+  looking like assurance.
+
+**Current recommendation**
+
+| Work | Model | Why |
+| --- | --- | --- |
+| Reading logs, CI output, documentation lookup | Haiku | Answer is checkable against the artifact; the win is context, not tokens |
+| Implementation of a specified change | Sonnet | Behind `verify` **and** a Sonnet-or-better review |
+| Code review, security review | Sonnet minimum | Haiku produced a confidently empty review |
+| Design decisions, debugging from a symptom, orchestration | Opus | No oracle exists |
+
+**Do not set `CLAUDE_CODE_SUBAGENT_MODEL`.** Leaving it unset means subagents fall
+back to the session model, so the default is expensive-and-correct and cheapness is
+opted into per spawn. That matches how `API_ENVIRONMENT` defaults to `production`.
+
+**Token honesty.** Sonnet is not dramatically cheaper per task — 137k against 144k
+here. The real saving was wall-clock, and the real risk was a silent defect. Price per
+token is not price per task.
+
+## Open
+
+- One task, one subject. `relationship_between` had a tighter spec than most work here.
+- Neither arm was retried, so the rework-round column is untested.
+- The Opus reviewer arm was not run; Sonnet-vs-Haiku answered the question that mattered.
