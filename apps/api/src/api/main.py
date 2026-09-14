@@ -164,6 +164,39 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
         # revisiting this block properly -- the consequence docs/data-governance.md
         # records against the decision not to have any.
         allow_headers=["content-type", "x-person-id"],
+        # Which *response* headers JavaScript is allowed to read. Without this
+        # a cross-origin caller sees only the seven CORS-safelisted names
+        # (Cache-Control, Content-Language, Content-Length, Content-Type,
+        # Expires, Last-Modified, Pragma); everything else is sent by the
+        # server, received by the browser, and stripped before fetch() hands
+        # the Response to the page. The web app is always cross-origin, so
+        # "sent" and "readable" are different questions here and only the
+        # second one matters.
+        #
+        # Three features depended on the difference and all three were inert
+        # in production (issue #89):
+        #
+        # * Retry-After -- apps/web/src/api.ts reads it off a 429 to decide how
+        #   long to wait. It read null, every time, and fell back to a guess.
+        # * Content-Location -- set by /me (see api.rest) to name the identical
+        #   /person/{id} resource. Unreadable, so unusable.
+        # * X-RateLimit-* -- api.limits sets headers_enabled=True to "tell a
+        #   well-behaved client what its budget is". Invisible to the only
+        #   client there is.
+        #
+        # Cache-Control survived because it is safelisted, which is luck.
+        #
+        # curl has no CORS and TestClient has no CORS, so neither can tell a
+        # readable header from a stripped one. The check that can is
+        # apps/web/e2e/cors-expose-headers.spec.ts, which reads Retry-After off
+        # a real cross-origin 429 in a real browser.
+        expose_headers=[
+            "Retry-After",
+            "Content-Location",
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "X-RateLimit-Reset",
+        ],
     )
 
     # Added last, which makes it the outermost middleware -- the same ordering
