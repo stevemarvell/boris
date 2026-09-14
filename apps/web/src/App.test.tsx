@@ -28,11 +28,29 @@ const GENERATIONS: Generation[] = [
   },
 ];
 
+function okResponse(data: unknown) {
+  return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data }) };
+}
+
 function mockGraphql(data: unknown, ok = true): void {
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({ ok, status: ok ? 200 : 500, json: async () => ({ data }) }),
+    vi.fn().mockResolvedValue({
+      ok,
+      status: ok ? 200 : 500,
+      headers: { get: () => null },
+      json: async () => ({ data }),
+    }),
   );
+}
+
+/**
+ * What `fetch` does when an `AbortSignal.timeout` fires: a DOMException named
+ * TimeoutError. Rejecting with it immediately keeps the test fast while driving
+ * exactly the branch a thirty-second hang would.
+ */
+function timedOut(): DOMException {
+  return new DOMException('signal timed out', 'TimeoutError');
 }
 
 afterEach(() => {
@@ -121,5 +139,84 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByTestId('error')).toBeTruthy());
     expect(screen.getByTestId('error').textContent).toContain('503');
+    expect(screen.getByTestId('retry')).toBeTruthy();
+  });
+
+  it('retries a timed-out first load by itself, and says it is still waiting', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(timedOut())
+      .mockResolvedValue(okResponse({ generations: GENERATIONS }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    // The cold start the request itself triggered is about to finish, so the
+    // user should never see a failure — only that something is still happening.
+    await waitFor(() => expect(screen.getByTestId('waking')).toBeTruthy());
+    expect(screen.queryByTestId('error')).toBeNull();
+
+    await waitFor(() => expect(screen.getAllByTestId('person')).toHaveLength(3));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops after the one automatic retry and hands over a button', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(timedOut());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('error')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('error').textContent).toContain('did not answer');
+  });
+
+  it('loads the tree when the retry button is pressed', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(timedOut());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('retry')).toBeTruthy());
+    fetchMock.mockResolvedValue(okResponse({ generations: GENERATIONS }));
+    fireEvent.click(screen.getByTestId('retry'));
+
+    await waitFor(() => expect(screen.getAllByTestId('person')).toHaveLength(3));
+    expect(screen.queryByTestId('error')).toBeNull();
+  });
+
+  it('never retries a rate limit automatically, and holds the button off', async () => {
+    // 120 requests a minute per caller, and a retry is the one response that
+    // makes that worse. One request, then a disabled button.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: { get: () => '30' },
+      json: async () => ({}),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('error')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('error').textContent).toContain('too many requests');
+    expect(screen.getByTestId('retry').textContent).toContain('shortly');
+
+    // And pressing it anyway sends nothing.
+    fireEvent.click(screen.getByTestId('retry'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-enables the retry button once Retry-After has elapsed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: { get: () => '0.05' },
+        json: async () => ({}),
+      }),
+    );
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('retry').textContent).toContain('shortly'));
+    await waitFor(() => expect(screen.getByTestId('retry').textContent).not.toContain('shortly'));
   });
 });

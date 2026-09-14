@@ -21,6 +21,16 @@
   opacity: 0.6;
 }
 
+/* The spinner's "still waiting" line, and the gap above the retry button. */
+.hint {
+  margin: 0.9rem 0 0;
+  font-size: 0.82rem;
+}
+
+[data-testid='error'] ion-button {
+  margin-top: 0.4rem;
+}
+
 .match-count {
   margin: 0.75rem 1rem 0;
   font-size: 0.82rem;

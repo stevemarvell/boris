@@ -11,6 +11,7 @@ from strawberry.fastapi import GraphQLRouter
 
 from api.limits import install_rate_limiting
 from api.schema import create_schema
+from api.security_headers import install_security_headers
 from api.tree import FamilyTree
 
 # The web app is deployed separately (Vercel), so it is always cross-origin.
@@ -138,6 +139,16 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["content-type"],
     )
+
+    # Added last, which makes it the outermost middleware -- the same ordering
+    # trap as above, used the other way round. Only the outermost sees the
+    # responses the layers inside it return without calling downstream: the
+    # limiter's 429 and CORSMiddleware's preflight answer. Anything registered
+    # after this line would sit outside it and its responses would go out bare.
+    #
+    # api.security_headers explains each header, and records the CSP decision:
+    # the manual's inline script is permitted rather than pretended away.
+    install_security_headers(app, is_development=is_development)
 
     app.include_router(
         GraphQLRouter(

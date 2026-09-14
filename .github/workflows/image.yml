@@ -1,0 +1,171 @@
+name: image
+
+# Builds the API container and exercises it, because the deployed API is the
+# image and nothing else in CI ever builds one. `verify` runs the API from a
+# checkout: it proves the code works, never that the artefact Railway runs
+# contains the right files, or that it still drops to an unprivileged user.
+#
+# Everything asserted here was once verified by hand and then left unguarded —
+# the unprivileged user came with a manual `id` and `test -w` run that nobody
+# has repeated since. A hand-verification is a claim about one afternoon; this
+# is the claim made again on every pull request.
+#
+# Advisory, like the review job. `verify` stays the only required check.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Builds and runs a container, and reads the repository to compare against.
+    # It writes nothing and talks to nothing, so a read-only token is all it
+    # can justify.
+    permissions:
+      contents: read
+
+    env:
+      IMAGE: family-tree-api:ci
+      # Host port for the container under test. Nothing else on the runner
+      # wants 8000, but naming it keeps the curl commands below honest.
+      PORT: '8000'
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # From the repository root, not apps/api: the Dockerfile copies data/
+      # and manual/api/, which live outside apps/api. Building from apps/api
+      # is the failure this line exists to keep out — it is exactly what
+      # Railway's root-directory setting would have done.
+      - name: Build the image from the repository root
+        run: docker build -f apps/api/Dockerfile -t "$IMAGE" .
+
+      - name: Check the container runs as an unprivileged user
+        run: |
+          set -euo pipefail
+          # No ENTRYPOINT in the Dockerfile, so an argument here replaces CMD
+          # and runs as the image's USER — which is the thing being measured.
+          whoami=$(docker run --rm "$IMAGE" id)
+          echo "$whoami"
+          uid=$(docker run --rm "$IMAGE" id -u)
+          [ "$uid" != "0" ] || { echo "the container runs as root" >&2; exit 1; }
+          name=$(docker run --rm "$IMAGE" id -un)
+          [ "$name" = "api" ] || { echo "expected to run as 'api', got '$name'" >&2; exit 1; }
+
+      - name: Check the data and the manual are not writable by it
+        run: |
+          set -euo pipefail
+          # data/ and manual/api/ are COPYed without --chown so they stay
+          # root-owned and read-only to the runtime user: the API only ever
+          # reads them. A --chown added to either COPY would land here.
+          docker run --rm "$IMAGE" sh -c '
+            set -e
+            for path in /app/data /app/data/family.json /app/manual/api /app/manual/api/index.html; do
+              if [ -w "$path" ]; then echo "$path is writable by $(id -un)" >&2; exit 1; fi
+              echo "not writable: $path"
+            done
+          '
+
+      # The image's copy of the manual, compared byte for byte with the one in
+      # the repository. This is the staleness half of #50: a build that misses
+      # the manual, or ships an older one, is indistinguishable from a correct
+      # one to every other check in this repository.
+      - name: Check the image ships the committed manual
+        run: |
+          set -euo pipefail
+          docker run --rm "$IMAGE" cat /app/manual/api/index.html > /tmp/shipped.html
+          cmp /tmp/shipped.html manual/api/index.html \
+            || { echo "the manual in the image is not the committed manual" >&2; exit 1; }
+          echo "manual/api/index.html matches, $(wc -c < /tmp/shipped.html) bytes"
+          for screenshot in manual/api/*.jpg; do
+            docker run --rm "$IMAGE" cat "/app/$screenshot" > /tmp/shot
+            cmp /tmp/shot "$screenshot" \
+              || { echo "$screenshot is missing or different in the image" >&2; exit 1; }
+            echo "$screenshot matches"
+          done
+
+      # Both environments, because what the container serves at / depends on
+      # API_ENVIRONMENT: render_manual() in apps/api/src/api/main.py drops the
+      # console region in production and the stands-in-for-it note in
+      # development. Serving the wrong half in production would mean an
+      # unauthenticated GraphQL console on the host that serves the data, so
+      # the gate is worth a check of its own rather than a check of "some HTML
+      # came back".
+      - name: Run the container and check what it serves
+        run: |
+          set -euo pipefail
+
+          # Derived from the file the image ships rather than typed in, so
+          # adding a person does not turn this job red.
+          people=$(python3 -c 'import json;print(len(json.load(open("data/family.json"))["people"]))')
+          echo "expecting $people people"
+
+          for environment in production development; do
+            echo "--- $environment"
+            id=$(docker run -d -p "$PORT:8000" -e "API_ENVIRONMENT=$environment" "$IMAGE")
+            trap 'docker rm -f "$id" >/dev/null 2>&1 || true' EXIT
+
+            for attempt in $(seq 1 30); do
+              health=$(curl -fsS --max-time 5 "http://127.0.0.1:$PORT/health" || true)
+              [ -n "$health" ] && break
+              sleep 2
+            done
+            echo "health: $health"
+            [ "$health" = "{\"ok\":true,\"people\":$people}" ] \
+              || { docker logs "$id"; echo "unexpected /health" >&2; exit 1; }
+
+            # The served page is the committed manual with one region removed.
+            # Computing the expectation here from the repository's own copy —
+            # rather than from the image's — is what makes this an assertion
+            # about the artefact instead of a tautology.
+            curl -fsS --max-time 10 "http://127.0.0.1:$PORT/" > /tmp/served.html
+            python3 - "$environment" > /tmp/expected.html <<'PY'
+          import re, sys
+
+          # Mirrors render_manual() in apps/api/src/api/main.py deliberately
+          # rather than importing it: a test that calls the code under test to
+          # work out what it should have produced proves nothing.
+          dropped = "no-console" if sys.argv[1] == "development" else "console"
+          html = open("manual/api/index.html", encoding="utf-8").read()
+          rendered = re.sub(
+              rf"<!-- {dropped}:start -->.*?<!-- {dropped}:end -->", "", html, flags=re.S
+          )
+          # Bytes, not text: the comparison below is byte for byte, and a
+          # text-mode stdout would rewrite the line endings on its way out.
+          sys.stdout.buffer.write(rendered.encode("utf-8"))
+          PY
+            cmp /tmp/served.html /tmp/expected.html \
+              || { echo "/ did not serve the committed manual rendered for $environment" >&2; exit 1; }
+            echo "/ matches the committed manual, $(wc -c < /tmp/served.html) bytes"
+
+            # And the gate itself, stated directly: the console's fetch target
+            # appears in the served page in development and nowhere in it in
+            # production.
+            if [ "$environment" = development ]; then
+              grep -q "var ENDPOINT = '/graphql'" /tmp/served.html \
+                || { echo "development served no console" >&2; exit 1; }
+            else
+              if grep -q "var ENDPOINT = '/graphql'" /tmp/served.html; then
+                echo "production served the console" >&2; exit 1
+              fi
+              grep -q 'without its query console' /tmp/served.html \
+                || { echo "production did not explain the missing console" >&2; exit 1; }
+            fi
+
+            # The screenshots come off the static mount, not the route above.
+            curl -fsS --max-time 10 -o /tmp/shot.jpg "http://127.0.0.1:$PORT/app-generations.jpg" \
+              || { echo "the manual's screenshots are not served" >&2; exit 1; }
+            cmp /tmp/shot.jpg manual/api/app-generations.jpg \
+              || { echo "the served screenshot is not the committed one" >&2; exit 1; }
+
+            docker rm -f "$id" >/dev/null
+            trap - EXIT
+          done
