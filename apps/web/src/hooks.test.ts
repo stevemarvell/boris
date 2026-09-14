@@ -6,6 +6,12 @@ import { describe, expect, it } from 'vitest';
 import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../../.claude/hooks/format-edited.mjs';
 import { ROOT as VERIFY_ROOT } from '../../../.claude/hooks/verify-on-stop.mjs';
 import { decide, filterCommand } from '../../../.claude/hooks/filter-verbose.mjs';
+import {
+  clearAdvice,
+  CLEAR_AT_PERCENT,
+  COLD_CACHE_CLEAR_AT_PERCENT,
+  render,
+} from '../../../.claude/statusline.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -198,5 +204,77 @@ describe('decide', () => {
     for (const bad of [null, undefined, {}, { tool_name: 'Bash' }]) {
       expect(decide(bad)).toEqual({});
     }
+  });
+});
+
+describe('clearAdvice', () => {
+  it('says nothing while the conversation is small', () => {
+    expect(clearAdvice({ contextPercent: 10, cacheWarm: true })).toBeNull();
+  });
+
+  it('nudges once the context is large enough to be worth re-sending', () => {
+    expect(clearAdvice({ contextPercent: CLEAR_AT_PERCENT, cacheWarm: true })).toBe(
+      '/clear between tasks',
+    );
+  });
+
+  it('nudges sooner when the cache is cold', () => {
+    // Cold plus large is the most expensive single message available: the next
+    // turn reprocesses the whole conversation at the uncached rate.
+    const cold = clearAdvice({ contextPercent: COLD_CACHE_CLEAR_AT_PERCENT, cacheWarm: false });
+    expect(cold).toContain('cache cold');
+    expect(clearAdvice({ contextPercent: COLD_CACHE_CLEAR_AT_PERCENT, cacheWarm: true })).toBeNull();
+  });
+
+  it('says nothing when the context is unknown', () => {
+    expect(clearAdvice({ contextPercent: null, cacheWarm: false })).toBeNull();
+  });
+});
+
+describe('statusline render', () => {
+  const payload = {
+    model: { display_name: 'Opus' },
+    workspace: { git_worktree: 'develop' },
+    context_window: { used_percentage: 61 },
+    rate_limits: { five_hour: { used_percentage: 12 }, seven_day: { used_percentage: 78 } },
+    prompt_cache: { warm: true },
+  };
+
+  it('shows the three numbers that answer different questions', () => {
+    const line = render(payload);
+    expect(line).toContain('Opus · develop');
+    expect(line).toContain('61%');
+    expect(line).toContain('5h 12%');
+    expect(line).toContain('wk 78%');
+    expect(line).toContain('/clear');
+  });
+
+  it('stays quiet about the cache while it is warm', () => {
+    expect(render(payload)).not.toContain('cache cold');
+  });
+
+  it('mentions a cold cache once, not twice', () => {
+    // The advice sentence explains it; a separate cell would just repeat it.
+    const line = render({ ...payload, prompt_cache: { warm: false } });
+    expect(line).toContain('cache cold');
+    expect(line.match(/cache cold/g)).toHaveLength(1);
+  });
+
+  it('still flags a cold cache when the context is too small to advise on', () => {
+    const line = render({
+      ...payload,
+      context_window: { used_percentage: 5 },
+      prompt_cache: { warm: false },
+    });
+    expect(line).toContain('cache cold');
+    expect(line).not.toContain('⚠');
+  });
+
+  it('degrades to the model name rather than throwing', () => {
+    // A status line that throws leaves the bar blank and says nothing at all.
+    for (const bad of [null, undefined, {}, 'nonsense', 42]) {
+      expect(() => render(bad)).not.toThrow();
+    }
+    expect(render({})).toBe('claude');
   });
 });

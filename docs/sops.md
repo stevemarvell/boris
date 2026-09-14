@@ -128,7 +128,11 @@ whole conversation"*.
 So the expensive habits are structural, not clever. In order of what they cost:
 
 **Clear between unrelated tasks.** `/clear` costs nothing; `/compact` reads the
-conversation it summarises and is itself a large request. A session that has
+conversation it summarises and is itself a large request. Nobody can call
+`/clear` on your behalf, so the status line at `.claude/statusline.mjs` makes
+the moment visible instead: it shows the context share, both usage windows, and
+says when to clear — loudest when the cache has gone cold on a large context,
+which is the most expensive single message you can send. A session that has
 run through four unrelated topics is re-sending the first three on every turn.
 If you catch yourself saying "the only thing we are discussing is X", that was
 the moment.
