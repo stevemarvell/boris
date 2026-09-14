@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../../.claude/hooks/format-edited.mjs';
 import { ROOT as VERIFY_ROOT } from '../../../.claude/hooks/verify-on-stop.mjs';
+import { decide, filterCommand } from '../../../.claude/hooks/filter-verbose.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -119,5 +120,83 @@ describe('runFixes', () => {
     expect(() => runFixes(malicious)).not.toThrow();
 
     expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe('filterCommand', () => {
+  it('shrinks the command whose output is worst, a CI log', () => {
+    const result = filterCommand('gh run view 123 --log-failed');
+    expect(result?.name).toBe('gh-run-log');
+    expect(result?.command).toContain('grep');
+    expect(result?.command).toMatch(/head -\d+$/);
+  });
+
+  it('keeps context after a match, not just the matching line', () => {
+    // A filter that shows "error" and hides the reason costs a re-run, which
+    // is more than the filter saved.
+    for (const command of ['gh run view 1 --log', 'npm run verify']) {
+      expect(filterCommand(command)?.command).toContain('-A');
+    }
+  });
+
+  it('leaves a command that already pipes or redirects alone', () => {
+    // The caller has said what they want; wrapping it would fight them.
+    for (const command of [
+      'gh run view 123 --log | grep something',
+      'npm run verify > out.txt',
+      'npm audit && echo done',
+      'npm run verify; ls',
+    ]) {
+      expect(filterCommand(command), command).toBeNull();
+    }
+  });
+
+  it('passes through anything not on the list', () => {
+    for (const command of ['git status', 'ls -la', 'npm run dev', 'gh pr list']) {
+      expect(filterCommand(command), command).toBeNull();
+    }
+  });
+
+  it('does not fire on gh run view without a log flag', () => {
+    // That form prints a short step list, which is the thing worth reading.
+    expect(filterCommand('gh run view 123')).toBeNull();
+  });
+
+  it('survives input that is not a command', () => {
+    for (const bad of [undefined, null, 42, '', '   ']) {
+      expect(filterCommand(bad as unknown as string)).toBeNull();
+    }
+  });
+});
+
+describe('decide', () => {
+  it('rewrites a Bash command in the shape a PreToolUse hook must emit', () => {
+    const output = decide({
+      tool_name: 'Bash',
+      tool_input: { command: 'gh run view 9 --log', description: 'read the log' },
+    }) as {
+      hookSpecificOutput?: {
+        hookEventName: string;
+        permissionDecision: string;
+        updatedInput: { command: string; description: string };
+      };
+    };
+
+    expect(output.hookSpecificOutput?.hookEventName).toBe('PreToolUse');
+    expect(output.hookSpecificOutput?.permissionDecision).toBe('allow');
+    expect(output.hookSpecificOutput?.updatedInput.command).toContain('grep');
+    // The rest of the input has to survive, or the tool call loses fields.
+    expect(output.hookSpecificOutput?.updatedInput.description).toBe('read the log');
+  });
+
+  it('has no opinion about tools that are not Bash', () => {
+    expect(decide({ tool_name: 'Read', tool_input: { file_path: 'x' } })).toEqual({});
+  });
+
+  it('has no opinion about a malformed payload', () => {
+    // A hook that cannot read its input must never block the tool call.
+    for (const bad of [null, undefined, {}, { tool_name: 'Bash' }]) {
+      expect(decide(bad)).toEqual({});
+    }
   });
 });
