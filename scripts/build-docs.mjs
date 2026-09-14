@@ -48,6 +48,11 @@ export const MARKDOWN_PAGES = [
     source: join('docs', 'data-governance.md'),
     blurb: 'What the deployments expose, why that is deliberate, and what would change it.',
   },
+  {
+    slug: 'sops',
+    source: join('docs', 'sops.md'),
+    blurb: 'How agent work is run here: bounded loops, work that needs a person, and where a control is proven.',
+  },
 ];
 
 const STYLE = `

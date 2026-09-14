@@ -13,6 +13,7 @@ test.describe('the docs Vercel serves', () => {
     for (const name of [
       'Stages of agentic adoption',
       'Data governance',
+      'Standard operating procedures',
       'Web app manual',
       'API manual',
     ]) {
@@ -34,6 +35,18 @@ test.describe('the docs Vercel serves', () => {
     await expect(page.getByRole('heading', { name: 'Data governance' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'The trigger to revisit' })).toBeVisible();
     await expect(page.locator('body')).toContainText('invented');
+  });
+
+  test('publishes the operating procedures', async ({ page }) => {
+    // An SOP nobody can find is a convention. The declared ceilings are the
+    // part worth reaching the deployment, since they are what an agent is
+    // expected to obey.
+    await page.goto('/docs/sops.html');
+    await expect(page.getByRole('heading', { name: 'Standard operating procedures' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'SOP 1: Every loop declares a maximum' }),
+    ).toBeVisible();
+    await expect(page.locator('table').first()).toBeVisible();
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {
