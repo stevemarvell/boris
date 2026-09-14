@@ -66,8 +66,8 @@ IDE to a different CDN fails a test instead of failing in a browser.
 """
 
 from collections.abc import Mapping
-from typing import Any
 
+from fastapi import FastAPI
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -179,12 +179,12 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
-def install_security_headers(app: Any, *, is_development: bool) -> dict[str, str]:
+def install_security_headers(app: FastAPI, *, is_development: bool) -> dict[str, str]:
     """Add the middleware to `app` and return the headers it will set.
 
     Call this *last*, after every other `add_middleware`, so it ends up
-    outermost. Returning the headers is what lets a test say "these arrived"
-    without re-deriving the list.
+    outermost. The headers come back so a caller can see what was installed
+    without re-deriving the set.
     """
     headers = security_headers(is_development=is_development)
     app.add_middleware(SecurityHeadersMiddleware, headers=headers)
