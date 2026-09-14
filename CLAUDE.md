@@ -16,7 +16,7 @@ deployment, along with the rest of the documentation — see "Documentation".
 | `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
 | `data/` | The family tree itself, stored as files in this repository. |
-| `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments expose and why. |
+| `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments expose and why; `sops.md`, how agent work is run. |
 | `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
 
 ## Rules
@@ -59,6 +59,19 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 - **Deployment config lives in the repo, not in dashboards.** A setting only
   visible in a web console is invisible to everyone working here.
+
+- **Every loop declares a maximum, and reports when it hits it.** No skill,
+  command, or agent retries until it succeeds — an unbounded loop has no upper
+  bound on cost, and three subagents have already been killed mid-task by
+  session limits here. Reaching the ceiling means stop and say what failed;
+  it is the procedure working, not a failure to hide. The declared ceilings,
+  and an honest account of which are mechanically enforced and which are only
+  discipline, are in `docs/sops.md`.
+
+- **Work that needs a person is labelled, not attempted.** A dashboard behind
+  a login, a subjective judgement, a purchase: label the issue `human` *and*
+  `do not automate`, and assign it. An agent that meets one mid-task stops
+  there and reports what remains. Also `docs/sops.md`.
 
 - **Known gaps live in GitHub issues, not in a file.** There was a
   `docs/BACKLOG.md`; it went stale exactly as it predicted it would, because
@@ -154,6 +167,7 @@ cannot reach.
 | `/docs/` | `scripts/build-docs.mjs` | Vercel |
 | `/docs/adoption.html` | `docs/adoption.md` | Vercel |
 | `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
+| `/docs/sops.html` | `docs/sops.md` | Vercel |
 | `/docs/manual/web/` | `manual/web/` | Vercel |
 | `/docs/step-0.html` | `index.html` | Vercel |
 | `/` on the API | `manual/api/` | the API image |

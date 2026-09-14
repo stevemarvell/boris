@@ -21,6 +21,7 @@ beforeEach(() => {
 
   writeFileSync(join(root, 'docs', 'adoption.md'), '# Stages\n\nA **step**.\n\n- [ ] a gap\n');
   writeFileSync(join(root, 'docs', 'data-governance.md'), '# Governance\n\nInvented *data*.\n');
+  writeFileSync(join(root, 'docs', 'sops.md'), '# Procedures\n\nBounded `loops`.\n');
   writeFileSync(join(root, 'index.html'), '<h1>Hello, world</h1>\n');
   writeFileSync(join(root, 'manual', 'web', 'index.html'), '<h1>Web manual</h1>\n');
   writeFileSync(join(root, 'manual', 'web', 'shot.jpg'), 'not really a jpeg');
@@ -72,6 +73,7 @@ describe('buildDocs', () => {
       expect.arrayContaining([
         'adoption.html',
         'data-governance.html',
+        'sops.html',
         'index.html',
         'step-0.html',
       ]),
@@ -79,14 +81,17 @@ describe('buildDocs', () => {
     expect(read('adoption.html')).toContain('<strong>step</strong>');
     expect(read('adoption.html')).toContain('<input type="checkbox" disabled> a gap');
     expect(read('data-governance.html')).toContain('<em>data</em>');
+    expect(read('sops.html')).toContain('<code>loops</code>');
   });
 
   it('titles each page from its own first heading', () => {
     build();
     expect(read('adoption.html')).toContain('<title>Stages</title>');
     expect(read('data-governance.html')).toContain('<title>Governance</title>');
+    expect(read('sops.html')).toContain('<title>Procedures</title>');
     expect(read('index.html')).toContain('>Stages</a>');
     expect(read('index.html')).toContain('>Governance</a>');
+    expect(read('index.html')).toContain('>Procedures</a>');
   });
 
   it('lists the documents in the order the build script declares them', () => {
@@ -95,6 +100,7 @@ describe('buildDocs', () => {
     build();
     const index = read('index.html');
     expect(index.indexOf('adoption.html')).toBeLessThan(index.indexOf('data-governance.html'));
+    expect(index.indexOf('data-governance.html')).toBeLessThan(index.indexOf('sops.html'));
   });
 
   it('publishes the step-0 page exactly as it was written', () => {
