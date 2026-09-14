@@ -46,7 +46,8 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        # Pinned to a commit SHA rather than the tag — see verify.yml.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
 
@@ -55,9 +56,18 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@9cdae7f0d995e3ba7c33f226087fdf82a59cd520 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The action itself is pinned above, but these two lines are not and
+          # cannot be: the marketplace is cloned at run time and the plugin is
+          # resolved from whatever its default branch says today. It is a
+          # moving ref by construction — a pin here would be a clone of a
+          # branch name, not a fixed revision — so this job runs third-party
+          # code that can change between two runs of the same commit, in a job
+          # holding CLAUDE_CODE_OAUTH_TOKEN and the Grafana credentials. What
+          # limits it is that the marketplace is Anthropic's own repository
+          # and this job's GITHUB_TOKEN is read-only.
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
