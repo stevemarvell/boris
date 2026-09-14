@@ -200,10 +200,25 @@ def test_a_cousin_reachable_through_both_parents_is_listed_once() -> None:
     assert [c.id for c in t.cousins("kid")] == ["cousin"]
 
 
+def test_married_in_partner_levels_to_a_deep_spouse() -> None:
+    """Levelling reads the spouse's real depth, not a default of zero."""
+    t = build(
+        ("gp", (), None),
+        ("p", ("gp",), None),
+        ("kid", ("p",), "out"),
+        ("out", (), "kid"),
+    )
+    assert t.generation_of("out") == t.generation_of("kid") == 2
+
+
 def test_descendants_terminate_on_a_parent_cycle() -> None:
-    """A cycle must not hang the walk; generations() is what reports it."""
-    t = build(("a", ("b",), None), ("b", ("a",), None))
-    assert [d.id for d in t.descendants("a")] == ["b"]
+    """A cycle must not hang the walk; generations() is what reports it.
+
+    Three people, because a two-person cycle makes each of them their own
+    grandparent and is refused before the tree is built at all.
+    """
+    t = build(("a", ("c",), None), ("b", ("a",), None), ("c", ("b",), None))
+    assert [d.id for d in t.descendants("a")] == ["b", "c"]
     with pytest.raises(DataError, match="cycle"):
         t.generations()
 
@@ -236,9 +251,22 @@ def test_self_parenting_is_rejected() -> None:
         build(("a", ("a",), None))
 
 
+def test_self_marriage_is_rejected() -> None:
+    """Reciprocity alone reads `x != x` here, which is trivially satisfied."""
+    with pytest.raises(DataError, match="married to themselves"):
+        build(("a", (), "a"))
+
+
+def test_self_grandparenting_is_rejected() -> None:
+    """Two people who are each other's parent are each their own grandparent."""
+    with pytest.raises(DataError, match="their own grandparent"):
+        build(("a", ("b",), None), ("b", ("a",), None))
+
+
 def test_parent_cycle_is_rejected() -> None:
+    """A cycle too long to be caught person-by-person still fails to settle."""
     with pytest.raises(DataError, match="cycle"):
-        build(("a", ("b",), None), ("b", ("a",), None)).generations()
+        build(("a", ("c",), None), ("b", ("a",), None), ("c", ("b",), None)).generations()
 
 
 def test_missing_file_is_reported(tmp_path) -> None:
