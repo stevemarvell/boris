@@ -43,6 +43,11 @@ export const MARKDOWN_PAGES = [
     source: join('docs', 'adoption.md'),
     blurb: 'The ladder this project is climbing, kept in its original wording.',
   },
+  {
+    slug: 'data-governance',
+    source: join('docs', 'data-governance.md'),
+    blurb: 'What the deployments expose, why that is deliberate, and what would change it.',
+  },
 ];
 
 const STYLE = `
