@@ -14,6 +14,12 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # Checkout is the only step that spends GITHUB_TOKEN, and it only reads.
+    # The failure artifact rides the Actions runtime token, not this one.
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 

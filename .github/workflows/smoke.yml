@@ -13,6 +13,11 @@ jobs:
     name: smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # No checkout, and no permissions. This job curls the deployed API and web
+    # app; it never speaks to the GitHub API, so a token buys it nothing.
+    permissions: {}
+
     env:
       API: https://api-production-53f7b.up.railway.app
       WEB: https://family-tree-flame-ten.vercel.app
