@@ -56,12 +56,21 @@ DEFAULT_RATE_LIMIT = "120/minute"
 RATE_LIMIT = os.environ.get("API_RATE_LIMIT", DEFAULT_RATE_LIMIT)
 
 # The prefix the GraphQL router is mounted at in api.main.
-LIMITED_PREFIX = "/graphql"
+# Every path the limit applies to. Adding an endpoint means adding it here --
+# the whitelist is the opt-in the module docstring describes, and a new route
+# is unlimited until it appears in this tuple.
+#
+# /person and /me are cheap next to a deep GraphQL query, but cheap is not
+# free: each one walks the whole tree to derive children and siblings, and the
+# container has to wake before it can refuse anything. They share one budget
+# with /graphql rather than getting their own, so a caller cannot double their
+# allowance by switching surface.
+LIMITED_PREFIXES = ("/graphql", "/person", "/me")
 
 
 def is_limited_path(path: str) -> bool:
     """Whether a request path is subject to the limit. See the module docstring."""
-    return path == LIMITED_PREFIX or path.startswith(f"{LIMITED_PREFIX}/")
+    return any(path == prefix or path.startswith(f"{prefix}/") for prefix in LIMITED_PREFIXES)
 
 
 def client_key(request: Request) -> str:
@@ -120,6 +129,16 @@ def client_key(request: Request) -> str:
     return "unknown"
 
 
+def _one_budget() -> None:
+    """A stable stand-in handler, so every limited path shares one counter.
+
+    slowapi derives the bucket from this function's module and name. Passing
+    the real route handler would give each endpoint its own budget; passing
+    None disables the check under key_style="endpoint". A constant is what
+    makes the limit per caller, which is what it claims to be.
+    """
+
+
 class GraphQLRateLimitMiddleware(BaseHTTPMiddleware):
     """Applies the limiter to the paths in is_limited_path, and to nothing else.
 
@@ -140,8 +159,16 @@ class GraphQLRateLimitMiddleware(BaseHTTPMiddleware):
     rather than asserting the middleware is in the stack.
 
     Nothing is lost by dropping the lookup: the limiter is configured with a
-    default limit and no per-route ones, and its default key style is the URL,
-    so the path is what it would have counted against anyway.
+    default limit and no per-route ones, so there is no per-route limit for a
+    handler to select.
+
+    What the lookup's absence *did* cost, until it was noticed: with slowapi's
+    default key_style of "url", the bucket included the request path, so every
+    distinct URL got its own budget. One endpoint hid that completely. Adding
+    /person/{id} would have handed a caller one budget per person. The limiter
+    is now built with key_style="endpoint" and handed the _one_budget sentinel
+    on every request, so the path drops out of the key and the limit is what it
+    says it is: per caller.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -150,7 +177,7 @@ class GraphQLRateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         error_response, inject_headers = await async_check_limits(
-            limiter, request, None, request.app
+            limiter, request, _one_budget, request.app
         )
         if error_response is not None:
             return error_response
@@ -191,6 +218,22 @@ def install_rate_limiting(app: FastAPI, *, limit: str | None = None) -> Limiter:
     limiter = Limiter(
         key_func=client_key,
         default_limits=[limit or RATE_LIMIT],
+        # One bucket per caller, not one per caller per URL.
+        #
+        # slowapi's default key_style is "url", which appends the request path
+        # to the key. With a single endpoint that is invisible; with /person/{id}
+        # it is a hole, because every id is a different path and therefore a
+        # different budget -- 44 people meant 44 times the limit. Measured:
+        # five requests to one path gave 200,200,200,429,429 and five requests
+        # to five paths gave 200 throughout.
+        #
+        # "endpoint" keys on the handler's qualified name instead, and
+        # GraphQLRateLimitMiddleware passes the same _one_budget sentinel for
+        # every request, so the name is constant and the path drops out. Note
+        # that this style with a *None* handler disables limiting entirely --
+        # _endpoint_key would be "" and _check_request_limit returns early --
+        # which is why the sentinel is not optional.
+        key_style="endpoint",
         # Tell a well-behaved client what its budget is, and how long to wait,
         # instead of making it guess from a bare 429.
         headers_enabled=True,

@@ -274,3 +274,53 @@ def test_a_client_with_no_address_at_all_still_gets_a_key() -> None:
 )
 def test_only_the_graphql_endpoint_is_in_scope(path: str, limited: bool) -> None:
     assert limits.is_limited_path(path) is limited
+
+
+def test_the_rest_routes_share_the_graphql_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """New paths are unlimited until they opt in, so assert they did.
+
+    /person and /me are cheap next to a deep query, but they walk the tree to
+    derive children and siblings, and an unlimited path is a way around the
+    limit rather than an exception to it. One budget across both surfaces:
+    spending it on /person must leave none for /graphql.
+    """
+    client = limited_client(monkeypatch, "3/minute")
+
+    assert client.get("/person/fred-shaw").status_code == 200
+    assert client.get("/me", headers={"X-Person-Id": "fred-shaw"}).status_code == 200
+    assert client.get("/person/nora-pike").status_code == 200
+
+    assert client.get("/person/fred-shaw").status_code == 429
+    # And the budget is shared, not per-path.
+    assert post_graphql(client).status_code == 429
+
+
+def test_health_is_still_exempt_beside_the_rest_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Railway healthchecks it; a 429 there reads as an unhealthy deployment."""
+    client = limited_client(monkeypatch, "1/minute")
+
+    assert client.get("/person/fred-shaw").status_code == 200
+    assert client.get("/person/fred-shaw").status_code == 429
+    for _ in range(5):
+        assert client.get("/health").status_code == 200
+
+
+def test_the_limit_is_per_caller_not_per_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: slowapi's default key_style put the path in the bucket.
+
+    With one endpoint that was invisible. /person/{id} makes every id its own
+    URL, so the default would have given a caller one budget per person --
+    forty-four times the stated limit. Fails before the key_style change.
+    """
+    client = limited_client(monkeypatch, "3/minute")
+    ids = ["fred-shaw", "nora-pike", "albert-shaw", "agnes-shaw", "ellie-shaw"]
+
+    codes = [client.get(f"/person/{person_id}").status_code for person_id in ids]
+
+    assert codes == [200, 200, 200, 429, 429]
