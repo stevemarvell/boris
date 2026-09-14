@@ -67,15 +67,38 @@ Open is not the same as unguarded. What an anonymous caller can do is bounded
   introspection and serves no GraphiQL. It is never set on Railway, so the
   deployed behaviour is the default and a forgotten variable fails closed. Both
   are confirmed by the table above.
-- **Rate limiting** — #48, in flight. The depth limit caps what one query
-  costs and says nothing about a thousand cheap ones, which matters more than
-  usual here: Railway has no WAF and the service sleeps when idle, so the
-  container has to wake before it can refuse anything.
-- **A gate on the query console** — #52, in flight. The API serves its own
-  manual at its root, with a **Run query** button posting to `/graphql` on the
-  same origin: a working console, no setup, no CORS negotiation. Gating it on
-  `API_ENVIRONMENT` the way the IDE already is costs little and uses a
-  mechanism that already exists.
+- **Rate limiting.** 120 requests per minute per caller, on `/graphql` only,
+  in `apps/api/src/api/limits.py`. The depth limit caps what one query costs
+  and says nothing about a thousand cheap ones, which matters more than usual
+  here: Railway has no WAF and the service sleeps when idle, so the container
+  has to wake before it can refuse anything. `/health` and the manual are
+  deliberately *not* limited — `/health` is Railway's healthcheck, and a 429
+  there reads as an unhealthy deployment, so a burst would become a restart
+  loop.
+
+  Measured against a deployed pull request environment, 600 concurrent
+  queries in 9.5 seconds: **120 answered, 480 refused, one counter.** Worth
+  recording that the first version of this measured very differently — 571
+  answered, 29 refused, one caller split across five counters — because it
+  keyed on the rightmost `X-Forwarded-For` hop, and Railway's edge is a pool
+  of five nodes. It was installed, running, returning correct-looking
+  `x-ratelimit-*` headers, and enforcing roughly five times the configured
+  limit. Its unit tests passed throughout, because `TestClient` is one process
+  with one stable key and the deployment is neither. That is the fourth time
+  in this repository's history that a control was present and inert, and the
+  only thing that has ever caught one is measuring the deployed service.
+- **A gate on the query console.** The API serves its own manual at its root,
+  and that manual used to carry a **Run query** button posting to `/graphql`
+  on the same origin: a working console, no setup, no CORS negotiation. It is
+  now gated on `API_ENVIRONMENT`, the same mechanism as the IDE, so production
+  serves the documentation without the console — confirmed on the deployment,
+  which returns the manual with no `id="run"` and no endpoint string. The
+  worked examples remain, with a `curl` that names whichever deployment is
+  serving it.
+
+  The gate reaches pull request environments too, since `API_ENVIRONMENT` is
+  unset there as well. Setting `API_ENVIRONMENT=development` on one restores
+  its console, and opens GraphiQL and introspection there in the same move.
 
 One smaller decision belongs in the same list: `allow_queries_via_get=False`,
 also in `api/main.py`. A GraphQL query is a short string that can trigger an

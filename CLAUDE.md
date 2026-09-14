@@ -82,7 +82,7 @@ There is no GitHub Pages entry any more. Pages on a private repository needs a
 paid plan, so everything it published moved onto the two deployments this
 project already has.
 
-Three settings are load-bearing and non-obvious:
+Four settings are load-bearing and non-obvious:
 
 - Railway ignores `railway.json`'s `builder` field. Railpack reads the root
   `package.json`, concludes the repo is Node, and fails with *"No start command
@@ -101,6 +101,15 @@ Three settings are load-bearing and non-obvious:
   which therefore serve the manual without its console; set
   `API_ENVIRONMENT=development` on the pull request environment to get it
   back there, remembering that it opens GraphiQL and introspection too.
+- The API's `API_RATE_LIMIT` service variable sets the per-caller limit on
+  `/graphql` (see `apps/api/src/api/limits.py`). Like `API_ENVIRONMENT` it is
+  never set on Railway and defaults to a real value, `120/minute`, so a
+  deployment nobody configured is still limited. Counters are per process and
+  in memory, so they reset on every deploy and every wake from
+  `sleepApplication` — a ceiling on abuse, not a quota. The caller is
+  identified by `X-Real-IP`, because Railway's edge is a pool and the last
+  `X-Forwarded-For` hop names the edge node rather than the caller; keying on
+  that hop silently multiplies the limit by the size of the pool.
 
 `VITE_API_URL` is read at build time. The Railway integration syncs the API
 service's `API_URL` variable into Vercel, and `scripts/write-api-url.mjs` maps
