@@ -77,6 +77,16 @@ test.describe('the docs Vercel serves', () => {
       page.getByRole('heading', { name: 'SOP 6: Decide and act; report after' }),
     ).toBeVisible();
     await expect(page.locator('body')).toContainText('recoverability, not scope');
+
+    // SOP 7 names two files, and the whole rule is which of them is reviewed.
+    // A published copy missing the untracked one would read as advice about a
+    // single file, which is the opposite of what it says.
+    await expect(
+      page.getByRole('heading', { name: 'SOP 7: An approval belongs where it can be reviewed' }),
+    ).toBeVisible();
+    for (const file of ['.claude/settings.json', '.claude/settings.local.json']) {
+      await expect(page.locator('body')).toContainText(file);
+    }
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {

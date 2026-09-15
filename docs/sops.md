@@ -282,3 +282,71 @@ read `CLAUDE.md`, so practice that changed in conversation but not in the file
 comes back as a finding on every pull request. Two `high` findings on #115 were
 exactly that — correct against the file, stale against the instruction. The
 file is the standard; conversation is not.
+
+---
+
+## SOP 7: An approval belongs where it can be reviewed
+
+Claude Code reads permissions from two files here:
+
+| File | Tracked | Reviewed by |
+| --- | --- | --- |
+| `.claude/settings.json` | yes | every pull request, both review agents, anyone reading the repository |
+| `.claude/settings.local.json` | **no** — gitignored | nobody |
+
+Both grant the same thing. Only one of them is looked at.
+
+### What went wrong
+
+#56 found a wildcard in the tracked file that pre-approved arbitrary code
+execution in the project virtualenv, and replaced it with the specific commands
+actually in use. That fix was reviewed, merged, and holds: the tracked file is
+still 26 real entries.
+
+The local file then grew to 52, including `Bash(python -)` — arbitrary Python
+from standard input, the same capability #56 was closed for removing, by a
+shorter route. Nobody decided that. Each entry was one "yes" at one prompt
+during real work, frozen into a permanent rule, in a file no review reads.
+
+Fourteen of the 52 can never match again: a merge of pull request 4, pushes to
+branches deleted long ago, `curl`s against a Railway hostname two hostnames
+out of date. They are harmless in themselves and they are most of why this
+matters — noise that makes the four dangerous entries hard to see.
+
+### The boundary
+
+**Tracked, in `.claude/settings.json`:** anything the project's own loop needs,
+on any machine, for any person or agent. `npm run *`, the `uv run --directory
+apps/api` commands, git and `gh` operations, `curl` against localhost and the
+deployed hosts. If every session here would approve it, it belongs where the
+reviewers see it.
+
+**Local, in `.claude/settings.local.json`:** genuinely machine-specific
+convenience, and nothing else. A path that exists on one laptop; a tool nobody
+else here runs.
+
+**Neither:** anything that reads a secret or changes what the world can reach.
+`railway variables` prints the deployment's environment, Grafana credential
+included. Leave it prompting. A prompt on a rare command costs a second; a
+pre-approval on it costs the ability to notice.
+
+The failure mode this rule exists to prevent is the one that happened: the
+tracked file is too narrow, so approvals accumulate in the local file instead,
+and the local file is where permissions go to escape review. Widen the tracked
+file rather than letting the untracked one absorb the difference.
+
+### What enforces this
+
+Nothing mechanical, and there is a specific reason it cannot be an agent's job
+to fix. **An agent cannot edit either file.** Attempted on 2026-09-15 and
+refused by the auto-mode classifier — an agent changing its own permission
+grants is an agent deciding what it is allowed to do, and "I was only
+tightening it" is what the unsafe version would say too. The same gate refused
+two edits to `CLAUDE.md`'s restraint rule the same day (SOP 6).
+
+So permission changes are `human` work by construction, not by preference —
+#118 is labelled that way on evidence. What an agent can do is audit the files
+and report, which is how #118 got its list.
+
+The `/fewer-permission-prompts` skill does the tidying mechanically and has
+never been run here.
