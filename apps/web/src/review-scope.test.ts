@@ -31,6 +31,17 @@ describe('reviewScope', () => {
     }
   });
 
+  it('folds case before testing the directory prefix', () => {
+    // The extension test was lowercased and the prefix tests were not, so
+    // `.CLAUDE/agents/security-checker.md` skipped both reviews — the exact
+    // disarming the test above exists to prevent.
+    expect(isProse('.CLAUDE/agents/security-checker.md')).toBe(false);
+    expect(reviewScope(['.CLAUDE/agents/security-checker.md'])).toMatchObject({
+      code: true,
+      security: true,
+    });
+  });
+
   it('does not treat Markdown under .github as prose', () => {
     expect(reviewScope(['.github/PULL_REQUEST_TEMPLATE.md'])).toMatchObject({
       code: true,

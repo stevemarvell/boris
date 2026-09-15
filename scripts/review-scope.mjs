@@ -43,8 +43,8 @@ export const GOVERNANCE = 'docs/data-governance.md';
  * narrow: see the three exceptions in this file's header.
  */
 export function isProse(path) {
-  const clean = String(path).trim().replace(/^\.\//, '');
-  if (!clean.toLowerCase().endsWith('.md')) return false;
+  const clean = String(path).trim().replace(/^\.\//, '').toLowerCase();
+  if (!clean.endsWith('.md')) return false;
   if (clean.startsWith('.claude/') || clean.startsWith('.github/')) return false;
   return true;
 }
