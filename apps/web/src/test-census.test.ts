@@ -233,6 +233,22 @@ describe('censusVerdict', () => {
     expect(verdict.detail).toContain('refactor');
   });
 
+  it('counts a brand-new table-driven file rather than calling it a refactor', () => {
+    // Found in review, on this pull request itself: a file absent from the
+    // base is also absent from its tabular list, so a new table-driven file
+    // took the refactor exclusion and vanished from the total, with the
+    // summary explaining the disappearance as a refactor of something that
+    // had never existed. The check reported "holds at 368" on the pull
+    // request adding twenty-five tests.
+    const verdict = censusVerdict({
+      base: census({}),
+      head: census({ 'new.test.ts': `it${'.each'}([1, 2, 3])('case %i', () => {});\n` }),
+    });
+    expect(verdict.ok).toBe(true);
+    expect(verdict.headline).toContain('rises from 0 to 1');
+    expect(verdict.detail).not.toContain('refactor');
+  });
+
   it('keeps a file that was already table-driven inside the comparison', () => {
     // The whole reason declarations are counted rather than results: deleting
     // a parametrised function from a suite that has always been parametrised

@@ -149,7 +149,16 @@ export function censusVerdict({ base, head, body = '' } = {}) {
   const left = { counts: {}, tabular: {}, ...(base ?? {}) };
   const right = { counts: {}, tabular: {}, ...(head ?? {}) };
 
-  const converted = Object.keys(right.tabular).filter((path) => !(path in left.tabular));
+  // `path in left.counts`, not `!(path in left.tabular)`. A file absent from
+  // the base is also absent from its tabular list, so the first spelling
+  // dropped every *new* table-driven file out of the count and told the reader
+  // it was "a refactor" — which it is not, and this pull request was the
+  // example: the file adding this check reported "holds at 368" while adding
+  // twenty-five tests. Only a file that was there, countable, and has become
+  // table-driven can read as a removal, and only that one needs excluding.
+  const converted = Object.keys(right.tabular).filter(
+    (path) => path in left.counts && !(path in left.tabular),
+  );
   const excluded = new Set(converted);
   const sum = (side) =>
     Object.entries(side.counts)
