@@ -65,6 +65,19 @@ describe('countTests', () => {
     expect(python.tabular[0]).toContain('parametrize');
   });
 
+  it('counts the tagged-template table too, not only the array one', () => {
+    // Found in review. `it.each` with a template literal is ordinary vitest
+    // syntax, and the first draft's regex wanted a `(` where the backtick is.
+    // It counted zero while still flagging the file as table-driven, so
+    // deleting the whole block would have moved the total by nothing — a
+    // missing declaration rather than the missing rows the header discloses.
+    const tagged = `it${'.each'}\`\n  a | b\n  1 | 2\n\`('adds %i', () => {});\n`;
+    expect(countTests('a.test.ts', tagged)).toMatchObject({ count: 1 });
+
+    const both = `${tagged}it('a literal one', () => {});\n`;
+    expect(countTests('a.test.ts', both).count).toBe(2);
+  });
+
   it('flags nothing when nothing is table-driven', () => {
     expect(countTests('a.test.ts', ts('one'))).toMatchObject({ count: 1, tabular: [] });
     expect(countTests('tests/test_a.py', py('one'))).toMatchObject({ count: 1, tabular: [] });
@@ -79,6 +92,19 @@ describe('isTestFile', () => {
     expect(isTestFile('apps/api/tests/test_tree.py')).toBe(true);
   });
 
+  it('recognises a test file however deep it sits', () => {
+    // Found in review. Requiring a Python test to be a direct child of
+    // `tests/` meant that reorganising a suite into `tests/unit/` dropped
+    // every file in it out of *both* trees — so no delta is ever computed and
+    // nothing reports a thing. Not a removal this check misses: a file it
+    // silently stops covering, permanently. Matching pytest's own discovery
+    // rule — the basename, at any depth — is what closes it.
+    expect(isTestFile('apps/api/tests/unit/test_tree.py')).toBe(true);
+    expect(isTestFile('apps/api/tests/unit/deep/test_tree.py')).toBe(true);
+    expect(isTestFile('apps/api/src/api/tree_test.py')).toBe(true);
+    expect(isTestFile('apps/web/src/components/cards/PersonCard.test.tsx')).toBe(true);
+  });
+
   it('ignores source files, fixtures and anything vendored', () => {
     for (const path of [
       'apps/web/src/api.ts',
@@ -86,6 +112,7 @@ describe('isTestFile', () => {
       'apps/web/e2e/api-servers.ts',
       'node_modules/x/index.test.js',
       'apps/web/node_modules/x/a.test.ts',
+      'apps/api/.venv/Lib/site-packages/pytest/test_thing.py',
       'docs/adoption.md',
     ]) {
       expect(isTestFile(path)).toBe(false);
@@ -226,12 +253,28 @@ describe('the premise: this repository can actually be counted', () => {
     .map((path) => relative(root, path).split('\\').join('/'))
     .filter(isTestFile);
 
+  const everything = walk(join(root, 'apps')).map((path) =>
+    relative(root, path).split('\\').join('/'),
+  );
+
   it('finds every suite, including the ones not in apps/web', () => {
     expect(testFiles.length).toBeGreaterThan(10);
     expect(testFiles).toContain('apps/web/src/test-census.test.ts');
     expect(testFiles.some((path) => path.startsWith('apps/api/tests/'))).toBe(true);
     expect(testFiles.some((path) => path.startsWith('apps/mcp/tests/'))).toBe(true);
     expect(testFiles.some((path) => path.endsWith('.spec.ts'))).toBe(true);
+  });
+
+  it('leaves behind no file that looks like a test', () => {
+    // The check above would still pass if one file quietly stopped matching,
+    // which is how the nested-directory gap got in. This one asks the
+    // question the other way round: of everything on disk that a person would
+    // call a test, is there anything the census does not see?
+    const looksLikeATest = everything.filter((path) =>
+      /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|[^/]*\.(test|spec)\.[jt]sx?)$/.test(path),
+    );
+    expect(looksLikeATest.length).toBeGreaterThan(10);
+    expect(looksLikeATest.filter((path) => !isTestFile(path))).toEqual([]);
   });
 
   it('finds tests in every one of them', () => {

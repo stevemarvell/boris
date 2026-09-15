@@ -33,12 +33,21 @@
 // that reason.
 import { pathToFileURL } from 'node:url';
 
-/** Test files, by the conventions this repository actually uses. */
+/**
+ * Test files, by name rather than by where they sit.
+ *
+ * The first draft required a Python test to be a direct child of `tests/`, so
+ * `apps/api/tests/unit/test_foo.py` would have matched nothing — and a file
+ * that matches nothing vanishes from *both* trees, which is not a removal this
+ * check reports but a file it silently stops covering, permanently. That is
+ * the shape SOP 3 is about, so the rule is the basename: pytest's own default
+ * discovery is `test_*.py` and `*_test.py` at any depth, and this follows it.
+ */
 export function isTestFile(path) {
   const clean = String(path).trim().replace(/^\.\//, '');
-  if (/(^|\/)node_modules\//.test(clean)) return false;
+  if (/(^|\/)(node_modules|\.venv|site-packages|__pycache__)\//.test(clean)) return false;
   if (/\.(test|spec)\.(ts|tsx|mts|js|mjs)$/.test(clean)) return true;
-  if (/(^|\/)tests?\/test_[^/]+\.py$/.test(clean)) return true;
+  if (/(^|\/)(test_[^/]*|[^/]*_test)\.py$/.test(clean)) return true;
   return false;
 }
 
@@ -72,9 +81,14 @@ export function countTests(path, source) {
     return { count: defs.length, tabular };
   }
 
+  // The trailing `[(\`]` admits vitest's tagged-template table,
+  // ``it.each`a | b` ``, and not only ``it.each([…])``. Without the backtick
+  // that declaration counted zero while the file was still flagged tabular —
+  // so deleting the whole block would have moved the total by nothing at all,
+  // which is worse than the row-level blind spot this check discloses.
   const calls =
     text.match(
-      /(^|[^.\w$])(it|test)(\.(skip|only|todo|fails|concurrent|sequential|runIf|skipIf|each|for))*[ \t]*\(/g,
+      /(^|[^.\w$])(it|test)(\.(skip|only|todo|fails|concurrent|sequential|runIf|skipIf|each|for))*[ \t]*[(`]/g,
     ) ?? [];
   return { count: calls.length, tabular };
 }
