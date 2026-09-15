@@ -37,10 +37,27 @@ deployment, along with the rest of the documentation — see "Documentation".
 - **Every change ships as a pull request.** Branch off `develop`, push the
   branch, then open a PR with `gh pr create --base develop`. Never commit or
   push directly to `develop` — a repository ruleset enforces this. Merge once
-  `verify` is green; stop and ask for anything destructive, outward-facing, or
-  beyond what was asked. The branch is deleted on merge by GitHub
+  `verify` is green. The branch is deleted on merge by GitHub
   (`delete_branch_on_merge`) — a repository setting, so it is recorded here
   rather than being visible in any file.
+
+- **Decide and act; report after.** This rule used to end *stop and ask for
+  anything destructive, outward-facing, or beyond what was asked*. That was
+  retired on 2026-09-15 on the instruction "you are supposed to be autonomous".
+  Pick the option you would have recommended, do it, and say what was done and
+  why — a recommendation offered as a question is work handed back.
+
+  What still stops is narrow, and the test is **recoverability, not scope**:
+  work nobody can get back, money, or anything reaching a third party. A
+  repository setting, a merged branch, a redeployed preview, an issue, a
+  follow-up pull request — decide those, and record them in the pull request
+  body. That is what makes the decision reviewable after the fact rather than
+  unreviewable before it, and the two reviewers read that body. The line, what
+  is on each side of it, and what this does *not* license: `docs/sops.md` SOP 6.
+
+  Both reviewers still measure against this file, so a change of practice that
+  is not written here reappears as a finding on every pull request until it is.
+  That is the rule working: the file is the standard, not the conversation.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
@@ -112,13 +129,12 @@ deployment, along with the rest of the documentation — see "Documentation".
 | API manual | `/` on the Railway API | `manual/api/`, copied into the image |
 
 There is no GitHub Pages entry any more. Pages on a private repository needs a
-paid plan, so everything it published moved onto the two deployments this
-project already has.
+paid plan, so everything it published moved onto the two deployments above.
 
-Five settings are load-bearing and non-obvious, and every one of them was
-learned by something breaking quietly: which `railway.json` keys Railway
-honours, what actually selects the Dockerfile, how `API_ENVIRONMENT` and
-`API_RATE_LIMIT` behave, and how `VITE_API_URL` resolves per environment.
+Several settings here are load-bearing, non-obvious, and were each learned by
+something breaking quietly — which `railway.json` keys Railway honours, what
+selects the Dockerfile, how `API_ENVIRONMENT`, `API_RATE_LIMIT` and
+`VITE_API_URL` resolve, and how preview environments live and die.
 **Read the `deployment` skill before changing anything that deploys.**
 
 ## Documentation
@@ -142,11 +158,9 @@ npm install && npm run dev            # web app on http://localhost:5173
 cd apps/api && API_ENVIRONMENT=development uv run uvicorn api.main:app --reload   # API on :8000
 ```
 
-`API_ENVIRONMENT=development` opts back into the GraphQL IDE at `/graphql`,
-schema introspection, and the query console in the manual at `/`, all three off
-by default. Omit it and the API behaves exactly as it does in production. The
-manual itself is served whole either way — production drops the console and
-says so in its place, rather than dropping the documentation.
+`API_ENVIRONMENT=development` opts back into the GraphQL IDE, introspection and
+the manual's query console, all three off by default; omit it and the API
+behaves exactly as in production. The `deployment` skill has the rest.
 
 ```bash
 npm run verify        # everything, about a minute
@@ -184,13 +198,8 @@ End-to-end ports are derived from the worktree directory name by
 `scripts/ports.mjs`, so two checkouts never fight over a port. Set
 `E2E_API_PORT` and `E2E_WEB_PORT` to override.
 
-A branch gets a Vercel preview; a *pull request* gets a Railway environment too,
-at `api-boris-pr-<number>.up.railway.app`, torn down when it closes. So a branch
-with no pull request open shares the production API — treat the deployed API as
-shared state until a pull request exists. The two do not pair themselves; the
-`deployment` skill has why, and the script that fixes it.
-
-A Vercel preview outlives the branch it was built from: deleting the branch
-leaves `family-tree-git-<branch>-…vercel.app` serving its last build. Nothing
-retires them on this plan — Deployment Retention is not on Hobby — so they go
-only by hand.
+A branch gets a Vercel preview; a *pull request* gets a Railway environment too.
+So a branch with no pull request open shares the production API — treat the
+deployed API as shared state until one exists. Previews outlive the branches
+they were built from, and only one of the two providers tears anything down:
+the `deployment` skill has the lifecycle, and the retry for a stuck one.

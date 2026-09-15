@@ -68,6 +68,15 @@ test.describe('the docs Vercel serves', () => {
     for (const rank of ['critical', 'high', 'medium']) {
       await expect(scale).toContainText(rank);
     }
+
+    // SOP 6 is the one an agent is most likely to act on without reading, so
+    // it is the one most worth proving is readable by someone who has not.
+    // (It also now follows SOP 5, which is why the locator above stopped
+    // being `table.last()`.)
+    await expect(
+      page.getByRole('heading', { name: 'SOP 6: Decide and act; report after' }),
+    ).toBeVisible();
+    await expect(page.locator('body')).toContainText('recoverability, not scope');
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {

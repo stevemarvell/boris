@@ -39,6 +39,8 @@ Five settings are load-bearing and non-obvious:
   which therefore serve the manual without its console; set
   `API_ENVIRONMENT=development` on the pull request environment to get it
   back there, remembering that it opens GraphiQL and introspection too.
+  The manual itself is served whole either way: production drops the console
+  and says so in its place, rather than dropping the documentation with it.
 - The API's `API_RATE_LIMIT` service variable sets the per-caller limit on
   `/graphql` (see `apps/api/src/api/limits.py`). Like `API_ENVIRONMENT` it is
   never set on Railway and defaults to a real value, `120/minute`, so a
