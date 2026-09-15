@@ -62,7 +62,51 @@ resolves per environment rather than being typed out.
 ## Preview environments
 
 Every pull request gets both a Vercel preview and a Railway PR environment at
-`api-boris-pr-<number>.up.railway.app`, and they are torn down on merge.
+`api-boris-pr-<number>.up.railway.app`.
+
+**Only one of the two is actually torn down.** Railway removes its environment
+when the pull request closes — checked on 2026-09-15, every
+`api-boris-pr-<n>/health` for #97, #98, #108, #110, #111, #112 and #114 returns
+`404`. Vercel removes nothing. The preview deployment and its
+`family-tree-git-<branch>-…vercel.app` alias survive the merge *and* the branch
+deletion: the same check found 24 of them still serving `200`, for branches
+whose pull requests had all merged, one of them from a merge four minutes
+earlier.
+
+Nothing collects them on this plan. Deployment Retention is a Pro feature and
+the team is on Hobby, so the options are `vercel remove` or the dashboard, both
+by hand. What *is* automated is the cause — `delete_branch_on_merge` is set on
+the repository, so branches no longer pile up even though their previews do.
+
+This is not an exposure. `docs/data-governance.md` records that previews are
+open deliberately, because a reviewing agent has to be able to load one, and a
+stale preview serves the same invented tree as production. It is worth knowing
+because "the branch is gone" reads as "the preview is gone", and it is not.
+
+### A failed PR deployment, and why retrying it leaves the check red
+
+The `family-tree - api` status can fail for Railway's own reasons. It did on
+#115: the image built (the same Dockerfile the `image` job builds green on
+every run) and the deploy step failed, on a pull request that changed two
+Markdown files.
+
+`railway redeploy` fixes it and **does not clear the status**. The retry:
+
+```bash
+railway link --project 51b91279-9dfc-4a65-83c2-630caa6d480c \
+  --environment boris-pr-<number> --service api
+railway redeploy --service api --yes
+```
+
+`redeploy` takes no `--environment`, so the `link` is what selects it. After
+that succeeded, `api-boris-pr-115/health` returned `200` with the branch's own
+commit — and the GitHub commit status still read *Deployment failed*, because
+Railway posts it from the GitHub integration and a CLI deploy is not that.
+
+So a red `family-tree - api` means "check the environment", not "the branch is
+broken". Curl the health endpoint before believing it. `verify` remains the
+only required check, which is why one status stuck on a stale failure does not
+block a merge.
 
 They do **not** pair themselves. The Railway integration syncs the *production*
 environment's `API_URL` into Vercel for previews as well as production, so a

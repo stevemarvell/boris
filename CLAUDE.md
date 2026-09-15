@@ -38,7 +38,9 @@ deployment, along with the rest of the documentation — see "Documentation".
   branch, then open a PR with `gh pr create --base develop`. Never commit or
   push directly to `develop` — a repository ruleset enforces this. Merge once
   `verify` is green; stop and ask for anything destructive, outward-facing, or
-  beyond what was asked.
+  beyond what was asked. The branch is deleted on merge by GitHub
+  (`delete_branch_on_merge`) — a repository setting, so it is recorded here
+  rather than being visible in any file.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
@@ -182,6 +184,13 @@ End-to-end ports are derived from the worktree directory name by
 `scripts/ports.mjs`, so two checkouts never fight over a port. Set
 `E2E_API_PORT` and `E2E_WEB_PORT` to override.
 
-Vercel builds a preview for every branch. Railway does not — every worktree
-shares one API until PR environments exist, so treat the deployed API as shared
-state.
+A branch gets a Vercel preview; a *pull request* gets a Railway environment too,
+at `api-boris-pr-<number>.up.railway.app`, torn down when it closes. So a branch
+with no pull request open shares the production API — treat the deployed API as
+shared state until a pull request exists. The two do not pair themselves; the
+`deployment` skill has why, and the script that fixes it.
+
+A Vercel preview outlives the branch it was built from: deleting the branch
+leaves `family-tree-git-<branch>-…vercel.app` serving its last build. Nothing
+retires them on this plan — Deployment Retention is not on Hobby — so they go
+only by hand.
