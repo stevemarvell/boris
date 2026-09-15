@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderMarkdown } from '../../../scripts/markdown.mjs';
-import { GOVERNANCE, isProse, reviewScope } from '../../../scripts/review-scope.mjs';
+import { GOVERNANCE, canonical, isProse, reviewScope } from '../../../scripts/review-scope.mjs';
 
 describe('reviewScope', () => {
   it('runs both reviews when anything but prose changed', () => {
@@ -29,6 +29,32 @@ describe('reviewScope', () => {
       expect(isProse(rubric)).toBe(false);
       expect(reviewScope([rubric])).toMatchObject({ code: true, security: true });
     }
+  });
+
+  it('folds case everywhere a path is compared, not just on the extension', () => {
+    // #101: the extension test lowercased and the two prefix tests did not, so
+    // `.CLAUDE/...` skipped both reviews — the exact disarming the test above
+    // exists to prevent — and `docs/data-governance.MD` skipped the security
+    // review of the file that *is* the security posture.
+    expect(isProse('.CLAUDE/agents/security-checker.md')).toBe(false);
+    expect(reviewScope(['.CLAUDE/agents/security-checker.md'])).toMatchObject({
+      code: true,
+      security: true,
+    });
+    expect(reviewScope(['.GITHUB/workflows/verify.md'])).toMatchObject({
+      code: true,
+      security: true,
+    });
+    expect(reviewScope(['docs/data-governance.MD'])).toMatchObject({
+      code: false,
+      security: true,
+    });
+  });
+
+  it('routes every comparison through one normalisation', () => {
+    // The defect was two spellings of "the same path". Asserting the helper
+    // directly is what stops a future comparison growing its own.
+    expect(canonical('  ./Docs/Data-Governance.MD  ')).toBe(GOVERNANCE);
   });
 
   it('does not treat Markdown under .github as prose', () => {

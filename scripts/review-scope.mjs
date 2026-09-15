@@ -39,12 +39,24 @@ import { pathToFileURL } from 'node:url';
 export const GOVERNANCE = 'docs/data-governance.md';
 
 /**
+ * One spelling of a path, for every comparison in this file.
+ *
+ * Case folding happens here and nowhere else, which is the point. The defect
+ * in #101 was one comparison lowercasing and the next one not: the extension
+ * test folded case, the directory-prefix test did not, and
+ * `.CLAUDE/agents/security-checker.md` skipped both of its own reviews.
+ */
+export function canonical(path) {
+  return String(path).trim().replace(/^\.\//, '').toLowerCase();
+}
+
+/**
  * True when a path is prose that no deployment can execute. Deliberately
  * narrow: see the three exceptions in this file's header.
  */
 export function isProse(path) {
-  const clean = String(path).trim().replace(/^\.\//, '');
-  if (!clean.toLowerCase().endsWith('.md')) return false;
+  const clean = canonical(path);
+  if (!clean.endsWith('.md')) return false;
   if (clean.startsWith('.claude/') || clean.startsWith('.github/')) return false;
   return true;
 }
@@ -67,7 +79,7 @@ export function reviewScope(paths) {
   }
 
   const code = files.filter((path) => !isProse(path));
-  const governance = files.filter((path) => path.replace(/^\.\//, '') === GOVERNANCE);
+  const governance = files.filter((path) => canonical(path) === GOVERNANCE);
 
   if (code.length > 0) {
     return {
