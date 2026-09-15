@@ -1,10 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
 import { ports } from '../../scripts/ports.mjs';
+import {
+  API_PORT,
+  API_URL,
+  LIMITED_API_PORT,
+  LIMITED_API_URL,
+  LIMITED_RATE_LIMIT,
+} from './e2e/api-servers';
 
 // Derived from the worktree directory so parallel agents do not collide.
-// E2E_API_PORT / E2E_WEB_PORT override.
-const { api: API_PORT, web: WEB_PORT } = ports();
-const API_URL = `http://127.0.0.1:${API_PORT}`;
+// E2E_API_PORT / E2E_WEB_PORT override. The API's own port and URL come from
+// e2e/api-servers.ts, so a spec can address a server by the same name the
+// config starts it under.
+const { web: WEB_PORT } = ports();
 
 export default defineConfig({
   testDir: './e2e',
@@ -31,6 +39,21 @@ export default defineConfig({
       // GraphiQL IDE, schema introspection, and the manual's query console —
       // all three off by default so a forgotten variable fails closed.
       env: { API_ENVIRONMENT: 'development' },
+      reuseExistingServer: !process.env['CI'],
+      timeout: 120_000,
+    },
+    {
+      // A second API, identical but for one service variable: a rate limit
+      // small enough to cross deliberately. cors-expose-headers.spec.ts bursts
+      // at it from inside the browser to get a real cross-origin 429 and read
+      // Retry-After off it — the check that issue #89 turned on, because curl
+      // and TestClient both lack the CORS layer that was eating the header.
+      //
+      // Its own process so the burst cannot spend the budget the rest of the
+      // suite shares; see e2e/api-servers.ts.
+      command: `uv run --directory ../api uvicorn api.main:app --host 127.0.0.1 --port ${LIMITED_API_PORT}`,
+      url: `${LIMITED_API_URL}/health`,
+      env: { API_ENVIRONMENT: 'development', API_RATE_LIMIT: LIMITED_RATE_LIMIT },
       reuseExistingServer: !process.env['CI'],
       timeout: 120_000,
     },

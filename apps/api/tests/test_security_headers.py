@@ -219,3 +219,105 @@ def test_every_host_the_ide_loads_from_is_permitted_in_development() -> None:
 def test_the_production_app_never_serves_the_ide_that_needs_the_cdn() -> None:
     """Why production can afford the strict policy: there is no IDE to break."""
     assert client.get("/graphql", headers={"accept": "text/html"}).status_code == 404
+
+
+# --- Access-Control-Expose-Headers -------------------------------------------
+#
+# A different kind of header from the ones above: these tests are not about
+# what the server *sends* but about what a browser is allowed to *read*. A
+# cross-origin response hands JavaScript only the seven safelisted names unless
+# Access-Control-Expose-Headers names more, so every other header this API sets
+# was arriving and being discarded (issue #89).
+#
+# TestClient has no CORS layer, so it can only assert the permission is
+# granted, never that a browser honours it. That half is
+# apps/web/e2e/cors-expose-headers.spec.ts, which reads Retry-After off a real
+# cross-origin 429 in a real browser -- the only check that would have caught
+# this, because curl and TestClient both lack the constraint production has.
+
+# Everything api.rest and api.limits set that is not CORS-safelisted.
+EXPOSED = {
+    "retry-after",
+    "content-location",
+    "x-ratelimit-limit",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+}
+
+
+def exposed_names(response) -> set[str]:
+    """The header names the response permits a cross-origin page to read."""
+    header = response.headers.get("access-control-expose-headers")
+    assert header, f"no access-control-expose-headers on {response.url}"
+    return {name.strip().lower() for name in header.split(",") if name.strip()}
+
+
+def test_a_cors_response_permits_reading_every_header_it_sets() -> None:
+    """The allowance itself, on an ordinary 200."""
+    response = client.post(
+        "/graphql",
+        json={"query": "{ status }"},
+        headers={"Origin": PREVIEW_ORIGIN},
+    )
+    assert response.status_code == 200
+    assert exposed_names(response) >= EXPOSED
+
+
+def test_the_rate_limit_headers_are_both_sent_and_readable() -> None:
+    """headers_enabled=True is pointless if the browser strips the result.
+
+    The limiter's comment says it tells a well-behaved client what its budget
+    is. That claim needs both halves: the header present, and named in the
+    exposure list.
+    """
+    response = client.post(
+        "/graphql",
+        json={"query": "{ status }"},
+        headers={"Origin": PREVIEW_ORIGIN},
+    )
+    names = exposed_names(response)
+    for header in ("x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"):
+        assert response.headers.get(header), f"{header} not sent"
+        assert header in names, f"{header} sent but not readable cross-origin"
+
+
+def test_me_exposes_the_content_location_it_sets() -> None:
+    """/me names the identical /person/{id} resource. Unreadable is unusable."""
+    response = client.get(
+        "/me",
+        headers={"Origin": PREVIEW_ORIGIN, "X-Person-Id": "fred-shaw"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-location"].endswith("/person/fred-shaw")
+    assert "content-location" in exposed_names(response)
+
+
+def test_a_429_exposes_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The response the exposure exists for.
+
+    A 429 is produced inside the limiter, which sits inside CORSMiddleware, so
+    this also pins the ordering: were CORS the inner layer, the refusal would
+    go out with no exposure list and apps/web/src/api.ts would read null from
+    `retry-after` exactly as it did in production.
+    """
+    monkeypatch.setattr(limits, "RATE_LIMIT", "2/minute")
+    limited = TestClient(create_app())
+    for _ in range(2):
+        assert (
+            limited.post(
+                "/graphql",
+                json={"query": "{ status }"},
+                headers={"Origin": PREVIEW_ORIGIN},
+            ).status_code
+            == 200
+        )
+
+    refused = limited.post(
+        "/graphql",
+        json={"query": "{ status }"},
+        headers={"Origin": PREVIEW_ORIGIN},
+    )
+    assert refused.status_code == 429
+    assert refused.headers["access-control-allow-origin"] == PREVIEW_ORIGIN
+    assert refused.headers["retry-after"]
+    assert exposed_names(refused) >= EXPOSED
