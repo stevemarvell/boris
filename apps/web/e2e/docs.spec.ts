@@ -51,11 +51,19 @@ test.describe('the docs Vercel serves', () => {
     // The ranking words, for the same reason as the ceilings: an agent is
     // expected to use these three and no others, and a scale nobody can look
     // up is a scale everyone re-invents — which is the thing SOP 5 stops.
+    //
+    // All three, and against SOP 5's own table rather than the page: the first
+    // version asserted two of them on `body`, so dropping the `high` row would
+    // have left this green, and either of the other two would have passed on
+    // the word appearing in a sentence elsewhere. A test for "the scale
+    // reaches the deployment" has to fail when a row leaves it.
     await expect(
       page.getByRole('heading', { name: 'SOP 5: One scale ranks everything' }),
     ).toBeVisible();
-    await expect(page.locator('body')).toContainText('critical');
-    await expect(page.locator('body')).toContainText('medium');
+    const scale = page.locator('table').last();
+    for (const rank of ['critical', 'high', 'medium']) {
+      await expect(scale).toContainText(rank);
+    }
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {
