@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { UNREADABLE, readExecution, reviewVerdict } from '../../../scripts/assert-review-ran.mjs';
 
 const finished = (extra: Record<string, unknown> = {}) => [
@@ -61,6 +61,13 @@ describe('reviewVerdict', () => {
   });
 });
 
+let dir = '';
+
+afterEach(() => {
+  if (dir) rmSync(dir, { recursive: true, force: true });
+  dir = '';
+});
+
 describe('readExecution', () => {
   it('returns null for a path that is empty or missing', () => {
     expect(readExecution('')).toBeNull();
@@ -68,7 +75,8 @@ describe('readExecution', () => {
   });
 
   it('separates a log that will not parse from a log that is not there', () => {
-    const path = join(mkdtempSync(join(tmpdir(), 'review-')), 'claude-execution-output.json');
+    dir = mkdtempSync(join(tmpdir(), 'review-'));
+    const path = join(dir, 'claude-execution-output.json');
     writeFileSync(path, 'Exiting due to workflow validation skip');
 
     // Both fail the job, but not for the same reason, and the reader is sent
