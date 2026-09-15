@@ -158,3 +158,68 @@ well-scoped agents beat seven overlapping ones, and cost less than half.
 worth getting right — see `.claude/trials/model-tiering.md` for where a cheaper
 model is safe and where it silently is not — but it is the last lever to reach
 for, not the first.
+
+---
+
+## SOP 5: One scale ranks everything
+
+`critical`, `high`, `medium`. Three labels, and they are the only ranking in
+this repository.
+
+| Label | Means | Was |
+| --- | --- | --- |
+| `critical` | Do first. Wrong answers, real exposure, or work blocked until it lands. | `p1` |
+| `high` | Do next. A real defect, bounded today by something written down. | `p2` |
+| `medium` | Do eventually. Worth doing; nothing is wrong while it waits. | `p3` |
+
+### Why one and not two
+
+Severity and priority are different questions everywhere else: how bad is it,
+and when do we do it. Keeping both means two rankings on one issue, and two
+rankings disagree — a `p3` marked `critical` is a sentence with no reading.
+When they disagree the label wins, because the label is what a query sorts by
+and what a person sees in the list, and the prose in the body is what gets
+forgotten.
+
+This repository has one author and one queue. The answer to "how bad is it"
+*is* the answer to "when do we do it", so it is written once.
+
+The labels were `p1`/`p2`/`p3` until they were renamed in place, which carried
+every issue, open and closed. Severity had never been a label at all — it lived
+as prose in issue bodies, in whatever words that issue chose: "Severity today:
+low" (#86), "Honest severity: low" (#53), "Severity: moderate" (#58). Three
+spellings of a scale nobody had defined, next to a label set that already
+ranked the same thing.
+
+### What a ranking below `critical` has to say
+
+That something bounds it, and what would void that.
+
+This is the part the single word cannot carry, so the body carries it, and it
+is the same shape `docs/data-governance.md` uses for the whole deployment: a
+posture, what bounds it, and the trigger that voids the decision.
+
+- #103 is `high` because one person has write access. The trigger is named: a
+  second one gets it.
+- #86 was survivable because the schema it exposed described invented data.
+- `docs/data-governance.md` is defensible because `data/family.json` contains
+  nobody. The trigger is real data.
+
+A `medium` with no stated bound is a guess wearing a label. The bound is the
+argument; the label is only its conclusion.
+
+### External scales are quoted, not adopted
+
+`npm audit` says `moderate`. A CVE says `high`. Those are other people's
+scales, computed without knowing that this tree is invented and this API is
+public on purpose — #58's "two moderate advisories" needed a major version bump
+to fix and endangered nothing. Quote them, attribute them, and then rank the
+issue yourself.
+
+### What enforces this
+
+Nothing mechanical, and the same applies to both reviewers — the rubrics in
+`.claude/agents/` name the three words, but nothing rejects a review that coins
+a fourth. What does help is that there is now only one place to put a ranking:
+before this, an issue could be `p2` in its labels and "critical" in its second
+paragraph, and both were true of different systems.

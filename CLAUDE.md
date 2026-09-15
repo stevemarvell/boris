@@ -90,8 +90,15 @@ deployment, along with the rest of the documentation — see "Documentation".
   closes it — a `Closes #<n>` line in a pull request body. Write that example
   with a placeholder, never a real number: #66 spelled one out to illustrate
   the rule and GitHub closed that issue on merge. Labels carry what the file's
-  headings used to: `aia0`/`aia1`/`aia2` for the adoption step, `p1`/`p2`/`p3`
-  for priority, `security` for exposure.
+  headings used to: `aia0`/`aia1`/`aia2` for the adoption step, `security` for
+  exposure, and one of `critical`/`high`/`medium` for how bad it is and
+  therefore when it gets done.
+
+- **One scale ranks everything.** `critical`/`high`/`medium` carries both how
+  bad a thing is and when it gets done. There is no second severity axis:
+  two rankings drift apart, and the one in the label wins by default. Anything
+  below `critical` is a claim that something bounds it — the issue says what,
+  and what would void it. `docs/sops.md` SOP 5.
 
 ## Deployments
 

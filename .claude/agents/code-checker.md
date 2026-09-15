@@ -42,3 +42,9 @@ review that says "no findings" when there are none is a useful review.
 For each finding: the file and line, one sentence on the defect, and the
 concrete case where it bites. Then a one-line verdict on the whole change —
 would you merge it, and what would you want changed first.
+
+If a finding needs ranking, use this repository's three words and no others:
+**critical**, **high**, **medium**, as `gh label list` defines them. There is
+one scale here, covering severity and order together, so that two cannot
+disagree. A ranking below `critical` claims that something bounds the finding
+— say what.

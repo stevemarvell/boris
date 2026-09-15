@@ -47,6 +47,15 @@ test.describe('the docs Vercel serves', () => {
       page.getByRole('heading', { name: 'SOP 1: Every loop declares a maximum' }),
     ).toBeVisible();
     await expect(page.locator('table').first()).toBeVisible();
+
+    // The ranking words, for the same reason as the ceilings: an agent is
+    // expected to use these three and no others, and a scale nobody can look
+    // up is a scale everyone re-invents — which is the thing SOP 5 stops.
+    await expect(
+      page.getByRole('heading', { name: 'SOP 5: One scale ranks everything' }),
+    ).toBeVisible();
+    await expect(page.locator('body')).toContainText('critical');
+    await expect(page.locator('body')).toContainText('medium');
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {
