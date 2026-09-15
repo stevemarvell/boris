@@ -35,12 +35,28 @@ describe('parseMergeTree', () => {
   });
 
   it('does not report a merge that could not run as a clean merge', () => {
-    // Exit 128 is git failing — a bad ref, a missing object, unrelated
-    // histories. Answering "clean" there would be the reassuring answer
-    // arriving exactly when this knows least.
     const result = parseMergeTree(128, 'fatal: not something we can merge\n');
     expect(result.ok).toBe(false);
     expect(result.failed).toBe(true);
+  });
+
+  it('does not read an unfetched head as a conflict-free merge', () => {
+    // The exit code cannot carry this. `git merge-tree` answers a head it does
+    // not have with *exit 1 and nothing on stdout* — the same status as a real
+    // conflict. Keying on the status alone produced "conflicts: none", which
+    // this check would have printed as "merges cleanly" because git failed.
+    // The unit tests passed while it did; a run against a real repository with
+    // a missing head is what caught it.
+    const result = parseMergeTree(1, '');
+    expect(result.failed).toBe(true);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it('knows a merge ran because it wrote a tree, not because it exited 1', () => {
+    expect(parseMergeTree(1, conflicted('a.mjs')).failed).toBeUndefined();
+    expect(parseMergeTree(1, 'merge-tree: abc123 - not something we can merge\n').failed).toBe(
+      true,
+    );
   });
 });
 
@@ -168,6 +184,46 @@ describe('contentionVerdict', () => {
       rivals: [{ number: 108, conflicts: ['scripts/review-scope.mjs'] }],
     });
     expect(verdict.detail).not.toContain('union, not a choice');
+  });
+
+  it('does not report a merge that could not run as a clean one', () => {
+    // The whole check descends from a signal that was reassuring and wrong.
+    // `failed` carries no conflicts, which is the same shape as a clean merge,
+    // so a verdict that read the two alike would print "merges cleanly"
+    // because git fell over. That is the defect, not a report of it.
+    const verdict = contentionVerdict({
+      subject,
+      base: { ref: 'develop', conflicts: [], failed: true },
+    });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.state).toBe('unknown');
+    expect(verdict.headline).toContain('could not be established');
+  });
+
+  it('names a rival whose comparison did not run', () => {
+    const verdict = contentionVerdict({
+      subject,
+      base: { ref: 'develop', conflicts: [] },
+      rivals: [{ number: 108, conflicts: [], failed: true }],
+    });
+    expect(verdict.state).toBe('unknown');
+    expect(verdict.detail).toContain('#108');
+  });
+
+  it('still reports real contention when another comparison did not run', () => {
+    // A conflict found elsewhere does not excuse the comparison that failed.
+    // Both belong in the comment, with the conflict leading.
+    const verdict = contentionVerdict({
+      subject,
+      base: { ref: 'develop', conflicts: [] },
+      rivals: [
+        { number: 108, conflicts: ['scripts/review-scope.mjs'] },
+        { number: 110, conflicts: [], failed: true },
+      ],
+    });
+    expect(verdict.state).toBe('rivals');
+    expect(verdict.detail).toContain('unknown rather than clean');
+    expect(verdict.detail).toContain('#110');
   });
 
   it('reports the ceiling in the output when it bites', () => {

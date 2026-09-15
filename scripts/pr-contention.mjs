@@ -58,22 +58,29 @@ export const MARKER = '<!-- pr-contention -->';
 /**
  * The conflicted paths from `git merge-tree --write-tree --name-only`.
  *
- * Exit 0 is a clean merge, exit 1 is conflicts, and anything else is the merge
- * failing to run at all — unrelated histories, a missing object, a bad ref.
- * Those three are kept apart: a check that read "could not run" as "merged
- * cleanly" would report the reassuring answer exactly when it knows least.
+ * Exit 0 is a clean merge. Exit 1 is *either* conflicts or the merge refusing
+ * to run — git answers `not something we can merge` with exit 1 as well, which
+ * is how an unfetched head presents, and that is the likeliest failure here by
+ * some distance. Trusting the exit code alone read it as "conflicts: none",
+ * which this check would then have printed as "merges cleanly" on the strength
+ * of git having failed. Caught by running it against a real repository with a
+ * head that was not there; the unit test passed throughout.
  *
- * On conflict the output is the merged tree's oid, then the conflicted file
- * names, then a blank line and informational messages. Only the middle section
- * is wanted.
+ * So the discriminator is the output, not the status. A merge that ran writes
+ * the resulting tree's oid on the first line, then the conflicted file names,
+ * then a blank line and informational messages. No oid means no merge.
  */
+const OID = /^[0-9a-f]{40,64}$/;
+
 export function parseMergeTree(status, stdout) {
   if (status === 0) return { ok: true, conflicts: [] };
 
   const text = String(stdout ?? '');
-  if (status !== 1) return { ok: false, conflicts: [], failed: true };
+  const [first, ...rest] = text.split('\n');
+  if (status !== 1 || !OID.test(first.trim())) {
+    return { ok: false, conflicts: [], failed: true };
+  }
 
-  const [, ...rest] = text.split('\n');
   const conflicts = [];
   for (const line of rest) {
     if (line.trim() === '') break;
@@ -156,6 +163,15 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
   const colliding = rivals.filter((rival) => rival?.conflicts?.length > 0);
   const baseConflicts = base?.conflicts ?? [];
   const compared = rivals.length;
+  // A merge that could not run has no conflicts to report, which is the same
+  // shape as a merge that ran and found none. Reading the first as the second
+  // would print "merges cleanly" on the strength of git having failed — the
+  // reassuring answer arriving exactly when this knows least, which is the
+  // defect SOP 3 exists for and the one this whole check is descended from.
+  const unknown = [
+    ...(base?.failed ? [`\`${base.ref ?? 'the base branch'}\``] : []),
+    ...rivals.filter((rival) => rival?.failed).map((rival) => `#${rival.number}`),
+  ];
 
   const ceiling = truncated
     ? `\n\n${truncated} further open pull ${truncated === 1 ? 'request was' : 'requests were'} not compared: this check stops at ${MAX_PULL_REQUESTS} because the comparison is pairwise. Re-run it once the queue is shorter.`
@@ -167,11 +183,25 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
   const blindSpot =
     '\n\nA clean merge is not the same as a compatible change. Two branches can share a contract without sharing a line — #72 added a field to `/health`, #77 pinned its exact JSON, they merged cleanly and the second one still broke the first. Only CI sees that.';
 
+  // Contention found elsewhere does not excuse a comparison that did not run.
+  const uncertainty = unknown.length
+    ? `\n\nSeparately, \`git merge-tree\` did not run against ${unknown.join(', ')}, so those comparisons are unknown rather than clean.`
+    : '';
+
   const testWarning = (paths) => {
     const { tests } = partitionConflicts(paths);
     if (tests.length === 0) return '';
     return `\n\n**${tests.length === 1 ? 'One of these is a test file' : 'Some of these are test files'}: ${list(tests)}.** Resolve test conflicts as a union, not a choice. Where two branches each *added* a test at the same anchor, both additions are correct and git can only offer you one of them — taking a side is how #109 was found, with the behaviour correct, the suite green, and three assertions silently gone. The \`test census\` check counts both sides and will notice if the total falls.`;
   };
+
+  if (unknown.length > 0 && baseConflicts.length === 0 && colliding.length === 0) {
+    return {
+      ok: false,
+      state: 'unknown',
+      headline: `Whether ${me} collides with anything could not be established`,
+      detail: `\`git merge-tree\` did not run against ${unknown.join(', ')} — a missing object, an unfetched head, or histories with no merge base. That is not the same as a clean merge and is not reported as one.\n\nNothing here is known to be wrong with ${me}. Nothing here is known to be right with it either: re-run this check, and if it keeps saying this, the fetch step is the place to look.${blindSpot}${ceiling}`,
+    };
+  }
 
   if (baseConflicts.length > 0) {
     const also = colliding.length
@@ -181,7 +211,7 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
       ok: false,
       state: 'base',
       headline: `${me} no longer merges into ${base?.ref ?? 'the base branch'}`,
-      detail: `Something landed on \`${base?.ref ?? 'the base branch'}\` that this branch cannot merge with. Conflicting: ${list(baseConflicts)}.\n\nGitHub flips the pull request to \`CONFLICTING\` when this happens and tells nobody — no notification, no check re-run. This comment is the notification.\n\nMerge the base branch in and resolve it. Do not rebase a branch someone else may have checked out.${testWarning(baseConflicts)}${also}${blindSpot}${ceiling}`,
+      detail: `Something landed on \`${base?.ref ?? 'the base branch'}\` that this branch cannot merge with. Conflicting: ${list(baseConflicts)}.\n\nGitHub flips the pull request to \`CONFLICTING\` when this happens and tells nobody — no notification, no check re-run. This comment is the notification.\n\nMerge the base branch in and resolve it. Do not rebase a branch someone else may have checked out.${testWarning(baseConflicts)}${also}${uncertainty}${blindSpot}${ceiling}`,
     };
   }
 
@@ -194,7 +224,7 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
       ok: false,
       state: 'rivals',
       headline: `${me} and ${colliding.length === 1 ? 'one other open pull request cannot' : `${colliding.length} other open pull requests cannot`} both land as ${colliding.length === 1 ? 'they are' : 'things stand'}`,
-      detail: `Both this and the pull ${colliding.length === 1 ? 'request' : 'requests'} below merge into \`${base?.ref ?? 'the base branch'}\` cleanly today, so GitHub reports every one of them \`MERGEABLE\`. They conflict with **each other**, which GitHub does not compute:\n\n${rows}\n\nWhichever merges first is fine. The others will flip to \`CONFLICTING\` the moment it does, so whoever goes second is resolving this by hand. Deciding now which change is the better one is cheaper than discovering it during a rebase.${testWarning(allPaths)}${blindSpot}${ceiling}`,
+      detail: `Both this and the pull ${colliding.length === 1 ? 'request' : 'requests'} below merge into \`${base?.ref ?? 'the base branch'}\` cleanly today, so GitHub reports every one of them \`MERGEABLE\`. They conflict with **each other**, which GitHub does not compute:\n\n${rows}\n\nWhichever merges first is fine. The others will flip to \`CONFLICTING\` the moment it does, so whoever goes second is resolving this by hand. Deciding now which change is the better one is cheaper than discovering it during a rebase.${testWarning(allPaths)}${uncertainty}${blindSpot}${ceiling}`,
     };
   }
 
@@ -307,7 +337,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     for (const other of selected) {
       if (other.number === subject.number) continue;
       const merged = await mergeConflicts(subject.headRefOid, other.headRefOid);
-      rivals.push({ number: other.number, title: other.title, conflicts: merged.conflicts });
+      rivals.push({
+        number: other.number,
+        title: other.title,
+        conflicts: merged.conflicts,
+        failed: merged.failed,
+      });
     }
 
     const verdict = contentionVerdict({ subject, base, rivals, truncated });

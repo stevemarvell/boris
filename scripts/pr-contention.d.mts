@@ -10,7 +10,7 @@ export interface MergeResult {
 }
 export interface Verdict {
   ok: boolean;
-  state: 'base' | 'rivals' | 'clear';
+  state: 'base' | 'rivals' | 'clear' | 'unknown';
   headline: string;
   detail: string;
 }
@@ -32,8 +32,8 @@ export declare function selectPullRequests(
 ): { selected: PullRequest[]; truncated: number };
 export declare function contentionVerdict(input?: {
   subject?: PullRequest;
-  base?: { ref?: string; conflicts?: string[] };
-  rivals?: { number: number; title?: string; conflicts: string[] }[];
+  base?: { ref?: string; conflicts?: string[]; failed?: boolean };
+  rivals?: { number: number; title?: string; conflicts: string[]; failed?: boolean }[];
   truncated?: number;
 }): Verdict;
 export declare function commentBody(verdict: Verdict): string;
