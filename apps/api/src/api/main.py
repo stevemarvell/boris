@@ -139,7 +139,22 @@ def create_app(*, environment: str | None = None, manual: Path | None = None) ->
     """
     is_development = (environment or API_ENVIRONMENT) == "development"
 
-    app = FastAPI(title="family-tree-api")
+    # Swagger UI, ReDoc and the OpenAPI document are gated on the same
+    # API_ENVIRONMENT as the GraphiQL IDE, introspection and the manual's query
+    # console, for the same reason: /docs is an interactive console with a
+    # "Try it out" button, unauthenticated, against live data, and
+    # openapi.json publishes the parameters and response schemas of every
+    # route -- precisely what DisableIntrospection withholds on the GraphQL
+    # side. FastAPI's defaults turn all three on, so this was open not by a
+    # decision but by nobody writing a line; passing None in production is
+    # that line. The REST view added /person/{id} and /me, so the document now
+    # describes real endpoints rather than /graphql and /health alone.
+    app = FastAPI(
+        title="family-tree-api",
+        docs_url="/docs" if is_development else None,
+        redoc_url="/redoc" if is_development else None,
+        openapi_url="/openapi.json" if is_development else None,
+    )
 
     # Rate limiting on /graphql -- and only there; api.limits explains why
     # /health and the manual are left alone.
