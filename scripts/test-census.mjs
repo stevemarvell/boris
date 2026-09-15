@@ -32,6 +32,7 @@
 // on this side and was not on the base drops out of the comparison for exactly
 // that reason.
 import { pathToFileURL } from 'node:url';
+import { canonical } from './paths.mjs';
 
 /**
  * Test files, by name rather than by where they sit.
@@ -42,9 +43,15 @@ import { pathToFileURL } from 'node:url';
  * check reports but a file it silently stops covering, permanently. That is
  * the shape SOP 3 is about, so the rule is the basename: pytest's own default
  * discovery is `test_*.py` and `*_test.py` at any depth, and this follows it.
+ *
+ * `canonical` rather than a trim-and-strip of its own: #101 was one comparison
+ * folding case and the next one not, #108 gave path comparisons here one
+ * spelling, and a second weaker copy in this file would be the first step back
+ * towards it. A file that stopped matching would leave both trees at once and
+ * report nothing, which is the failure this whole script exists to catch.
  */
 export function isTestFile(path) {
-  const clean = String(path).trim().replace(/^\.\//, '');
+  const clean = canonical(path);
   if (/(^|\/)(node_modules|\.venv|site-packages|__pycache__)\//.test(clean)) return false;
   if (/\.(test|spec)\.(ts|tsx|mts|js|mjs)$/.test(clean)) return true;
   if (/(^|\/)(test_[^/]*|[^/]*_test)\.py$/.test(clean)) return true;

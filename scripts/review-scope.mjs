@@ -35,20 +35,22 @@
 // towards saying nothing.
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { canonical } from './paths.mjs';
 
 export const GOVERNANCE = 'docs/data-governance.md';
 
 /**
- * One spelling of a path, for every comparison in this file.
+ * One spelling of a path, for every comparison in this file — and now in
+ * scripts/test-census.mjs too, which is why it lives in scripts/paths.mjs.
  *
- * Case folding happens here and nowhere else, which is the point. The defect
+ * Case folding happens there and nowhere else, which is the point. The defect
  * in #101 was one comparison lowercasing and the next one not: the extension
  * test folded case, the directory-prefix test did not, and
  * `.CLAUDE/agents/security-checker.md` skipped both of its own reviews.
+ * Re-exported rather than moved silently, so the test asserting this helper
+ * directly — the thing #108 bought — keeps asserting it here.
  */
-export function canonical(path) {
-  return String(path).trim().replace(/^\.\//, '').toLowerCase();
-}
+export { canonical } from './paths.mjs';
 
 /**
  * True when a path is under `.github/workflows/`.

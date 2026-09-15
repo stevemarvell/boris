@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { canonical } from '../../../scripts/paths.mjs';
 import {
   ACKNOWLEDGEMENT,
   census,
@@ -103,6 +104,18 @@ describe('isTestFile', () => {
     expect(isTestFile('apps/api/tests/unit/deep/test_tree.py')).toBe(true);
     expect(isTestFile('apps/api/src/api/tree_test.py')).toBe(true);
     expect(isTestFile('apps/web/src/components/cards/PersonCard.test.tsx')).toBe(true);
+  });
+
+  it('compares paths the one way this repository compares paths', () => {
+    // #108 gave path comparisons here a single normalisation, because #101 was
+    // one comparison folding case and the next one not. This file re-derived a
+    // weaker copy — trim and strip `./`, no case fold — which is the first step
+    // back towards that, so it now imports `canonical` from the same place
+    // review-scope.mjs does. The stake is the same as everywhere else here: a
+    // file that stops matching leaves both trees at once and reports nothing.
+    expect(isTestFile('./Apps/Api/Tests/Test_Tree.PY')).toBe(true);
+    expect(isTestFile('  apps/web/src/API.Test.TS  ')).toBe(true);
+    expect(canonical('  ./Apps/Api/Tests/Test_Tree.PY  ')).toBe('apps/api/tests/test_tree.py');
   });
 
   it('ignores source files, fixtures and anything vendored', () => {
