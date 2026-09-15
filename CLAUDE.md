@@ -30,6 +30,9 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 - **Every behaviour change ships with a test.** A bug fix means a test that
   fails before the fix. A new feature means the happy path and the error path.
+  A change that ends up with *fewer* tests than its base says so in the pull
+  request body, in a line beginning `Removes tests:` — the `test census` check
+  counts both sides and goes red without one.
 
 - **Every change ships as a pull request.** Branch off `develop`, push the
   branch, then open a PR with `gh pr create --base develop`. Never commit or
