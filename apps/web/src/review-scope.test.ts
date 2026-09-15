@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderMarkdown } from '../../../scripts/markdown.mjs';
-import { GOVERNANCE, canonical, isProse, reviewScope } from '../../../scripts/review-scope.mjs';
+import {
+  GOVERNANCE,
+  canonical,
+  isProse,
+  isWorkflow,
+  reviewScope,
+} from '../../../scripts/review-scope.mjs';
 
 describe('reviewScope', () => {
   it('runs both reviews when anything but prose changed', () => {
@@ -69,6 +75,30 @@ describe('reviewScope', () => {
       code: true,
       security: true,
     });
+  });
+
+  it('reports whether a workflow file changed, for the check that needs it', () => {
+    // #100: with no execution log, assert-review-ran.mjs can only tell the
+    // action's workflow-validation skip from a session that failed to start
+    // if somebody tells it which. This is that somebody.
+    expect(reviewScope(['.github/workflows/verify.yml']).workflows).toBe(true);
+    expect(reviewScope(['.GITHUB/WORKFLOWS/verify.yml']).workflows).toBe(true);
+    expect(reviewScope(['./.github/workflows/verify.yml']).workflows).toBe(true);
+    expect(isWorkflow('.github/workflows/claude-code-review.yml')).toBe(true);
+  });
+
+  it('does not call every .github change a workflow change', () => {
+    // A dependabot config or an issue template changes nothing about whether
+    // the action will start a session.
+    expect(isWorkflow('.github/dependabot.yml')).toBe(false);
+    expect(reviewScope(['.github/dependabot.yml']).workflows).toBe(false);
+    expect(reviewScope(['apps/web/src/App.tsx', 'docs/adoption.md']).workflows).toBe(false);
+  });
+
+  it('claims no workflow knowledge when it had no file list', () => {
+    // Both reviews run, as ever — but `workflows` is a fact about the diff,
+    // and there was no diff to read. It must not be reported as true.
+    expect(reviewScope([])).toMatchObject({ code: true, security: true, workflows: false });
   });
 
   it('reviews a change to the family tree', () => {

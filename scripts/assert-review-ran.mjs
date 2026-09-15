@@ -1,7 +1,8 @@
 // Fail the review job when no review was produced, and say which way it
 // failed.
 //
-// This exists because the review job's green tick has twice meant nothing.
+// This exists because the review job's green tick has meant nothing before,
+// in three different ways.
 //
 // 1. `claude-code-action` refuses to run at all when the pull request changes
 //    the workflow file, because the file has to be byte-identical to the copy
@@ -14,12 +15,20 @@
 //    this script existed did (34875160558, 34835904028, 34814480801), and the
 //    job's own log says "No buffered inline comments" — nothing reached the
 //    pull request.
+// 3. The action starts no session for its own reasons, on a pull request that
+//    changes no workflow file. #98 did this: eighteen seconds, no execution
+//    log, while the code review job on the same commit produced a full review
+//    in 1m 20s. From inside the log this is indistinguishable from 1 — both
+//    have no log at all — which is why the scope job's answer about the
+//    changed files is passed in rather than guessed at here.
 //
-// Neither can be fixed from here: the first is the action's own rule and the
-// second is a session failing. What can be fixed is the silence. A reviewer
-// that produced nothing is not a reviewer that found nothing, and this
-// repository has four shipped defects whose common shape is a control that
-// ran, reported success, and did not do its job. This one says so.
+// None can be fixed from here: the first is the action's own rule and the
+// other two are a session failing to start or to finish. What can be fixed is
+// the silence. A reviewer that produced nothing is not a reviewer that found
+// nothing, and this repository has four shipped defects whose common shape is
+// a control that ran, reported success, and did not do its job. This one says
+// so — and #100 is the reminder that saying the wrong thing is its own way of
+// saying nothing.
 import { readFileSync } from 'node:fs';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -33,8 +42,21 @@ import { pathToFileURL } from 'node:url';
  * did not parse. Those two are kept apart on purpose: they fail the job the
  * same way but have different causes, and a check that names the wrong cause
  * sends whoever reads it to the wrong place.
+ *
+ * `workflowChanged` is the scope job's answer to "does this pull request
+ * touch `.github/workflows/`", and `null` when the scope job could not say.
+ * It exists because of #100: with no session and no log, this function used
+ * to blame the workflow-file rule every time, including on #98, which changed
+ * no workflow file. Three answers, three messages — the rule stated as fact
+ * when it applies, ruled out when it does not, and offered as the likely
+ * cause only when nobody knows.
  */
-export function reviewVerdict({ kind = 'code', conclusion = '', execution = null } = {}) {
+export function reviewVerdict({
+  kind = 'code',
+  conclusion = '',
+  execution = null,
+  workflowChanged = null,
+} = {}) {
   const messages = Array.isArray(execution) ? execution : [];
   const result = messages.findLast?.((message) => message?.type === 'result') ?? null;
 
@@ -51,8 +73,7 @@ export function reviewVerdict({ kind = 'code', conclusion = '', execution = null
     return {
       ok: false,
       headline: `No ${kind} review ran on this pull request`,
-      detail:
-        'The action produced no execution log, so no session started. The usual cause is that this pull request changes a file under `.github/workflows/`: `claude-code-action` requires the workflow to be byte-identical to the copy on the default branch and exits early otherwise. A pull request that changes CI is the one class of change this reviewer cannot review — review it by hand, and re-read it on the pull request after this one.',
+      detail: `The action produced no execution log, so no session started. ${noSessionCause(workflowChanged)}`,
     };
   }
 
@@ -89,10 +110,38 @@ export function reviewVerdict({ kind = 'code', conclusion = '', execution = null
 }
 
 /**
+ * Why no session started, given what the scope job knows about the changed
+ * files. The three answers send the reader to three different places, which
+ * is the whole point: the workflow rule is checkable, and stating it when it
+ * does not hold costs somebody a diff of a file nobody touched.
+ */
+function noSessionCause(workflowChanged) {
+  if (workflowChanged === true) {
+    return 'This pull request changes a file under `.github/workflows/`, and `claude-code-action` requires the workflow to be byte-identical to the copy on the default branch: it exits early rather than running. A pull request that changes CI is the one class of change this reviewer cannot review — review it by hand, and re-read it on the pull request after this one.';
+  }
+  if (workflowChanged === false) {
+    return 'This pull request changes no file under `.github/workflows/`, so the workflow-validation rule is not the cause and there is no workflow diff to go looking for. The action failed to start a session for its own reasons — the job log above is the only record of why. Treat the pull request as unreviewed and re-run the job.';
+  }
+  return 'The scope job did not report whether this pull request touches `.github/workflows/`, so the cause cannot be narrowed from here. The usual one is that rule: `claude-code-action` requires the workflow to be byte-identical to the copy on the default branch and exits early otherwise. If no workflow file changed, read the job log instead.';
+}
+
+/**
  * A log that exists but does not parse. Distinct from `null`, which means the
  * action wrote no log at all.
  */
 export const UNREADABLE = Symbol('unreadable execution log');
+
+/**
+ * A workflow output read back as a tri-state: `true`, `false`, or `null` for
+ * anything else. A job that died leaves its outputs empty, and empty must not
+ * read as `false` — that is how a check ends up stating something it does not
+ * know.
+ */
+export function readFlag(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
 
 /**
  * Read and parse the action's execution log: `null` when there is no file,
@@ -120,6 +169,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     kind,
     conclusion: process.env['CONCLUSION'] ?? '',
     execution: readExecution(process.env['EXECUTION_FILE'] ?? ''),
+    workflowChanged: readFlag(process.env['WORKFLOW_CHANGED']),
   });
 
   const summary = process.env['GITHUB_STEP_SUMMARY'];

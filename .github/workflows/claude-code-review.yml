@@ -62,10 +62,28 @@ jobs:
     outputs:
       code: ${{ steps.scope.outputs.code }}
       security: ${{ steps.scope.outputs.security }}
+      workflows: ${{ steps.scope.outputs.workflows }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # `ref:` is the base commit, not the merge ref every other job here
+      # checks out, and that is the point. #99: a pull request that edits
+      # review-scope.mjs to return `{code: false, security: false}` would
+      # otherwise skip both of its own reviews and print a log saying so, in a
+      # sentence it also wrote. A rule a change can rewrite before being
+      # measured against it is not a rule. The cost is real and small: an edit
+      # to the rule takes effect on the pull request after the one that makes
+      # it, so its own reviews run under the old rule. The file list still
+      # comes from the API below — this checkout supplies the rule, nothing
+      # else.
+      #
+      # Same shape, not closed here and worth knowing: the reviewers read
+      # .claude/agents/*.md from the branch, so a pull request can still
+      # rewrite the rubric it is judged by. The .claude/** exception in
+      # review-scope.mjs ensures a review happens; it does not ensure the
+      # standard held.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
 
       - name: Work out which reviews this change needs
@@ -189,6 +207,10 @@ jobs:
           KIND: code
           CONCLUSION: ${{ steps.review.outputs.conclusion }}
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          # Whether the action's workflow-validation rule can be the reason a
+          # session never started. Empty if the scope job died, which the
+          # script reads as "unknown" rather than as "no" — see #100.
+          WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
         run: node scripts/assert-review-ran.mjs
 
   security-review:
@@ -211,7 +233,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
@@ -257,4 +279,5 @@ jobs:
           KIND: security
           CONCLUSION: ${{ steps.review.outputs.conclusion }}
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
         run: node scripts/assert-review-ran.mjs

@@ -51,6 +51,19 @@ export function canonical(path) {
 }
 
 /**
+ * True when a path is under `.github/workflows/`.
+ *
+ * Not part of the skip decision — a workflow change is already not prose. It
+ * is reported separately because the job that checks a review actually ran
+ * needs to know it: `claude-code-action` refuses to start a session when the
+ * pull request changes the workflow file, and until #100 the check named that
+ * rule for every missing session whether or not it applied.
+ */
+export function isWorkflow(path) {
+  return canonical(path).startsWith('.github/workflows/');
+}
+
+/**
  * True when a path is prose that no deployment can execute. Deliberately
  * narrow: see the three exceptions in this file's header.
  */
@@ -64,7 +77,9 @@ export function isProse(path) {
 /**
  * Which reviews to run, given the paths a pull request changes.
  *
- * Returns `code` and `security` booleans and a `why` line for the log — the
+ * Returns `code` and `security` booleans, a `workflows` boolean saying
+ * whether the pull request touches `.github/workflows/`, and a `why` line for
+ * the log — the
  * decision is only useful if the run that acted on it says what it decided.
  */
 export function reviewScope(paths) {
@@ -74,10 +89,12 @@ export function reviewScope(paths) {
     return {
       code: true,
       security: true,
+      workflows: false,
       why: 'No file list was available, so both reviews run. A scope step that cannot read the diff must not be the reason a change goes unreviewed.',
     };
   }
 
+  const workflows = files.some(isWorkflow);
   const code = files.filter((path) => !isProse(path));
   const governance = files.filter((path) => canonical(path) === GOVERNANCE);
 
@@ -85,6 +102,7 @@ export function reviewScope(paths) {
     return {
       code: true,
       security: true,
+      workflows,
       why: `${code.length} of ${files.length} changed files are not prose (${code.slice(0, 5).join(', ')}${code.length > 5 ? ', …' : ''}), so both reviews run.`,
     };
   }
@@ -93,6 +111,7 @@ export function reviewScope(paths) {
     return {
       code: false,
       security: true,
+      workflows,
       why: `Every changed file is Markdown, but ${GOVERNANCE} is among them — that file is the security posture, so the security review runs and the code review does not.`,
     };
   }
@@ -100,6 +119,7 @@ export function reviewScope(paths) {
   return {
     code: false,
     security: false,
+    workflows,
     why: `All ${files.length} changed files are Markdown outside .claude/ and .github/. scripts/markdown.mjs escapes HTML and refuses unsafe URL schemes, so none of this reaches a deployment as anything but text. Both reviews skipped.`,
   };
 }
@@ -115,9 +135,13 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const scope = reviewScope((await readStdin()).split('\n'));
   const output = process.env['GITHUB_OUTPUT'];
   if (output) {
-    appendFileSync(output, `code=${scope.code}\nsecurity=${scope.security}\n`);
+    appendFileSync(
+      output,
+      `code=${scope.code}\nsecurity=${scope.security}\nworkflows=${scope.workflows}\n`,
+    );
   }
   console.log(`code review: ${scope.code}`);
   console.log(`security review: ${scope.security}`);
+  console.log(`touches .github/workflows/: ${scope.workflows}`);
   console.log(scope.why);
 }
