@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { UNREADABLE, readExecution, reviewVerdict } from '../../../scripts/assert-review-ran.mjs';
+import {
+  UNREADABLE,
+  readExecution,
+  readFlag,
+  reviewVerdict,
+} from '../../../scripts/assert-review-ran.mjs';
 
 const finished = (extra: Record<string, unknown> = {}) => [
   { type: 'system', subtype: 'init' },
@@ -38,6 +43,40 @@ describe('reviewVerdict', () => {
     expect(verdict.detail).toContain('cut off');
   });
 
+  it('names the workflow rule only when a workflow file actually changed', () => {
+    // #100: the security review on #98 produced no execution log, and this
+    // check sent the reader off to diff a workflow file that pull request
+    // never touched. The scope job knows the answer; it is passed in.
+    const blamed = reviewVerdict({ execution: null, workflowChanged: true });
+    expect(blamed.ok).toBe(false);
+    expect(blamed.detail).toContain('byte-identical');
+    // Stated as fact, not as "the usual cause" — the job checked.
+    expect(blamed.detail).not.toContain('usual cause');
+  });
+
+  it('rules the workflow rule out when no workflow file changed', () => {
+    const verdict = reviewVerdict({ execution: null, workflowChanged: false });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).not.toContain('byte-identical');
+    expect(verdict.detail).toContain('job log');
+  });
+
+  it('hedges only when the scope job could not say', () => {
+    // A scope job that died leaves the output empty. Unknown must read as
+    // unknown: naming a cause nobody established is the defect being fixed.
+    const verdict = reviewVerdict({ execution: null, workflowChanged: null });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain('usual');
+    expect(verdict.detail).toContain('byte-identical');
+  });
+
+  it('says something different in each of the three cases', () => {
+    const details = [true, false, null].map(
+      (workflowChanged) => reviewVerdict({ execution: null, workflowChanged }).detail,
+    );
+    expect(new Set(details).size).toBe(3);
+  });
+
   it('fails when the action itself did not call it a success', () => {
     const verdict = reviewVerdict({ conclusion: 'failure', execution: finished() });
     expect(verdict.ok).toBe(false);
@@ -58,6 +97,22 @@ describe('reviewVerdict', () => {
     // Called with nothing at all — no log, no conclusion — it must not report
     // that a review happened.
     expect(reviewVerdict().ok).toBe(false);
+  });
+});
+
+describe('readFlag', () => {
+  it('reads a workflow output back as true, false or unknown', () => {
+    expect(readFlag('true')).toBe(true);
+    expect(readFlag('false')).toBe(false);
+  });
+
+  it('does not read a missing output as false', () => {
+    // A job that did not run leaves its outputs empty, and `false` here would
+    // make this check state that no workflow file changed on the strength of
+    // a job that never looked.
+    for (const missing of [undefined, '', 'TRUE', 'yes', 'null']) {
+      expect(readFlag(missing)).toBeNull();
+    }
   });
 });
 
