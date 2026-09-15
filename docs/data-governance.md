@@ -15,6 +15,11 @@ This is the *data governance* guardrail from step 0 of `docs/adoption.md`. It
 is written down so that it can be found and argued with, instead of being
 inherited as whatever nobody got around to changing.
 
+One section here is not about the deployed data at all — "What CI holds, and
+what voids that" applies the same three questions to the credentials the
+review jobs carry, because that posture had the same structure and no written
+trigger.
+
 ---
 
 ## What is public
@@ -142,6 +147,70 @@ rediscover it:
   authentication;
 - the Vercel deployment and its previews, which are open by the same
   reasoning and stop being defensible by it at the same moment.
+
+## What CI holds, and what voids that
+
+The page above is about what the *deployments* expose. This section is about
+what the *pull request checks* hold, because it has the same shape and until
+now had no written trigger.
+
+Two jobs in `.github/workflows/claude-code-review.yml` run credentialed: the
+code review and the security review. Each one checks out the pull request and
+then runs a script from that checkout before the review starts.
+
+```yaml
+- name: Checkout repository
+  uses: actions/checkout@...
+- name: Point this session's telemetry at Grafana Cloud
+  run: node scripts/write-ci-telemetry-settings.mjs
+```
+
+The job-level `env:` puts `GRAFANA_CLOUD_OTLP_ENDPOINT` and
+`GRAFANA_CLOUD_OTLP_AUTH` in that step's environment. So a pull request that
+edits `scripts/write-ci-telemetry-settings.mjs` runs its own code with the
+Grafana credential readable. The same reasoning covers `.claude/hooks/*.mjs`,
+which the session `claude-code-action` starts will load from the branch.
+
+`CLAUDE_CODE_OAUTH_TOKEN` is **not** reachable this way. It is a step input to
+the action rather than a job-level variable, so it lives only in the action's
+own step environment, which no branch code runs in.
+
+### What bounds it
+
+Two things, and only one of them is written in the configuration:
+
+- **The trigger is `pull_request`, not `pull_request_target`.** A fork gets no
+  secrets. This *is* in the configuration, and it is what stops a stranger.
+- **One person has write access.** The only account that can open a pull
+  request on this repository is the account that owns the credential, so
+  "arbitrary code with the Grafana credential" is that person running their
+  own code with their own credential. Nothing in the code says this. It is a
+  fact about the repository's membership, and it carries the whole of the
+  remaining severity.
+
+The scope job is no longer in this list: since #99 it checks out the base
+commit, so the rule deciding which reviews run is not the branch's copy. The
+two credentialed jobs still check out the merge ref, because a reviewer that
+cannot read the change under review is not a reviewer.
+
+### The trigger
+
+**A second person gets write access to this repository.** Not a fork, not an
+outside contributor opening a pull request — those are already handled. Write
+access, which is what makes `pull_request` run with secrets.
+
+On that day, before the access is granted, one of these has to land:
+
+- move the pre-review script step to run from the default branch, the way the
+  scope job already does, so branch code never executes in a credentialed
+  step; or
+- drop the job-level `env:` entirely and pass the Grafana values as inputs to
+  the action's own step, so no secret is live before the action starts.
+
+The second is the smaller change and the stronger one. Either way the point is
+the same as the trigger at the top of this page: the decision is defensible
+today for a reason that is not written in the configuration, so the reason is
+written here instead.
 
 ## What going private did, and did not do
 
