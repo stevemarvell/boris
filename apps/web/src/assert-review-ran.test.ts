@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readExecution, reviewVerdict } from '../../../scripts/assert-review-ran.mjs';
+import { UNREADABLE, readExecution, reviewVerdict } from '../../../scripts/assert-review-ran.mjs';
 
 const finished = (extra: Record<string, unknown> = {}) => [
   { type: 'system', subtype: 'init' },
@@ -59,8 +62,27 @@ describe('reviewVerdict', () => {
 });
 
 describe('readExecution', () => {
-  it('returns null for a path that is empty or unreadable', () => {
+  it('returns null for a path that is empty or missing', () => {
     expect(readExecution('')).toBeNull();
     expect(readExecution('/no/such/claude-execution-output.json')).toBeNull();
+  });
+
+  it('separates a log that will not parse from a log that is not there', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'review-')), 'claude-execution-output.json');
+    writeFileSync(path, 'Exiting due to workflow validation skip');
+
+    // Both fail the job, but not for the same reason, and the reader is sent
+    // to a different place by each.
+    expect(readExecution(path)).toBe(UNREADABLE);
+
+    const unreadable = reviewVerdict({ execution: UNREADABLE });
+    const absent = reviewVerdict({ execution: null });
+    expect(unreadable.ok).toBe(false);
+    expect(absent.ok).toBe(false);
+    expect(unreadable.headline).not.toBe(absent.headline);
+    // The absent case blames the workflow-file rule. The unparseable one must
+    // not, because that is a different failure with a different fix.
+    expect(unreadable.detail).not.toMatch(/byte-identical/);
+    expect(absent.detail).toMatch(/byte-identical/);
   });
 });

@@ -27,13 +27,25 @@ import { pathToFileURL } from 'node:url';
 /**
  * Did a review session actually run to a result?
  *
- * `execution` is the parsed contents of the action's execution log, or null
+ * `execution` is the parsed contents of the action's execution log; `null`
  * when there is no file to parse — which is itself the loudest signal, since
- * it means no session started.
+ * it means no session started — or `UNREADABLE` when a file was written but
+ * did not parse. Those two are kept apart on purpose: they fail the job the
+ * same way but have different causes, and a check that names the wrong cause
+ * sends whoever reads it to the wrong place.
  */
 export function reviewVerdict({ kind = 'code', conclusion = '', execution = null } = {}) {
   const messages = Array.isArray(execution) ? execution : [];
   const result = messages.findLast?.((message) => message?.type === 'result') ?? null;
+
+  if (execution === UNREADABLE) {
+    return {
+      ok: false,
+      headline: `The ${kind} review left a log that could not be read`,
+      detail:
+        'The action wrote an execution log but it did not parse as JSON, so whether a review happened cannot be established from here. Treat the pull request as unreviewed and read the job log by hand.',
+    };
+  }
 
   if (execution === null) {
     return {
@@ -76,14 +88,29 @@ export function reviewVerdict({ kind = 'code', conclusion = '', execution = null
   };
 }
 
-/** Read and parse the action's execution log, or null if there is not one. */
+/**
+ * A log that exists but does not parse. Distinct from `null`, which means the
+ * action wrote no log at all.
+ */
+export const UNREADABLE = Symbol('unreadable execution log');
+
+/**
+ * Read and parse the action's execution log: `null` when there is no file,
+ * `UNREADABLE` when there is one that will not parse.
+ */
 export function readExecution(path) {
   if (!path) return null;
+  let raw;
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    return Array.isArray(parsed) ? parsed : [parsed];
+    raw = readFileSync(path, 'utf8');
   } catch {
     return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return UNREADABLE;
   }
 }
 
