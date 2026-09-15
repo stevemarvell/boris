@@ -114,3 +114,47 @@ So: when a change adds a control, exercise it against the deployed pull request
 environment — `api-boris-pr-<number>.up.railway.app` — and put the real output
 in the pull request body. A test proves the code does what you wrote. Only the
 deployment proves the deployment does.
+
+---
+
+## SOP 4: Spend context on the task in front of you
+
+Usage on a subscription is drawn down by context size, not by effort. Claude
+Code sends the whole conversation with every request, and prompt caching makes
+that cheaper rather than free — the documentation is explicit that *"a one-line
+question in a session that has been open all day still draws usage for the
+whole conversation"*.
+
+So the expensive habits are structural, not clever. In order of what they cost:
+
+**Clear between unrelated tasks.** `/clear` costs nothing; `/compact` reads the
+conversation it summarises and is itself a large request. Nobody can call
+`/clear` on your behalf, so the status line at `.claude/statusline.mjs` makes
+the moment visible instead: it shows the context share, both usage windows, and
+says when to clear — loudest when the cache has gone cold on a large context,
+which is the most expensive single message you can send. A session that has
+run through four unrelated topics is re-sending the first three on every turn.
+If you catch yourself saying "the only thing we are discussing is X", that was
+the moment.
+
+**Keep `CLAUDE.md` short.** It loads at session start, so it is in every
+request of every session *and* every subagent. Specialised knowledge belongs in
+a skill, which loads only when it is relevant — that is why the deployment and
+docs-site detail moved out of it. Target: under 200 lines.
+
+**Filter verbose output in a hook, not a subagent.** A hook runs outside the
+model loop, so it costs zero tokens; a subagent summarising the same log costs
+whatever it spends. `.claude/hooks/filter-verbose.mjs` shrinks CI logs and
+`verify` output before either reaches the conversation. The cheapest model is
+no model.
+
+**Spawn fewer agents.** Each one carries its own context window, loads
+`CLAUDE.md`, and costs 57k–144k tokens on the evidence in
+`.claude/trials/model-tiering.md`. Parallel agents multiply that directly; the
+documentation puts agent teams at roughly seven times a standard session. Three
+well-scoped agents beat seven overlapping ones, and cost less than half.
+
+**Model choice is the smallest of these.** Measured, it moved about 5%. It is
+worth getting right — see `.claude/trials/model-tiering.md` for where a cheaper
+model is safe and where it silently is not — but it is the last lever to reach
+for, not the first.

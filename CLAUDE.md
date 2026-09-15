@@ -73,6 +73,13 @@ deployment, along with the rest of the documentation — see "Documentation".
   `do not automate`, and assign it. An agent that meets one mid-task stops
   there and reports what remains. Also `docs/sops.md`.
 
+- **Context is the budget.** Every request carries the whole conversation, so
+  cost tracks context size rather than effort. Clear between unrelated tasks,
+  keep this file under 200 lines with specialised knowledge in skills, and
+  filter verbose output in a hook rather than reading it. `docs/sops.md` SOP 4
+  has the order of operations; model choice is the smallest lever, not the
+  first.
+
 - **Known gaps live in GitHub issues, not in a file.** There was a
   `docs/BACKLOG.md`; it went stale exactly as it predicted it would, because
   nothing connected a merge to a line in it. Close an item the way the work
@@ -95,104 +102,17 @@ There is no GitHub Pages entry any more. Pages on a private repository needs a
 paid plan, so everything it published moved onto the two deployments this
 project already has.
 
-Five settings are load-bearing and non-obvious:
-
-- Railway ignores `railway.json`'s `builder` field. Railpack reads the root
-  `package.json`, concludes the repo is Node, and fails with *"No start command
-  detected"* without looking for a Dockerfile. The `RAILWAY_DOCKERFILE_PATH`
-  service variable is what actually selects it.
-- Railway *does* honour `railway.json`'s `watchPatterns`, unlike `builder` —
-  so the two keys next to each other behave differently, and the only way to
-  know which is which is to test it. Measured on a pull request environment: a
-  commit changing only `manual/api/` did not redeploy under
-  `["apps/api/**"]` and did redeploy once `manual/api/**` was added. The list
-  must therefore name every path `apps/api/Dockerfile` copies — `apps/api/`,
-  `data/`, and `manual/api/` — or a change to the family tree or the manual
-  deploys nothing and says nothing. `/health` reports
-  `RAILWAY_GIT_COMMIT_SHA` so `smoke` can catch it if that drifts again —
-  and `smoke` only demands a match when the push actually touched one of
-  those paths, because most merges here change docs or the web app and
-  correctly leave the API where it was.
-- Vercel's Root Directory is `apps/web`, set in the dashboard. That means a
-  `vercel.json` at the repository root is never read — Vercel looks for it
-  inside the root directory. Put Vercel config in `apps/web/`.
-- The API's `API_ENVIRONMENT` Railway service variable gates the GraphQL IDE,
-  introspection, and the API manual's query console (see
-  `apps/api/src/api/main.py`). It defaults to `production` — all three off —
-  so a variable nobody set fails closed rather than open; it is never set on
-  Railway, since the deployed API should always behave this way. Local
-  development sets `API_ENVIRONMENT=development` to get them back (see
-  "Running it" below). The same default reaches pull request environments,
-  which therefore serve the manual without its console; set
-  `API_ENVIRONMENT=development` on the pull request environment to get it
-  back there, remembering that it opens GraphiQL and introspection too.
-- The API's `API_RATE_LIMIT` service variable sets the per-caller limit on
-  `/graphql` (see `apps/api/src/api/limits.py`). Like `API_ENVIRONMENT` it is
-  never set on Railway and defaults to a real value, `120/minute`, so a
-  deployment nobody configured is still limited. Counters are per process and
-  in memory, so they reset on every deploy and every wake from
-  `sleepApplication` — a ceiling on abuse, not a quota. The caller is
-  identified by `X-Real-IP`, because Railway's edge is a pool and the last
-  `X-Forwarded-For` hop names the edge node rather than the caller; keying on
-  that hop silently multiplies the limit by the size of the pool.
-
-`VITE_API_URL` is read at build time. The Railway integration syncs the API
-service's `API_URL` variable into Vercel, and `scripts/write-api-url.mjs` maps
-it onto `VITE_API_URL` before the build — so a deployment points at whichever
-Railway environment it belongs to rather than at a hardcoded host. Precedence:
-an explicit `VITE_API_URL` (the e2e suite sets one) wins, then `API_URL`, then
-the committed `apps/web/.env.production` as a fallback.
-
-On Railway, `API_URL` is defined as `https://${{RAILWAY_PUBLIC_DOMAIN}}`, so it
-resolves per environment rather than being typed out.
-
-## Preview environments
-
-Every pull request gets both a Vercel preview and a Railway PR environment at
-`api-boris-pr-<number>.up.railway.app`, and they are torn down on merge.
-
-They do **not** pair themselves. The Railway integration syncs the *production*
-environment's `API_URL` into Vercel for previews as well as production, so a
-preview frontend would be built against production and show production's data.
-`scripts/write-api-url.mjs` closes that by reading Vercel's
-`VERCEL_GIT_PULL_REQUEST_ID` and pointing the build at that PR's own API. The
-host pattern is a Railway convention rather than a contract; override it with
-`RAILWAY_PR_API_TEMPLATE` if it changes.
+Five settings are load-bearing and non-obvious, and every one of them was
+learned by something breaking quietly: which `railway.json` keys Railway
+honours, what actually selects the Dockerfile, how `API_ENVIRONMENT` and
+`API_RATE_LIMIT` behave, and how `VITE_API_URL` resolves per environment.
+**Read the `deployment` skill before changing anything that deploys.**
 
 ## Documentation
 
-Everything GitHub Pages used to publish is now served by the two deployments
-this project already had. Nothing is hosted anywhere a private repository
-cannot reach.
-
-| URL | Source | Carried by |
-| --- | --- | --- |
-| `/docs/` | `scripts/build-docs.mjs` | Vercel |
-| `/docs/adoption.html` | `docs/adoption.md` | Vercel |
-| `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
-| `/docs/sops.html` | `docs/sops.md` | Vercel |
-| `/docs/manual/web/` | `manual/web/` | Vercel |
-| `/docs/step-0.html` | `index.html` | Vercel |
-| `/` on the API | `manual/api/` | the API image |
-
-The web app's `prebuild` runs `scripts/build-docs.mjs`, which renders the
-Markdown with `scripts/markdown.mjs` and writes `apps/web/public/docs/`. That
-directory is generated, gitignored, and deleted on every run — edit the
-sources, never the output.
-
-The API manual is the one that does **not** go to Vercel. It ships inside the
-API image and is mounted at the service root, so:
-
-- its "try it" console, where `API_ENVIRONMENT=development` enables it, posts
-  to `/graphql` on the origin it was loaded from, which means a pull request
-  environment's manual exercises *that* API rather than production's;
-- it needs no CORS allowance at all, which is why `stevemarvell.github.io` is
-  no longer in `ALLOWED_ORIGIN_REGEX`.
-
-The mount is a catch-all at `/`, registered after `/graphql` and `/health` so
-those still win. A missing manual disables the mount rather than failing
-startup; `smoke` fetches it after every merge, so a build that drops it fails
-there instead.
+`/docs/` on Vercel carries the project documentation; the API serves its own
+manual at its root. Adding a page touches six files and missing one means a
+page that builds locally and 404s live — **read the `docs-site` skill**.
 
 ## Running it
 
