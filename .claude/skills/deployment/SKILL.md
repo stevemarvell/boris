@@ -83,6 +83,31 @@ open deliberately, because a reviewing agent has to be able to load one, and a
 stale preview serves the same invented tree as production. It is worth knowing
 because "the branch is gone" reads as "the preview is gone", and it is not.
 
+### A failed PR deployment, and why retrying it leaves the check red
+
+The `family-tree - api` status can fail for Railway's own reasons. It did on
+#115: the image built (the same Dockerfile the `image` job builds green on
+every run) and the deploy step failed, on a pull request that changed two
+Markdown files.
+
+`railway redeploy` fixes it and **does not clear the status**. The retry:
+
+```bash
+railway link --project 51b91279-9dfc-4a65-83c2-630caa6d480c \
+  --environment boris-pr-<number> --service api
+railway redeploy --service api --yes
+```
+
+`redeploy` takes no `--environment`, so the `link` is what selects it. After
+that succeeded, `api-boris-pr-115/health` returned `200` with the branch's own
+commit — and the GitHub commit status still read *Deployment failed*, because
+Railway posts it from the GitHub integration and a CLI deploy is not that.
+
+So a red `family-tree - api` means "check the environment", not "the branch is
+broken". Curl the health endpoint before believing it. `verify` remains the
+only required check, which is why one status stuck on a stale failure does not
+block a merge.
+
 They do **not** pair themselves. The Railway integration syncs the *production*
 environment's `API_URL` into Vercel for previews as well as production, so a
 preview frontend would be built against production and show production's data.
