@@ -49,6 +49,19 @@ Each of these is load-bearing. A change that erodes one is a finding:
 
 For each finding: the file and line, what an attacker or an accident does with
 it, and how bad that actually is here given the data is invented. Rank by that
-last part — an honest "low, and here is why" is worth more than inflating it.
+last part — "medium, and here is what holds it there" is worth more than
+inflating it.
+
+Use the repository's own three words and no others: **critical**, **high**,
+**medium**, as `gh label list` defines them. They rank severity and order in
+one judgement, which is deliberate — this repository has one scale so that two
+cannot disagree. Do not coin `low`, `moderate`, `sev:2`, or a percentage; an
+external scale (npm's `moderate`, a CVE's `high`) is quoted and attributed,
+never used as the ranking itself.
+
+A ranking below `critical` is a claim that something bounds the finding. Name
+it, and name what would void it — `docs/data-governance.md` does this with real
+data, and #103 with a second person getting write access. "Medium" with no
+stated bound is a guess wearing a label.
 
 Then one line: does this change belong on `develop` as it stands.
