@@ -1,0 +1,7 @@
+export declare const GOVERNANCE: string;
+export declare function isProse(path: string): boolean;
+export declare function reviewScope(paths: Iterable<string>): {
+  code: boolean;
+  security: boolean;
+  why: string;
+};
