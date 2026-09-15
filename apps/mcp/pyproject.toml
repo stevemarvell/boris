@@ -1,0 +1,51 @@
+[project]
+name = "family-tree-mcp"
+version = "0.1.0"
+description = "MCP server over the family tree, built on api.tree.FamilyTree."
+requires-python = ">=3.12"
+dependencies = [
+    "family-tree-api",
+    "mcp>=2",
+]
+
+# How an MCP client launches it:
+#   uv run --directory apps/mcp family-tree-mcp
+[project.scripts]
+family-tree-mcp = "family_mcp.server:main"
+
+# The relationship derivations live in apps/api and are reused, never copied:
+# a second implementation of "who counts as a cousin" would be a second thing
+# to keep correct, with nothing to report when the two disagreed. A path
+# source keeps apps/api its own uv project while this one depends on it, and
+# `editable` is load-bearing: `api.tree.default_data_path` finds
+# data/family.json by walking up from its own file, which reaches the
+# repository's data/ only while the package is imported from apps/api/src
+# rather than copied into site-packages.
+[tool.uv.sources]
+family-tree-api = { path = "../api", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/family_mcp"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"

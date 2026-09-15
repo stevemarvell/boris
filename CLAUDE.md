@@ -14,6 +14,7 @@ deployment, along with the rest of the documentation — see "Documentation".
 | Path | Holds |
 | --- | --- |
 | `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
+| `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
 | `data/` | The family tree itself, stored as files in this repository. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments expose and why; `sops.md`, how agent work is run. |
