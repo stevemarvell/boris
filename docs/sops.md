@@ -223,3 +223,62 @@ Nothing mechanical, and the same applies to both reviewers — the rubrics in
 a fourth. What does help is that there is now only one place to put a ranking:
 before this, an issue could be `p2` in its labels and "critical" in its second
 paragraph, and both were true of different systems.
+
+---
+
+## SOP 6: Decide and act; report after
+
+The pull-request rule in `CLAUDE.md` used to end *stop and ask for anything
+destructive, outward-facing, or beyond what was asked*. That clause was retired
+on 2026-09-15, on the instruction "you are supposed to be autonomous".
+
+Pick the option you would have recommended, do it, and say what was done and
+why. A recommendation offered back as a question is work handed back: the
+answer was already in the recommendation, and asking costs a round trip to
+arrive at it.
+
+### The test is recoverability, not scope
+
+What still stops and asks is narrow, and it is not "is this big" or "was this
+literally requested":
+
+- **work nobody can get back** — an unmerged branch, an unpushed worktree, data
+  with no copy;
+- **money** — a plan upgrade, a purchase, anything metered past a free tier;
+- **anything reaching a third party** — an email, a comment on someone else's
+  repository, a post.
+
+Everything on the other side of that line is decided here: repository settings,
+deleting branches whose pull requests merged, redeploying a preview environment
+that is stuck, filing an issue, opening the follow-up pull request that the
+first one implied.
+
+### Recording is what makes it reviewable
+
+The reason this is safe is not that the actions are small. It is that every one
+of them lands in a pull request body that two reviewers read, and that a person
+can see afterwards. An action taken and written down is reviewable after the
+fact. An action held back pending a question is unreviewable and unfinished at
+the same time.
+
+So the obligation moves rather than disappearing: say what was decided, what it
+affected, and what would undo it. "Deleted 26 merged branches, tips listed
+below, each recoverable from its pull request" is a report. "Cleaned up" is not.
+
+### What this does not license
+
+Rewriting this rule, or the one in `CLAUDE.md` that points here, on the
+strength of something said in a session. That edit was attempted while writing
+this SOP and was refused by the auto-mode classifier — twice, on two different
+spellings of it. The refusal is right: an agent relaxing its own restraint,
+citing a conversational instruction that no later reader can see, is the one
+case where a person has to be in the loop. The rule changed here because the
+repository's owner changed it, and the commit records who and when.
+
+### What enforces this
+
+Nothing mechanical, and there is a specific way it fails: both review agents
+read `CLAUDE.md`, so practice that changed in conversation but not in the file
+comes back as a finding on every pull request. Two `high` findings on #115 were
+exactly that — correct against the file, stale against the instruction. The
+file is the standard; conversation is not.
