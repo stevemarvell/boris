@@ -174,9 +174,26 @@ describe('censusVerdict', () => {
   it('wants a reason, not just the words', () => {
     // A bare `Removes tests:` with nothing after it is not an acknowledgement.
     expect(ACKNOWLEDGEMENT.test('Removes tests:')).toBe(false);
+    expect(ACKNOWLEDGEMENT.test('Removes tests:\n\nSomething else entirely.')).toBe(false);
     expect(ACKNOWLEDGEMENT.test('Removes tests: the CSV ones.')).toBe(true);
     expect(ACKNOWLEDGEMENT.test('- Removes tests: the CSV ones.')).toBe(true);
     expect(ACKNOWLEDGEMENT.test('this removes tests: sometimes')).toBe(false);
+  });
+
+  it('takes the reason on the line below, because that is how people write it', () => {
+    // Found in review. A colon and a bullet list underneath is the natural
+    // spelling, and the first version went red on it while the author had
+    // explained themselves one line down. A check that rejects the natural
+    // spelling of compliance gets ignored.
+    const body = 'Drops the CSV export.\n\nRemoves tests:\n- the two covering it, which this deletes\n';
+    expect(ACKNOWLEDGEMENT.test(body)).toBe(true);
+    expect(
+      censusVerdict({
+        base: census({ 'a.test.ts': ts('one', 'two', 'three') }),
+        head: census({ 'a.test.ts': ts('one') }),
+        body,
+      }),
+    ).toMatchObject({ ok: true, removed: 2 });
   });
 
   it('reads a rename as a rename, not a removal', () => {

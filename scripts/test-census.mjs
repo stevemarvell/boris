@@ -113,8 +113,21 @@ export function census(files) {
   };
 }
 
-/** The line a pull request body has to carry to remove a test deliberately. */
-export const ACKNOWLEDGEMENT = /^[ \t>*-]*removes tests:[ \t]*\S/im;
+/**
+ * The line a pull request body has to carry to remove a test deliberately.
+ *
+ * The reason may follow on the same line or on the next one, because a colon
+ * and a bullet list underneath is how people actually write this:
+ *
+ *     Removes tests:
+ *     - the two covering the CSV export, because that feature is gone
+ *
+ * The first version required the same line, and would have gone red on that
+ * body while the author had explained themselves one line down. A check that
+ * rejects the natural spelling of compliance teaches people to ignore it.
+ * What it still refuses is a bare `Removes tests:` with nothing after it.
+ */
+export const ACKNOWLEDGEMENT = /^[ \t>*-]*removes tests:[ \t]*(\S|\r?\n[ \t>*-]*\S)/im;
 
 /**
  * Did this change lose tests, and did it say so?
@@ -182,7 +195,7 @@ export function censusVerdict({ base, head, body = '' } = {}) {
     ok: false,
     removed: lost,
     headline: `${lost} ${lost === 1 ? 'test disappears' : 'tests disappear'} and nothing says why`,
-    detail: `${before} tests on the base, ${after} here.\n\n${losses}\n\nRemoving a test can be right: a deleted feature takes its tests with it. What is not right is removing one by accident, which is how #109 was found — a conflict resolution dropped three assertions, including the ones proving the fix that had just merged, and every check stayed green.\n\nIf the removal is deliberate, put a line in the pull request body beginning \`Removes tests:\` saying which and why. If it is not, this check has just caught it.${aside}`,
+    detail: `${before} tests on the base, ${after} here.\n\n${losses}\n\nRemoving a test can be right: a deleted feature takes its tests with it. What is not right is removing one by accident, which is how #109 was found — a conflict resolution dropped three assertions, including the ones proving the fix that had just merged, and every check stayed green.\n\nIf the removal is deliberate, put a line in the pull request body beginning \`Removes tests:\` saying which and why — on that line or on the one below it, a bullet list underneath is fine. If it is not, this check has just caught it.${aside}`,
   };
 }
 
