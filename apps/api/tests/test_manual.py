@@ -12,6 +12,8 @@ manual itself is not gated: production serves the whole document, worked
 examples included, minus the button.
 """
 
+import json
+from html import unescape
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from api import main
 from api.main import app, create_app, default_manual_path, render_manual
+from api.rest import IDENTITY_HEADER
 
 client = TestClient(app)
 development = TestClient(create_app(environment="development"))
@@ -27,6 +30,17 @@ development = TestClient(create_app(environment="development"))
 # so its absence is the whole console being absent rather than merely hidden.
 CONSOLE_ENDPOINT = "var ENDPOINT = '/graphql';"
 RUN_BUTTON = '<button type="button" class="primary" id="run">'
+
+# The worked example in the REST section, tagged so a test can read it back out
+# and compare it against what the endpoint actually returns.
+PERSON_BODY_OPEN = '<pre id="rest-person-body"><code>'
+
+
+def documented_person_body(page: str) -> dict[str, object]:
+    """The JSON the manual prints for GET /person/fred-shaw."""
+    start = page.index(PERSON_BODY_OPEN) + len(PERSON_BODY_OPEN)
+    end = page.index("</code></pre>", start)
+    return json.loads(unescape(page[start:end]))
 
 
 def test_the_manual_is_served_at_the_root() -> None:
@@ -105,6 +119,71 @@ def test_the_manual_does_not_claim_the_root_is_empty() -> None:
     body = client.get("/").text
     assert "There is nothing at" not in body
     assert "The page you are reading is what <code>/</code> returns" in body
+
+
+def test_the_rest_endpoints_are_documented_in_both_environments() -> None:
+    """They serve production traffic, so the production manual must carry them.
+
+    This is plain documentation, not something to run, so it belongs outside
+    the console markers altogether. Asserting it in both environments is what
+    catches it being nested inside one of them by accident.
+    """
+    for served in (client, development):
+        body = served.get("/").text
+        assert 'id="rest"' in body
+        assert 'href="#rest"' in body
+        assert "/person/{id}" in body
+        assert IDENTITY_HEADER in body
+
+
+def test_the_documented_person_body_is_the_body_the_endpoint_returns() -> None:
+    """A worked example that has drifted from the code is worse than none.
+
+    The manual is hand-written, so nothing regenerates this example when the
+    representation changes. This does the next best thing: it fetches the
+    person the example names and asserts the printed JSON still parses to what
+    came back.
+    """
+    printed = documented_person_body(client.get("/").text)
+
+    assert printed == client.get("/person/fred-shaw").json()
+
+
+def test_the_manual_quotes_the_refusals_me_actually_sends() -> None:
+    """401 without an identity, 404 for someone outside the tree, verbatim."""
+    body = client.get("/").text
+
+    assert client.get("/me").json()["detail"] in body
+    stranger = client.get("/me", headers={IDENTITY_HEADER: "a-stranger"})
+    assert stranger.json()["detail"] in body
+
+
+def test_the_manual_documents_the_headers_me_answers_with() -> None:
+    """Content-Location and Cache-Control are the whole contract of /me."""
+    body = client.get("/").text
+
+    assert "Content-Location" in body
+    assert "private, no-store" in body
+    assert "byte-identical" in body
+
+
+def test_the_manual_says_the_rest_paths_share_the_graphql_budget() -> None:
+    """An unlimited path would be a way around the limit; readers should know."""
+    body = client.get("/").text
+
+    assert "Rate limits" in body
+    assert "120 requests per minute" in body
+    assert "x-ratelimit-limit" in body
+
+
+def test_the_manual_says_what_the_rest_body_leaves_out() -> None:
+    """The absence is a decision about cost, so it is documented as one."""
+    body = client.get("/").text
+    rest = body[body.index('id="rest"') :]
+
+    for absent in ("grandparents", "cousins", "descendants"):
+        assert absent in rest
+    assert "knowable" in rest
 
 
 def test_the_manual_names_the_host_it_came_from_in_both_environments() -> None:

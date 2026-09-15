@@ -358,11 +358,14 @@
   <div class="wrap">
     <h1>Family Tree API</h1>
     <p class="lede">
-      A read-only GraphQL service over one family tree. It stores each person's
-      parents and spouse, and derives every other relationship on request.
+      A read-only service over one family tree, answering in GraphQL and in
+      plain JSON. It stores each person's parents and spouse, and derives every
+      other relationship on request.
     </p>
     <div class="endpoint-strip">
       <span class="pill"><span class="verb">POST</span> <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/graphql</span>
+      <span class="pill"><span class="verb">GET</span> /person/{id}</span>
+      <span class="pill"><span class="verb">GET</span> /me</span>
       <span class="pill"><span class="verb">GET</span> /health</span>
       <span class="pill">No authentication</span>
     </div>
@@ -381,6 +384,7 @@
       <li><a href="#person">The Person type</a></li>
       <li><a href="#console">Try it</a></li>
       <li><a href="#examples">Worked examples</a></li>
+      <li><a href="#rest">The REST view</a></li>
       <li><a href="#errors">Errors</a></li>
       <li><a href="#health">Health</a></li>
       <li><a href="#cors">CORS</a></li>
@@ -426,6 +430,16 @@
               <td class="name">/graphql</td>
               <td class="type">GET</td>
               <td>GraphiQL, the in-browser explorer Strawberry ships with. Development only — see <a href="#console">Try it</a>.</td>
+            </tr>
+            <tr>
+              <td class="name">/person/{id}</td>
+              <td class="type">GET</td>
+              <td>One person as JSON, without a query. See <a href="#rest">The REST view</a>.</td>
+            </tr>
+            <tr>
+              <td class="name">/me</td>
+              <td class="type">GET</td>
+              <td>The same record for whoever the <code>X-Person-Id</code> header names.</td>
             </tr>
             <tr>
               <td class="name">/health</td>
@@ -1215,6 +1229,332 @@
       </p>
     </section>
 
+    <section id="rest">
+      <h2>The REST view</h2>
+      <p class="section-note">Two plain GETs beside the GraphQL endpoint: one person by id, and the same person by identity.</p>
+
+      <p>
+        Everything above this section goes through <code>/graphql</code>. Two
+        endpoints do not. They answer a single question — <em>who is this
+        person, and who are they connected to?</em> — in a fixed shape, over
+        <code>GET</code>, with no body to compose and nothing to build before
+        the request can be sent.
+      </p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Endpoint</th><th>Method</th><th>Answers</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">/person/{id}</td>
+              <td class="type">GET</td>
+              <td>One person, named by id. <code>404</code> if nobody has that id.</td>
+            </tr>
+            <tr>
+              <td class="name">/me</td>
+              <td class="type">GET</td>
+              <td>The same record, for whoever the caller says they are. <code>401</code> without an identity.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>GET /person/{id}</h3>
+
+<pre><code>curl -s <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/person/fred-shaw</code></pre>
+
+<pre id="rest-person-body"><code>{
+  "id": "fred-shaw",
+  "name": "Fred Shaw",
+  "generation": 2,
+  "spouse": { "id": "ellie-shaw", "name": "Ellie Shaw" },
+  "parents": [
+    { "id": "frank-shaw", "name": "Frank Shaw" },
+    { "id": "margaret-shaw", "name": "Margaret Shaw" }
+  ],
+  "children": [
+    { "id": "daisy-shaw", "name": "Daisy Shaw" },
+    { "id": "sam-shaw", "name": "Sam Shaw" }
+  ],
+  "siblings": [
+    { "id": "sally-baker", "name": "Sally Baker" }
+  ]
+}</code></pre>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">id</td>
+              <td class="type">string</td>
+              <td>The same slug the path carries, and the one <code>person(id:)</code> takes.</td>
+            </tr>
+            <tr>
+              <td class="name">name</td>
+              <td class="type">string</td>
+              <td>Display name.</td>
+            </tr>
+            <tr>
+              <td class="name">generation</td>
+              <td class="type">integer</td>
+              <td>Depth from the oldest generation — the same number <code>generations</code> groups by.</td>
+            </tr>
+            <tr>
+              <td class="name">spouse</td>
+              <td class="type">object | null</td>
+              <td>A reference, or <code>null</code> for an unmarried person.</td>
+            </tr>
+            <tr>
+              <td class="name">parents</td>
+              <td class="type">array</td>
+              <td>References. Zero or two in this tree.</td>
+            </tr>
+            <tr>
+              <td class="name">children</td>
+              <td class="type">array</td>
+              <td>References, derived. Everyone naming this person as a parent.</td>
+            </tr>
+            <tr>
+              <td class="name">siblings</td>
+              <td class="type">array</td>
+              <td>References, derived. Anyone sharing at least one parent.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        A <strong>reference</strong> is <code>{"id": …, "name": …}</code> and
+        nothing else: enough to name the person, and enough to fetch them. Every
+        reference in the body is one <code>/person/{id}</code> away, so a client
+        walks the tree by following ids rather than by asking for a deeper
+        response. That is the whole navigation model here — there is no
+        <code>?expand=</code>, and no nesting.
+      </p>
+
+      <p>
+        The rules the schema follows apply to the JSON too. Lists are sorted by
+        name; a list with no members is <code>[]</code> rather than
+        <code>null</code>; <code>spouse</code> is the one field that is
+        genuinely nullable. <code>generation</code>, <code>children</code> and
+        <code>siblings</code> appear in the response and in no file — they are
+        computed per request, exactly as they are over GraphQL.
+      </p>
+
+      <p>
+        An id nobody has is a <code>404</code> with a JSON body, not an empty
+        record:
+      </p>
+
+<pre><code>{"detail":"no person with id nobody"}</code></pre>
+
+      <p>
+        Note the difference from the query path, where the same mistake is
+        answered <code>200</code> with <code>"person": null</code> — see
+        <a href="#errors">Errors</a>. GraphQL reports application-level problems
+        inside the body; these endpoints report them in the status line, because
+        with a fixed shape there is nowhere else to put them.
+      </p>
+
+      <h3>GET /me</h3>
+
+      <p>
+        <code>/me</code> is the reason the pair exists. It resolves to a person
+        and returns a body <strong>byte-identical</strong> to that person's own
+        URL — not merely equivalent, the same bytes — so <code>/me</code> and
+        <code>/person/fred-shaw</code> are one resource reached two ways, one by
+        name and one by identity. Both are served by the same function, so they
+        cannot drift, and a test asserts the bytes match.
+      </p>
+
+      <p>
+        This service has no authentication, which is a recorded decision rather
+        than an oversight, so <code>/me</code> cannot ask who you are. It reads
+        who you <em>claim</em> to be, from a request header:
+      </p>
+
+<pre><code>curl -si <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/me \
+  -H 'X-Person-Id: fred-shaw'</code></pre>
+
+<pre><code>HTTP/1.1 200 OK
+content-type: application/json
+cache-control: private, no-store
+content-location: <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/person/fred-shaw</code></pre>
+
+      <p>
+        <code>X-Person-Id</code> stands in for a session. It grants nothing: a
+        caller can name any person in the tree and get their record, which is
+        exactly the record they could have fetched from that person's own URL
+        without naming anybody. It is written this way rather than pinned to one
+        hardcoded person because a <code>/me</code> that always answers for the
+        same identity is not the endpoint anyone means — and because the
+        missing-header case is the behaviour that would survive a real login
+        being wired in later.
+      </p>
+
+      <h4>The two response headers</h4>
+
+      <ul>
+        <li>
+          <code>Content-Location</code> names the canonical URL —
+          <code>/person/{id}</code> for whoever was resolved. It is how a client
+          learns which person <code>/me</code> turned out to be without reading
+          the body, and it is built from the request, so a pull request
+          environment's <code>/me</code> points at its own host rather than at
+          production.
+        </li>
+        <li>
+          <code>Cache-Control: private, no-store</code> keeps the answer out of
+          every shared cache. The body depends on who asked, so an intermediary
+          that stored it would hand one caller another caller's answer.
+        </li>
+      </ul>
+
+      <p>
+        <code>/person/{id}</code> is the cacheable half of the pair and sets no
+        cache header at all: its answer is the same for everybody, so it is left
+        to whatever default the caller or a proxy in front of the service
+        applies. <code>/me</code> is the half that must never be stored, and it
+        says so in the response rather than relying on anyone to work it out.
+      </p>
+
+      <h4>When there is no answer</h4>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Request</th><th>Status</th><th>Body</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name">No header</td>
+              <td class="type">401</td>
+              <td><code>{"detail":"not signed in; send X-Person-Id to say who you are"}</code></td>
+            </tr>
+            <tr>
+              <td class="name">An id not in the tree</td>
+              <td class="type">404</td>
+              <td><code>{"detail":"signed in as a-stranger, who is not in this tree"}</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The second is deliberately a <code>404</code> rather than another
+        <code>401</code>. Signed in is not the same as present: the caller said
+        who they are and was believed, and the answer is that this tree has no
+        such person. Repeating <code>401</code> would tell them to identify
+        themselves again, which would not help.
+      </p>
+
+      <p>
+        A deployment can pin an identity instead, with the
+        <code>API_DEFAULT_IDENTITY</code> service variable — then
+        <code>/me</code> answers for that person when no header is sent, and an
+        explicit header still wins. It is unset here, which is why the plain
+        request above is a <code>401</code>.
+      </p>
+
+      <p>
+        From a browser, <code>x-person-id</code> is a non-standard request
+        header and so triggers a preflight. It is on the allowed list — see
+        <a href="#cors">CORS</a> — but as an ordinary header, not a credential:
+        nothing is a secret, and naming yourself gets you a record any caller
+        could fetch by id anyway.
+      </p>
+
+      <h3>Why a GET here and not on /graphql</h3>
+
+      <p>
+        <code>/graphql</code> is POST-only in both environments, on purpose. A
+        GraphQL query is a short string that can trigger an expensive
+        resolution, so accepting one over <code>GET</code> would turn an
+        <code>&lt;img src&gt;</code> on anybody's page into work this server has
+        to do. The same property is why the schema needs a depth limit at all:
+        <code>Person</code>'s relationship fields are mutually recursive and
+        each extra level costs roughly 3.5×, so nesting is capped at a depth of
+        six.
+      </p>
+
+      <p>
+        These two endpoints have neither problem. The response shape is fixed,
+        so the cost of a call is knowable before it arrives — that is what makes
+        a <code>GET</code> safe here and unsafe there. A fixed shape is also
+        cacheable, which a <code>POST</code> is not.
+      </p>
+
+      <h3>What is deliberately absent</h3>
+
+      <p>
+        <code>grandparents</code>, <code>cousins</code> and
+        <code>descendants</code> are all derivable, all available over GraphQL,
+        and all missing from this body. That is the trade being protected rather
+        than an oversight:
+      </p>
+
+      <ul>
+        <li><code>descendants</code> walks the whole tree beneath a person.</li>
+        <li><code>cousins</code> fans out through every parent's siblings' children.</li>
+      </ul>
+
+      <p>
+        Including either would make the cost of a request depend on
+        <em>which</em> person was asked for, and a call whose cost is not
+        knowable in advance is precisely the thing that keeps
+        <code>/graphql</code> behind a POST and a depth limit. Bounded cost is
+        what justifies these endpoints existing, so they do not spend it. If
+        those relationships are ever wanted over REST they belong on their own
+        sub-resources, where the cost is something a caller opts into — until
+        then, ask for them in a query.
+      </p>
+
+      <h3>Rate limits</h3>
+
+      <p>
+        Both paths are rate limited, and neither gets a budget of its own:
+        <code>/person/{id}</code>, <code>/me</code> and <code>/graphql</code>
+        share one, counted per caller at <strong>120 requests per minute</strong>
+        by default. Spending it on <code>/person</code> leaves none for
+        <code>/graphql</code>, which is the point — a caller must not be able to
+        double their allowance by switching surface. These endpoints are cheap
+        next to a deep query, but cheap is not free: each one walks the tree to
+        derive children and siblings.
+      </p>
+
+      <p>
+        Every answer from a limited path carries the budget with it, so a
+        well-behaved client never has to guess:
+      </p>
+
+<pre><code>x-ratelimit-limit: 120
+x-ratelimit-remaining: 119
+x-ratelimit-reset: 1789420697.9042213
+retry-after: 60</code></pre>
+
+      <p>
+        <code>retry-after</code> is on successful responses too, where it counts
+        down the remaining window rather than asking anyone to wait. Over the
+        limit, a request is refused with <code>429</code> and a body of
+        <code>{"error":"Rate limit exceeded: …"}</code> — answered, not
+        executed.
+      </p>
+
+      <p>
+        Two things sit outside the limit entirely: <code>/health</code>, because
+        a <code>429</code> there reads as an unhealthy deployment and would get
+        the container restarted mid-burst, and this manual, which is bytes off
+        disk. The counters live in one process's memory, so they reset on every
+        deployment and every wake from sleep. The limit is a ceiling on abuse,
+        not a quota.
+      </p>
+    </section>
+
     <section id="errors">
       <h2>Errors</h2>
       <p class="section-note">GraphQL answers with 200 and an errors array; missing data is not an error at all.</p>
@@ -1342,7 +1682,7 @@
 
       <ul>
         <li>Methods: <code>GET</code>, <code>POST</code>, <code>OPTIONS</code>.</li>
-        <li>Request headers: <code>content-type</code>. Credentials are not allowed and not needed — there is nothing to authenticate.</li>
+        <li>Request headers: <code>content-type</code> and <code>x-person-id</code>, the second so a browser can reach <a href="#rest"><code>/me</code></a> at all. Credentials are not allowed and not needed — there is nothing to authenticate, and naming yourself is not a credential.</li>
         <li>Preflight results are cacheable for 600 seconds.</li>
       </ul>
 
