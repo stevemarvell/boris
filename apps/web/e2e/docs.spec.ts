@@ -57,10 +57,14 @@ test.describe('the docs Vercel serves', () => {
     // have left this green, and either of the other two would have passed on
     // the word appearing in a sentence elsewhere. A test for "the scale
     // reaches the deployment" has to fail when a row leaves it.
-    await expect(
-      page.getByRole('heading', { name: 'SOP 5: One scale ranks everything' }),
-    ).toBeVisible();
-    const scale = page.locator('table').last();
+    const sop5 = page.getByRole('heading', { name: 'SOP 5: One scale ranks everything' });
+    await expect(sop5).toBeVisible();
+
+    // The table *after that heading*, not the last one on the page. Document
+    // position would tie this to SOP 5 only until a SOP 6 with a table of its
+    // own is appended, at which point it would quietly assert against the
+    // wrong table rather than failing.
+    const scale = sop5.locator('xpath=following::table[1]');
     for (const rank of ['critical', 'high', 'medium']) {
       await expect(scale).toContainText(rank);
     }
