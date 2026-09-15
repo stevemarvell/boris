@@ -62,7 +62,26 @@ resolves per environment rather than being typed out.
 ## Preview environments
 
 Every pull request gets both a Vercel preview and a Railway PR environment at
-`api-boris-pr-<number>.up.railway.app`, and they are torn down on merge.
+`api-boris-pr-<number>.up.railway.app`.
+
+**Only one of the two is actually torn down.** Railway removes its environment
+when the pull request closes — checked on 2026-09-15, every
+`api-boris-pr-<n>/health` for #97, #98, #108, #110, #111, #112 and #114 returns
+`404`. Vercel removes nothing. The preview deployment and its
+`family-tree-git-<branch>-…vercel.app` alias survive the merge *and* the branch
+deletion: the same check found 24 of them still serving `200`, for branches
+whose pull requests had all merged, one of them from a merge four minutes
+earlier.
+
+Nothing collects them on this plan. Deployment Retention is a Pro feature and
+the team is on Hobby, so the options are `vercel remove` or the dashboard, both
+by hand. What *is* automated is the cause — `delete_branch_on_merge` is set on
+the repository, so branches no longer pile up even though their previews do.
+
+This is not an exposure. `docs/data-governance.md` records that previews are
+open deliberately, because a reviewing agent has to be able to load one, and a
+stale preview serves the same invented tree as production. It is worth knowing
+because "the branch is gone" reads as "the preview is gone", and it is not.
 
 They do **not** pair themselves. The Railway integration syncs the *production*
 environment's `API_URL` into Vercel for previews as well as production, so a
