@@ -7,6 +7,7 @@ import {
   mergeConflicts,
   parseMergeTree,
   partitionConflicts,
+  refsToFetch,
   selectPullRequests,
 } from '../../../scripts/pr-contention.mjs';
 
@@ -115,6 +116,31 @@ describe('selectPullRequests', () => {
 
   it('ignores entries that carry no pull request number', () => {
     expect(selectPullRequests([{ number: 1 }, {} as { number: number }]).selected).toHaveLength(1);
+  });
+});
+
+describe('refsToFetch', () => {
+  const many = Array.from({ length: MAX_PULL_REQUESTS + 3 }, (_, i) => ({ number: i + 1 }));
+
+  it('fetches the heads it is going to compare', () => {
+    expect(refsToFetch([{ number: 3 }, { number: 7 }])).toEqual([
+      'refs/pull/3/head',
+      'refs/pull/7/head',
+    ]);
+  });
+
+  it('fetches the triggering pull request even when the ceiling drops it', () => {
+    // The ceiling bounds the rivals, where the quadratic cost is. The subject
+    // is reported on regardless, so deriving the fetch list from the ceiling
+    // alone left its head unfetched — every comparison against it then failed,
+    // on exactly the pull request that must never go unreported.
+    const refs = refsToFetch(many, [MAX_PULL_REQUESTS + 3]);
+    expect(refs).toContain(`refs/pull/${MAX_PULL_REQUESTS + 3}/head`);
+    expect(refs).toHaveLength(MAX_PULL_REQUESTS + 1);
+  });
+
+  it('does not fetch a head for a pull request that is not open', () => {
+    expect(refsToFetch([{ number: 3 }], [999])).toEqual(['refs/pull/3/head']);
   });
 });
 

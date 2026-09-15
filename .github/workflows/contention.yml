@@ -40,7 +40,14 @@ jobs:
 
     permissions:
       contents: read
-      # Writes one comment per pull request, and edits its own thereafter.
+      # This job writes one comment per pull request and edits its own
+      # thereafter, but the scope granting that is not that narrow: GitHub has
+      # no comment-only permission, so `pull-requests: write` also permits
+      # merging, closing, retitling and labelling *any* open pull request — and
+      # it is live while this job runs a script from the pull request's own
+      # checkout. `docs/data-governance.md` records that alongside the two
+      # credentialed review jobs of the same shape, and what voids the bound
+      # they share.
       pull-requests: write
 
     steps:
@@ -80,7 +87,10 @@ jobs:
           set -uo pipefail
           # The script decides which heads, because MAX_PULL_REQUESTS is its
           # ceiling to declare. Restating the number here is how it would drift.
-          node scripts/pr-contention.mjs --refs > refs.txt
+          # The triggering pull request is passed in because it is reported on
+          # whether or not the ceiling would have kept it, so its head has to be
+          # here even when the ceiling drops it from the rivals.
+          node scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
           if [ -s refs.txt ]; then
             xargs -r git fetch --no-tags origin < refs.txt
           fi

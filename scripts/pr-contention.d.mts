@@ -30,6 +30,7 @@ export declare function selectPullRequests(
   list: PullRequest[],
   max?: number,
 ): { selected: PullRequest[]; truncated: number };
+export declare function refsToFetch(list: PullRequest[], only?: number[]): string[];
 export declare function contentionVerdict(input?: {
   subject?: PullRequest;
   base?: { ref?: string; conflicts?: string[]; failed?: boolean };

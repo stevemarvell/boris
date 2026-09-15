@@ -147,6 +147,26 @@ export function selectPullRequests(list, max = MAX_PULL_REQUESTS) {
   return { selected: ordered.slice(0, max), truncated: Math.max(0, ordered.length - max) };
 }
 
+/**
+ * The pull request heads a run needs fetched.
+ *
+ * `selected` bounds the *rivals*, where the quadratic cost is. The subject
+ * does not go through that filter — a pull request whose own event triggered
+ * the run is always reported on — so its head has to be fetched even when the
+ * ceiling would have dropped it. Deriving the fetch list from `selected`
+ * alone left exactly that gap: with more than MAX_PULL_REQUESTS open and the
+ * trigger among the newer ones, its head was never fetched and every
+ * comparison against it failed. Found in review on this pull request.
+ */
+export function refsToFetch(open, only = []) {
+  const { selected } = selectPullRequests(open);
+  const numbers = new Set(selected.map((pr) => pr.number));
+  for (const number of only) {
+    if ((open ?? []).some((pr) => pr.number === number)) numbers.add(number);
+  }
+  return [...numbers].sort((a, b) => a - b).map((number) => `refs/pull/${number}/head`);
+}
+
 const list = (paths) => paths.map((path) => `\`${path}\``).join(', ');
 
 /**
@@ -310,7 +330,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   // which keeps MAX_PULL_REQUESTS from being restated in YAML where it would
   // drift.
   if (args[0] === '--refs') {
-    for (const pr of selected) console.log(`refs/pull/${pr.number}/head`);
+    const wanted = args.filter((arg) => /^\d+$/.test(arg)).map(Number);
+    for (const ref of refsToFetch(open, wanted)) console.log(ref);
     process.exit(0);
   }
 
