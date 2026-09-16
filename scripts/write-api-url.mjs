@@ -1,46 +1,50 @@
-// Map Railway's API_URL onto Vite's VITE_API_URL before a build.
+// Map an explicit VITE_API_URL through to Vite, or fall back to the committed
+// one, before a build.
 //
-// The Railway integration syncs the API service's own variables into Vercel,
-// so API_URL is present at build time and always points at whichever Railway
-// environment this deployment belongs to. Vite only exposes VITE_-prefixed
-// variables to client code, hence the mapping.
+// The API and the web app are two independent Vercel projects (#126), and
+// nothing pairs their preview deployments: no integration syncs one
+// project's URL into the other's build the way Railway's did for API_URL.
+// So every build here -- production and every pull request preview alike --
+// points at the one production API. That is a deliberate choice, not a gap:
+// docs/data-governance.md records that every preview serves the same
+// invented tree as production, so a preview frontend calling the production
+// API shows the same data a paired preview API would have.
 //
-// Precedence: an explicit VITE_API_URL (the e2e suite sets one) wins; then a
-// Railway PR environment when Vercel is building a pull request preview; then
-// API_URL; otherwise the committed .env.production stands as the fallback.
+// Vercel does give every deployment a predictable branch alias --
+// family-tree-api-git-<branch>-stevemarvell-team.vercel.app, confirmed live
+// against the family-tree-api project -- and reconstructing that string here
+// was the alternative. Rejected for the build itself: it would need this
+// script to reimplement Vercel's branch-name slugify (lowercase,
+// non-alphanumeric runs to a single hyphen, truncated past some length) from
+// a community write-up rather than a guaranteed contract, to buy a preview
+// that -- per the paragraph above -- would show the same data anyway. It is
+// still the right answer for a person or an agent who wants a *specific*
+// pull request's own API deployment on purpose (to verify a change to
+// apps/api itself): find or construct that URL directly rather than reading
+// it out of a web build. See the `deployment` skill.
 //
-// The PR case exists because the Railway integration syncs the *production*
-// environment's API_URL into Vercel, for previews as well as production. So
-// without this, a preview frontend is built against production and shows
-// production's data — which makes verifying a branch in a browser worthless,
-// and quietly so.
+// Precedence: an explicit VITE_API_URL (the e2e suite sets one, so it can
+// point at the uvicorn instance it started) wins; otherwise the committed
+// apps/web/.env.production stands as the fallback, unedited.
 //
-// Every value this script reads comes from Vercel's or Railway's environment,
-// not from a user directly, but it still gets validated before being written
-// into the file that configures the shipped bundle. This project's failures
-// have consistently been quiet misconfiguration (Railpack ignoring
-// railway.json, Vercel building the wrong directory, CORS refusing
-// 127.0.0.1) rather than a crash — so a value that can't possibly be right
-// fails the build loudly instead of producing a bundle that silently points
-// at a bad host. In particular, the URL parser strips tab and newline
-// characters out of its input rather than rejecting them, so a value with an
-// embedded newline can parse "successfully" into something other than what
-// was intended — control characters are therefore checked for directly,
-// before anything is handed to `new URL()`.
+// The one value this script actually handles -- VITE_API_URL -- can still
+// come from Vercel's environment rather than from a user directly, but it is
+// validated before being written into the file that configures the shipped
+// bundle. This project's failures have consistently been quiet
+// misconfiguration (Railpack ignoring railway.json, Vercel building the
+// wrong directory, CORS refusing 127.0.0.1) rather than a crash -- so a
+// value that can't possibly be right fails the build loudly instead of
+// producing a bundle that silently points at a bad host. In particular, the
+// URL parser strips tab and newline characters out of its input rather than
+// rejecting them, so a value with an embedded newline can parse
+// "successfully" into something other than what was intended -- control
+// characters are therefore checked for directly, before anything is handed
+// to `new URL()`.
 import { rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const WEB_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'apps', 'web');
-
-/**
- * Railway names a PR environment's domain after the service, the repository,
- * and the pull request number. Overridable, because it is a convention rather
- * than a contract — if Railway changes it, set RAILWAY_PR_API_TEMPLATE.
- */
-export function prApiUrl(pullRequest, template = 'https://api-boris-pr-{pr}.up.railway.app') {
-  return template.replace('{pr}', String(pullRequest));
-}
 
 /**
  * Throws with a build-failing, human-readable message unless `url` is an
@@ -76,25 +80,11 @@ export function assertValidApiUrl(url, context) {
 }
 
 /**
- * Throws unless `value` is a plain positive integer with no sign, decimal
- * point, or surrounding whitespace — the shape Vercel's
- * VERCEL_GIT_PULL_REQUEST_ID is documented to have. This runs before the
- * value reaches prApiUrl(), which otherwise interpolates it straight into a
- * hostname.
- */
-export function assertValidPullRequestId(value, context) {
-  if (!/^[1-9][0-9]*$/.test(value)) {
-    throw new Error(`${context} is not a positive integer pull request id: ${JSON.stringify(value)}`);
-  }
-}
-
-/**
  * Decides which API URL this build belongs to, without touching the disk.
  *
  * Split out from writeApiUrl so that scripts/build-docs.mjs can ask the same
- * question — the docs index links to the API's own manual, and a pull request
- * preview's docs must point at that pull request's API rather than at
- * production. One rule, two callers.
+ * question -- the docs index links to the API's own manual, and it should
+ * name the same API the bundle itself will call. One rule, two callers.
  *
  * The 'fallback' case carries no url: the answer then lives in the committed
  * .env.production, which only a caller that reads files can see.
@@ -106,20 +96,6 @@ export function chooseApiUrl(env = process.env) {
     return { action: 'explicit', url: explicitUrl };
   }
 
-  const pullRequest = env['VERCEL_GIT_PULL_REQUEST_ID'];
-  if (pullRequest) {
-    assertValidPullRequestId(pullRequest, 'VERCEL_GIT_PULL_REQUEST_ID');
-    const url = prApiUrl(pullRequest, env['RAILWAY_PR_API_TEMPLATE']);
-    assertValidApiUrl(url, 'the pull request API URL');
-    return { action: 'pr', url };
-  }
-
-  const apiUrl = env['API_URL'];
-  if (apiUrl) {
-    assertValidApiUrl(apiUrl, 'API_URL');
-    return { action: 'mapped', url: apiUrl };
-  }
-
   return { action: 'fallback' };
 }
 
@@ -128,7 +104,7 @@ export function chooseApiUrl(env = process.env) {
  *
  * The generated file is always removed first. It is gitignored and survives
  * between builds, so leaving a previous run's value in place would silently
- * override the fallback — Vite loads .env.production.local ahead of
+ * override the fallback -- Vite loads .env.production.local ahead of
  * .env.production.
  */
 export function writeApiUrl(env = process.env, webDir = WEB_DIR) {
@@ -138,17 +114,12 @@ export function writeApiUrl(env = process.env, webDir = WEB_DIR) {
   const chosen = chooseApiUrl(env);
   // An explicit VITE_API_URL is already in the environment Vite will read, and
   // the fallback is the committed file; neither needs a generated one.
-  if (chosen.action === 'pr' || chosen.action === 'mapped') {
-    writeFileSync(target, `VITE_API_URL=${chosen.url}\n`, 'utf8');
-  }
   return chosen;
 }
 
 const MESSAGES = {
   explicit: 'VITE_API_URL is set explicitly; leaving it alone',
-  mapped: "mapped Railway's API_URL onto VITE_API_URL",
-  pr: 'pull request preview, pointing at its own Railway environment',
-  fallback: 'no API_URL; falling back to the committed .env.production',
+  fallback: 'no explicit VITE_API_URL; falling back to the committed .env.production',
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

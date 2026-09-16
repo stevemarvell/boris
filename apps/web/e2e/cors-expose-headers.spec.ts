@@ -9,9 +9,10 @@
 //
 // A browser can. These tests run inside the page, at the page's own origin,
 // against an API on a different port, so the browser's CORS layer sits in the
-// path exactly as it does between Vercel and Railway. `page.evaluate` is what
-// puts them there: Playwright's `request` fixture and `page.route` both run in
-// Node, outside the browser, and would have passed against the broken code.
+// path exactly as it does between the two deployed Vercel projects.
+// `page.evaluate` is what puts them there: Playwright's `request` fixture and
+// `page.route` both run in Node, outside the browser, and would have passed
+// against the broken code.
 import { expect, test, type Page } from '@playwright/test';
 import { API_URL, LIMITED_API_URL } from './api-servers';
 

@@ -115,11 +115,12 @@ test('shows an error rather than a blank page when the API is unreachable', asyn
 });
 
 test('recovers from a request that never comes back', async ({ page }) => {
-  // The cold start this closes: Railway's `sleepApplication` means the first
-  // request wakes a sleeping container and the browser is left holding an open
-  // socket. `route.abort` cannot stand in for that — it produces a prompt
-  // rejection, which the client has always handled. The only way to reach the
-  // hang is to accept the request and never answer it.
+  // The cold start this closes: the API is a Vercel serverless function, so
+  // an idle deployment means the first request starts it and the browser is
+  // left holding an open socket while that happens. `route.abort` cannot
+  // stand in for that — it produces a prompt rejection, which the client has
+  // always handled. The only way to reach the hang is to accept the request
+  // and never answer it.
   //
   // The clock here is real: the client's timeout is thirty seconds and this
   // test genuinely waits it out against the built bundle, which is the point.

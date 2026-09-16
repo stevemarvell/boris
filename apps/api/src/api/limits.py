@@ -1,8 +1,9 @@
 """Per-client rate limiting for the GraphQL endpoint.
 
 MAX_QUERY_DEPTH in api.schema bounds what a *single* query costs. It says
-nothing about a thousand cheap ones, and this service is one Railway instance
-with no WAF in front of it, so the only place a burst can be refused is here.
+nothing about a thousand cheap ones, and this service is one Vercel Python
+function with no WAF of its own in front of it, so the only place a burst can
+be refused is here.
 
 Two decisions are worth reading before changing anything:
 
@@ -10,11 +11,12 @@ Two decisions are worth reading before changing anything:
 straight through, by whitelist rather than by exemption, because getting this
 wrong is worse than not doing it at all:
 
-* `/health` is Railway's healthcheck path (see railway.json) *and* the URL
-  Playwright polls to decide the API is up. A 429 there is read as "the
-  deployment is unhealthy": Railway would restart the container, and restarts
-  make the burst worse. It must never be limited, so it is never even
-  considered -- a whitelist cannot forget an exemption.
+* `/health` is the URL Playwright polls to decide the API is up, and a
+  natural place for a future platform healthcheck to land. A 429 there reads
+  as "the deployment is unhealthy" rather than "a caller is being refused",
+  which is the wrong signal to give anything that acts on it. It must never
+  be limited, so it is never even considered -- a whitelist cannot forget an
+  exemption.
 * The manual mounted at "/" is StaticFiles: bytes off disk, no tree walk, and
   one page load is a handful of requests. Limiting it would spend the budget a
   reader needs on files that cost nothing to serve, and the thing worth
@@ -76,51 +78,61 @@ def is_limited_path(path: str) -> bool:
 def client_key(request: Request) -> str:
     """Identify the caller to count against: one caller, one bucket.
 
-    This is the part that was wrong first time round, and the reasoning below
-    is measured against the deployed PR environment rather than derived from
-    how proxies are supposed to behave. Railway's edge sends, verbatim:
+    This is the part that was wrong first time round, on Railway, and the
+    reasoning below is measured against a real deployment rather than derived
+    from how proxies are supposed to behave -- the earlier version of this
+    docstring recorded the same discipline against Railway's edge, which
+    turned out to append the pool node that handled a request as a second
+    X-Forwarded-For hop and split one caller across five counters. The
+    project moved to Vercel in #126, and Vercel's edge is not a pool in that
+    sense, but the header shape it sends is different enough from Railway's
+    that the old measurement does not carry over -- so this was re-measured
+    against the live Vercel deployment rather than assumed to still be true.
 
-        x-forwarded-for: 31.48.12.206, 152.233.29.4
-        x-real-ip:       31.48.12.206
-        socket peer:     100.64.0.8
+    Vercel's own documentation
+    (https://vercel.com/docs/headers/request-headers) is explicit that
+    X-Forwarded-For "is the public IP address of the client that made the
+    request", that Vercel "currently overwrite[s] the X-Forwarded-For header
+    and do[es] not forward external IPs" -- i.e. a caller-supplied value is
+    replaced, not appended to -- and that X-Real-IP "is identical to the
+    X-Forwarded-For header". X-Vercel-Forwarded-For is documented as the same
+    value again, kept distinct only because X-Forwarded-For could in
+    principle be overwritten by a proxy placed in front of Vercel itself,
+    which this deployment does not have.
 
-    * The **leftmost** X-Forwarded-For hop is the caller. It was identical
-      across 150 concurrent requests.
-    * The **rightmost** hop is the edge node that handled the request, and
-      Railway's edge is a *pool*: those 150 requests came through five of them
-      (152.233.29.1 through .5). Keying on it -- which an earlier version of
-      this file did, reasoning that the last hop is the one a caller cannot
-      forge -- split one caller across five counters, each filling to its own
-      120. A 120/minute limit passed 571 requests in twelve seconds.
-    * X-Real-IP carries the same address as the leftmost hop, with nothing to
-      parse. It is what this uses, with the leftmost hop as the fallback.
-    * The socket peer is useless: it is Railway's internal mesh (100.64.0.0/10,
-      fifteen distinct addresses across the same burst), not the caller.
+    Measured against the deployed API
+    (https://family-tree-api-stevemarvell-team.vercel.app) rather than taken
+    on the documentation's word: five consecutive /graphql requests, the
+    second and fourth carrying `X-Real-IP: 9.9.9.9` and
+    `X-Forwarded-For: 9.9.9.9` respectively, returned X-RateLimit-Remaining of
+    118, 117, 116, 115, 114 -- one shared, monotonically draining budget
+    across every request, spoofed headers included. A caller that could pick
+    its own bucket would have seen the spoofed requests come back with the
+    limit's full remaining count instead.
 
-    **The key is a header, and headers can be forged. That is the trade, and it
-    is the standard one.** What makes it safe enough here is measured too: a
-    request sent with `X-Real-IP: 9.9.9.9` arrived as `x-real-ip: 31.48.12.206`
-    and one sent with `X-Forwarded-For: 9.9.9.9` arrived as
-    `x-forwarded-for: 31.48.12.206, 152.233.29.5`. Railway's edge *replaces*
-    both headers rather than appending to what the caller sent, so a caller
-    cannot choose their own bucket while the only route in is that edge. If
-    this app is ever exposed directly, or moved to a platform that passes an
-    inbound X-Forwarded-For through, that stops being true and an attacker can
-    mint a fresh budget per request by varying the header. The fallback to the
-    socket peer is what makes local development (no proxy, no headers) still
-    tell two clients apart.
+    **The key is still a header, and headers can still be forged in
+    principle.** What makes it safe enough here is that same measurement:
+    Vercel's edge is the only route into this service, and it replaces both
+    headers with the real client address regardless of what a caller sends.
+    If this app is ever placed behind another proxy, or Vercel changes this
+    behaviour, that stops being true and an attacker could mint a fresh
+    budget per request by varying the header -- which is exactly the failure
+    this file exists to keep re-measuring rather than re-assuming.
 
-    slowapi's own helpers are no use: get_remote_address is proxy-blind, and
-    get_ipaddr looks for a header named "X_FORWARDED_FOR", with underscores,
-    which no proxy sends.
+    Preference order: X-Vercel-Forwarded-For first, since Vercel's own docs
+    name it as the one that cannot be affected by a proxy in front of Vercel;
+    then X-Real-IP and X-Forwarded-For, identical in practice but kept as
+    fallbacks for anything that only sets one; then the socket peer, which is
+    what makes local development (no edge, no headers) still tell two clients
+    apart. slowapi's own helpers are no use here: get_remote_address is
+    proxy-blind, and get_ipaddr looks for a header named "X_FORWARDED_FOR",
+    with underscores, which no proxy sends.
     """
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
-
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    for header in ("x-vercel-forwarded-for", "x-real-ip", "x-forwarded-for"):
+        value = request.headers.get(header)
+        if not value:
+            continue
+        hops = [hop.strip() for hop in value.split(",") if hop.strip()]
         if hops:
             return hops[0]
 
@@ -201,19 +213,30 @@ def install_rate_limiting(app: FastAPI, *, limit: str | None = None) -> Limiter:
     order.
 
     **The counters are one process's memory, so the real ceiling is the limit
-    times the number of processes serving traffic.** Measured, not assumed: a
-    burst of 150 concurrent requests at the deployed PR environment was
-    answered by a single process (one pid, one per-process token), and the
-    Dockerfile's CMD starts one uvicorn with no --workers, so today that
-    multiplier is 1 and the ceiling is the configured limit. Scale the service
-    to N replicas and it becomes N x the limit, silently -- nothing in this
-    file can detect that. A limit that has to hold across replicas needs shared
-    storage (slowapi takes a storage_uri; Redis is the usual answer), which is
-    another service to run and is not worth it at this size.
+    times the number of processes serving traffic -- and on Vercel that
+    number is not 1.** This was true and reassuring on Railway: a burst of
+    150 concurrent requests there was answered by a single process (one pid,
+    one per-process token), because the Dockerfile's CMD started one uvicorn
+    with no --workers. It does not carry over. Measured against the live
+    Vercel deployment after #126's cutover: 200 concurrent /graphql requests
+    (`xargs -P 50`) came back with X-RateLimit-Remaining values that were
+    *not* one monotonically draining sequence -- the same remaining count
+    (e.g. 0) came back dozens of times, and distinct X-Vercel-Id values showed
+    several execution environments answering the burst in parallel, each
+    counting independently. Vercel's Python runtime scales a function
+    elastically under concurrent load rather than serialising requests
+    through one process, so this in-memory limiter's real ceiling today is
+    the configured limit times however many concurrent instances Vercel
+    chooses to run -- a number this file cannot see or bound, and larger than
+    1 under the exact kind of burst the limit exists to catch. Tracked as a
+    follow-up rather than fixed here: a limit that has to hold under Vercel's
+    concurrency needs shared storage (slowapi takes a storage_uri; Redis is
+    the usual answer), which is another service to run and a bigger decision
+    than a Railway-retirement cleanup should make on its own.
 
-    The counters are also lost on every deploy and every wake from
-    sleepApplication, which is the other reason this is a ceiling on abuse
-    rather than a quota.
+    The counters are also lost on every cold start, which is the other reason
+    this was always a ceiling on abuse rather than a quota -- true on both
+    platforms, and the least of what changed.
     """
     limiter = Limiter(
         key_func=client_key,

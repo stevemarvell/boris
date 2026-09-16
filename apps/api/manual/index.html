@@ -363,7 +363,7 @@
       other relationship on request.
     </p>
     <div class="endpoint-strip">
-      <span class="pill"><span class="verb">POST</span> <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/graphql</span>
+      <span class="pill"><span class="verb">POST</span> <span data-origin="url">https://family-tree-api-stevemarvell-team.vercel.app</span>/graphql</span>
       <span class="pill"><span class="verb">GET</span> /person/{id}</span>
       <span class="pill"><span class="verb">GET</span> /me</span>
       <span class="pill"><span class="verb">GET</span> /health</span>
@@ -409,9 +409,9 @@
         The service is FastAPI with a Strawberry GraphQL schema, built from
         <code>apps/api/</code> in the
         <a href="https://github.com/stevemarvell/boris">stevemarvell/boris</a>
-        repository and deployed to Railway. The tree itself is not a database:
+        repository and deployed to Vercel. The tree itself is not a database:
         it is <code>data/family.json</code>, a file committed to the repository
-        and copied into the container image. The API reads it once at startup,
+        and bundled into the deployment. The API reads it once at startup,
         so the data changes only when a deployment does.
       </p>
 
@@ -461,16 +461,17 @@
         with <code>curl</code>:
       </p>
 
-<pre><code>curl -s https://api-production-53f7b.up.railway.app/graphql \
+<pre><code>curl -s https://family-tree-api-stevemarvell-team.vercel.app/graphql \
   -H 'content-type: application/json' \
   -d '{"query":"{ status }"}'</code></pre>
 
 <pre><code>{"data":{"status":"ok"}}</code></pre>
 
       <p>
-        Railway lets an idle container sleep, so the very first request after a
-        quiet spell can take a few seconds while it wakes. Everything after that
-        is fast — the whole tree is in memory.
+        This is a Vercel serverless function, so it cold-starts after being
+        idle: the very first request after a quiet spell can take a few
+        seconds while it starts. Everything after that is fast — the whole
+        tree is in memory.
       </p>
 
       <figure>
@@ -834,15 +835,15 @@
 
         <div class="console-run">
           <button type="button" class="primary" id="run">Run query</button>
-          <span class="status" id="status">POST to <span data-origin="host">api-production-53f7b.up.railway.app</span>/graphql</span>
+          <span class="status" id="status">POST to <span data-origin="host">family-tree-api-stevemarvell-team.vercel.app</span>/graphql</span>
         </div>
 
         <pre id="response"><code>Press Run query.</code></pre>
       </div>
 
       <p style="margin-top:16px">
-        The first run may pause for a few seconds while Railway wakes the
-        container. If the browser reports a network failure rather than a
+        The first run may pause for a few seconds while Vercel starts the
+        function. If the browser reports a network failure rather than a
         response, the request was blocked before it left — see
         <a href="#cors">CORS</a>.
       </p>
@@ -869,7 +870,7 @@
         Send one yourself in a single round trip:
       </p>
 
-<pre><code>curl -s <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/graphql \
+<pre><code>curl -s <span data-origin="url">https://family-tree-api-stevemarvell-team.vercel.app</span>/graphql \
   -H 'content-type: application/json' \
   -d '{"query":"{ status }"}'</code></pre>
 
@@ -1263,7 +1264,7 @@
 
       <h3>GET /person/{id}</h3>
 
-<pre><code>curl -s <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/person/fred-shaw</code></pre>
+<pre><code>curl -s <span data-origin="url">https://family-tree-api-stevemarvell-team.vercel.app</span>/person/fred-shaw</code></pre>
 
 <pre id="rest-person-body"><code>{
   "id": "fred-shaw",
@@ -1378,13 +1379,13 @@
         who you <em>claim</em> to be, from a request header:
       </p>
 
-<pre><code>curl -si <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/me \
+<pre><code>curl -si <span data-origin="url">https://family-tree-api-stevemarvell-team.vercel.app</span>/me \
   -H 'X-Person-Id: fred-shaw'</code></pre>
 
 <pre><code>HTTP/1.1 200 OK
 content-type: application/json
 cache-control: private, no-store
-content-location: <span data-origin="url">https://api-production-53f7b.up.railway.app</span>/person/fred-shaw</code></pre>
+content-location: <span data-origin="url">https://family-tree-api-stevemarvell-team.vercel.app</span>/person/fred-shaw</code></pre>
 
       <p>
         <code>X-Person-Id</code> stands in for a session. It grants nothing: a
@@ -1598,7 +1599,7 @@ retry-after: 60</code></pre>
       <h2>Health</h2>
       <p class="section-note">One GET, no GraphQL parsing involved.</p>
 
-<pre><code>curl -s https://api-production-53f7b.up.railway.app/health</code></pre>
+<pre><code>curl -s https://family-tree-api-stevemarvell-team.vercel.app/health</code></pre>
 
 <pre><code>{"ok":true,"people":44}</code></pre>
 
@@ -1691,7 +1692,7 @@ retry-after: 60</code></pre>
         the origin back:
       </p>
 
-<pre><code>curl -X OPTIONS https://api-production-53f7b.up.railway.app/graphql \
+<pre><code>curl -X OPTIONS https://family-tree-api-stevemarvell-team.vercel.app/graphql \
   -H 'Origin: https://family-tree-flame-ten.vercel.app' \
   -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: content-type'</code></pre>
@@ -1724,7 +1725,7 @@ retry-after: 60</code></pre>
     Family Tree API · source in
     <a href="https://github.com/stevemarvell/boris/tree/develop/apps/api">stevemarvell/boris</a> ·
     served by the API you are reading about, at
-    <a href="/" data-origin="host">api-production-53f7b.up.railway.app</a>
+    <a href="/" data-origin="host">family-tree-api-stevemarvell-team.vercel.app</a>
   </div>
 </footer>
 
