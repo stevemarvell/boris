@@ -161,7 +161,7 @@ def test_cors_refuses_every_github_pages_origin() -> None:
 def test_health_reports_the_commit_it_was_built_from(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Vercel injects VERCEL_GIT_COMMIT_SHA; smoke compares it to its own ref.
+    """Railway injects RAILWAY_GIT_COMMIT_SHA; smoke compares it to its own ref.
 
     Without it a deployment that silently did not happen is indistinguishable
     from one that did -- which is the detection half of issue #50.
@@ -176,27 +176,26 @@ def test_health_reports_the_commit_it_was_built_from(
     }
 
 
-def test_deployed_commit_reads_the_vercel_variable_by_name(
+def test_deployed_commit_reads_the_railway_variable_by_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The two tests above patch the module attribute directly, so neither
-    would catch a typo in the env var name itself -- #126 renamed it from
-    Railway's RAILWAY_GIT_COMMIT_SHA and this is what would have caught it
-    getting the new name wrong. Follows the pattern api.limits.RATE_LIMIT
-    tests: set the env var, reload the module, check what it picked up.
+    would catch a typo in the env var name itself. Follows the pattern
+    api.limits.RATE_LIMIT tests: set the env var, reload the module, check
+    what it picked up.
     """
-    monkeypatch.setenv("VERCEL_GIT_COMMIT_SHA", "fedcba9876543210")
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "fedcba9876543210")
     try:
         assert importlib.reload(main).DEPLOYED_COMMIT == "fedcba9876543210"
     finally:
-        monkeypatch.delenv("VERCEL_GIT_COMMIT_SHA")
+        monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA")
         importlib.reload(main)
 
 
 def test_health_reports_no_commit_when_the_platform_does_not_say(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Local runs and the container tests have no Vercel variable to read."""
+    """Local runs and the container tests have no Railway variable to read."""
     monkeypatch.setattr(main, "DEPLOYED_COMMIT", None)
     bare = TestClient(main.create_app())
 

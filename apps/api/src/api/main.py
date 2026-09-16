@@ -53,14 +53,14 @@ API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 # Fixing the patterns closes the cause. This closes the detection: smoke
 # compares this value against the commit it is running for, so a deployment
 # that silently did not happen fails a check instead of going unnoticed.
-# Vercel injects VERCEL_GIT_COMMIT_SHA into every deployment; it is absent
+# Railway injects RAILWAY_GIT_COMMIT_SHA into every service; it is absent
 # locally and in the container tests, where None is the honest answer.
 #
-# This read Railway's RAILWAY_GIT_COMMIT_SHA until the migration in #126 --
-# see that issue for why the platform changed. Nothing else about this
-# mechanism did: the variable still names the deploying platform's own commit
-# SHA, and smoke still fails the same way if a deploy silently does not happen.
-DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
+# Still Railway, not Vercel, even though #126 moved apps/api's own build
+# config onto Vercel: production traffic has not actually cut over yet, and
+# this has to keep naming whichever platform smoke actually checks, or smoke
+# would stop verifying anything real. See #126 for the cutover this waits on.
+DEPLOYED_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA")
 
 
 def default_manual_path() -> Path | None:
