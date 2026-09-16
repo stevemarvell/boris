@@ -72,7 +72,7 @@ def test_graphql_carries_them() -> None:
 
 
 def test_health_carries_them() -> None:
-    """Railway's healthcheck path, and the one Playwright polls."""
+    """The path Playwright polls to decide the API is up."""
     response = client.get("/health")
     assert response.status_code == 200
     assert_hardened(response)

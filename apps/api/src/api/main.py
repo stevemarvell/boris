@@ -36,31 +36,32 @@ ALLOWED_ORIGIN_REGEX = os.environ.get(
 # caller the schema shape for free. Defaults to "production" -- the safe
 # setting -- so a forgotten variable fails closed; set API_ENVIRONMENT=development
 # (see CLAUDE.md's "Running it" section) to get both back locally. Documented
-# in CLAUDE.md's deployment section too, since this is a Railway service
-# variable rather than something set in this repository's own config files.
+# in CLAUDE.md's deployment section too, since this is a Vercel project
+# environment variable rather than something set in this repository's own
+# config files.
 API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 
-# The commit this image was built from, reported by /health so that a caller
-# can tell a current deployment from a stale one.
+# The commit this deployment was built from, reported by /health so that a
+# caller can tell a current deployment from a stale one.
 #
-# This exists because of the failure recorded in issue #50: railway.json's
-# watchPatterns listed only apps/api/**, while the Dockerfile also copies
-# data/ and manual/api/, so a commit changing only the family tree or only the
-# manual never triggered a rebuild. Nothing reported it -- verify was green,
-# the deploy was green because there was no deploy, and smoke passed because
-# it asserted the manual was *present* rather than *current*.
+# This exists because of the failure recorded in issue #50: back when the API
+# deployed to Railway, railway.json's watchPatterns listed only apps/api/**,
+# while the Dockerfile also copied data/ and manual/api/, so a commit changing
+# only the family tree or only the manual never triggered a rebuild. Nothing
+# reported it -- verify was green, the deploy was green because there was no
+# deploy, and smoke passed because it asserted the manual was *present* rather
+# than *current*.
 #
-# Fixing the patterns closes the cause. This closes the detection: smoke
-# compares this value against the commit it is running for, so a deployment
-# that silently did not happen fails a check instead of going unnoticed.
-# Railway injects RAILWAY_GIT_COMMIT_SHA into every service; it is absent
-# locally and in the container tests, where None is the honest answer.
-#
-# Still Railway, not Vercel, even though #126 moved apps/api's own build
-# config onto Vercel: production traffic has not actually cut over yet, and
-# this has to keep naming whichever platform smoke actually checks, or smoke
-# would stop verifying anything real. See #126 for the cutover this waits on.
-DEPLOYED_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+# #126 retired Railway once the API had actually cut over to Vercel, whose
+# own build (apps/api/pyproject.toml's [tool.vercel] entrypoint) redeploys
+# from a push the same way the web project already did, so there is no
+# separate watch-pattern list to drift. This still closes the detection half:
+# smoke compares this value against the commit it is running for, so a
+# deployment that silently did not happen fails a check instead of going
+# unnoticed. Vercel's Python runtime exposes VERCEL_GIT_COMMIT_SHA to the
+# function at runtime, the same as every other runtime it supports; it is
+# absent locally and in the container tests, where None is the honest answer.
+DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
 def default_manual_path() -> Path | None:
@@ -117,13 +118,14 @@ def render_manual(html: str, is_development: bool) -> str:
     for the same reason and with the same default. A deployment that serves
     the data should not also host an unauthenticated console for querying it.
 
-    Consequence worth knowing: API_ENVIRONMENT is not set on Railway at all,
-    so it reads "production" on pull request environments as well, and their
-    manuals lose the console too -- which is most of what putting the manual
-    on the API bought. The fix is one service variable,
-    API_ENVIRONMENT=development, on the pull request environment; note that it
-    also turns on GraphiQL and introspection there, which is fine on invented
-    data in a throwaway environment and is not fine on production.
+    Consequence worth knowing: API_ENVIRONMENT is not set on the Vercel
+    project at all, so it reads "production" on preview deployments as well,
+    and their manuals lose the console too -- which is most of what putting
+    the manual on the API bought. The fix is one project environment
+    variable, API_ENVIRONMENT=development (scoped to Preview), on the Vercel
+    project; note that it also turns on GraphiQL and introspection there,
+    which is fine on invented data in a throwaway environment and is not fine
+    on production.
 
     A manual with neither marker -- a stub, a different document -- is
     returned unchanged.

@@ -39,17 +39,23 @@ the ceiling is the procedure working. Say what you tried and what is still red.
 
 ## The failure this project keeps having
 
-Four controls here have been present, running, and doing nothing, each with a
-green test suite at the time: an OTLP temporality setting, an endpoint
-overridden to `localhost` by a checked-out file, a rate-limit middleware that
-exempted every request, and a rate-limit key that fragmented one caller across
-five buckets.
+Five controls here have been present, running, and doing either nothing or
+far less than they claimed to, each with a green test suite at the time: an
+OTLP temporality setting, an endpoint overridden to `localhost` by a
+checked-out file, a rate-limit middleware that exempted every request, a
+rate-limit key that fragmented one caller across five buckets, and — found
+after the API's migration off Railway (#126) — a rate limiter whose one
+shared counter turned out to mean one counter *per concurrent process*, and
+Vercel runs several under load where Railway ran one.
 
 So: **a passing test is not evidence that a control works.** If your change
 adds or alters anything that is supposed to *prevent* something, exercise it
-where it runs — against your pull request's own Railway environment at
-`api-boris-pr-<number>.up.railway.app` — and put the real output in the pull
-request body.
+where it runs. The web app's production API is
+`https://family-tree-api-stevemarvell-team.vercel.app`; a change to
+`apps/api` itself has its own Vercel preview too, at that pull request's
+branch alias (`family-tree-api-git-<branch>-stevemarvell-team.vercel.app` —
+see the `deployment` skill) — find or confirm the exact URL rather than
+guessing the slug. Put the real output in the pull request body.
 
 Be careful that your check actually observes the thing. `TestClient` is one
 process with one client key. `curl` has no CORS. A test that calls the code

@@ -24,19 +24,20 @@ trigger.
 
 ## What is public
 
-Checked on 2026-09-13 with `curl`, sending no credentials, from outside every
-deployment:
+Checked on 2026-09-16, after #126 cut the API over from Railway to Vercel,
+with `curl`, sending no credentials, from outside every deployment:
 
 | Request | Anonymous response |
 | --- | --- |
-| `GET api-production-53f7b.up.railway.app/health` | `200` — `{"ok":true,"people":44}` |
-| `GET api-production-53f7b.up.railway.app/` | `200` — the API manual, **Run query** console included |
-| `POST api-production-53f7b.up.railway.app/graphql` | `200` — `{ people { name } }` returns all 44 names |
-| `GET api-production-53f7b.up.railway.app/graphql` | `404` — there is no IDE to open |
+| `GET family-tree-api-stevemarvell-team.vercel.app/health` | `200` — `{"ok":true,"people":44,"commit":null}` |
+| `GET family-tree-api-stevemarvell-team.vercel.app/` | `200` — the API manual, **Run query** console *not* present |
+| `POST family-tree-api-stevemarvell-team.vercel.app/graphql` | `200` — `{ people { name } }` returns all 44 names |
+| `GET family-tree-api-stevemarvell-team.vercel.app/graphql` | `404` — there is no IDE to open |
 | `POST .../graphql` asking for `__schema` | `200` with errors — *"GraphQL introspection has been disabled"* |
 | `GET family-tree-web-eta.vercel.app/` | `200` — the web app |
 | `GET family-tree-web-eta.vercel.app/docs/` | `200` — the documentation, this page among it |
 | `GET stevemarvell.github.io/boris/` | `404` — Pages is gone, see below |
+| `GET api-production-53f7b.up.railway.app/health` | `404` — Railway is gone too, see the `deployment` skill |
 
 Vercel's preview deployments are open as well, and deliberately so: an agent
 reviewing a pull request has to be able to load one.
@@ -69,29 +70,51 @@ Open is not the same as unguarded. What an anonymous caller can do is bounded
   the manual ever sends is depth 3.
 - **No introspection, and no IDE.** `API_ENVIRONMENT` in
   `apps/api/src/api/main.py` defaults to `production`, which disables schema
-  introspection and serves no GraphiQL. It is never set on Railway, so the
-  deployed behaviour is the default and a forgotten variable fails closed. Both
-  are confirmed by the table above.
-- **Rate limiting.** 120 requests per minute per caller, on `/graphql` only,
-  in `apps/api/src/api/limits.py`. The depth limit caps what one query costs
-  and says nothing about a thousand cheap ones, which matters more than usual
-  here: Railway has no WAF and the service sleeps when idle, so the container
-  has to wake before it can refuse anything. `/health` and the manual are
-  deliberately *not* limited — `/health` is Railway's healthcheck, and a 429
-  there reads as an unhealthy deployment, so a burst would become a restart
-  loop.
+  introspection and serves no GraphiQL. It is never set on the Vercel project,
+  so the deployed behaviour is the default and a forgotten variable fails
+  closed. Both are confirmed by the table above.
+- **Rate limiting, weaker on Vercel than it was on Railway, and not yet fixed
+  for that.** 120 requests per minute per caller, on `/graphql` only, in
+  `apps/api/src/api/limits.py`. The depth limit caps what one query costs and
+  says nothing about a thousand cheap ones, which matters more than usual
+  here: the API is a Vercel function with no WAF of its own in front of it.
+  `/health` and the manual are deliberately *not* limited — `/health` is the
+  path Playwright polls for readiness, and a 429 there is the wrong signal to
+  give anything that acts on it.
 
-  Measured against a deployed pull request environment, 600 concurrent
-  queries in 9.5 seconds: **120 answered, 480 refused, one counter.** Worth
-  recording that the first version of this measured very differently — 571
-  answered, 29 refused, one caller split across five counters — because it
-  keyed on the rightmost `X-Forwarded-For` hop, and Railway's edge is a pool
-  of five nodes. It was installed, running, returning correct-looking
-  `x-ratelimit-*` headers, and enforcing roughly five times the configured
-  limit. Its unit tests passed throughout, because `TestClient` is one process
-  with one stable key and the deployment is neither. That is the fourth time
-  in this repository's history that a control was present and inert, and the
-  only thing that has ever caught one is measuring the deployed service.
+  The *key* half of this — one caller, one bucket, not fooled by a spoofed
+  header — was re-measured against the live Vercel deployment after #126 and
+  holds: five requests, two carrying forged `X-Real-IP`/`X-Forwarded-For`
+  values, drained one shared counter monotonically. That repeats the
+  discipline that first caught this class of bug: an earlier version of
+  `client_key` keyed on the rightmost `X-Forwarded-For` hop, reasoning it was
+  the one a caller could not forge, and Railway's edge turned out to be a pool
+  of five nodes — 571 requests answered in twelve seconds against a 120/minute
+  limit, one caller split across five counters, unit tests green throughout
+  because `TestClient` is one process with one stable key and the deployment
+  is neither.
+
+  The *ceiling* half does not hold, and #126's migration is what surfaced it:
+  200 concurrent requests against the live Vercel deployment were answered by
+  several execution environments in parallel, each with its own in-memory
+  counter, rather than by the single process Railway ran — `X-RateLimit-Remaining`
+  repeated the same values instead of draining once. The real ceiling today is
+  the configured limit times however many concurrent instances Vercel chooses
+  to run for a burst, a number this service cannot see or bound. Filed as
+  issue #128 rather than fixed in the migration that found it: a limit that
+  holds under Vercel's concurrency needs shared storage, which is a bigger
+  decision than a platform-retirement cleanup should make unilaterally. That
+  makes five times, not four, that a control here was present, running, and
+  doing less than its own tests and its own docstring claimed — and the only
+  thing that has ever caught one is measuring the deployed service, never the
+  test suite alone. What bounds this one today: the data behind it is
+  invented (see above), the team is on Vercel's Hobby plan by policy, whose
+  own usage caps would surface a large enough burst as a billing or
+  availability problem before it became an unbounded cost, and the limiter
+  still refuses *some* traffic rather than none. The trigger that would void
+  that bound is the same one this whole page turns on: real data, or evidence
+  that a burst large enough to matter is cheap enough for someone to actually
+  run.
 - **A gate on the query console.** The API serves its own manual at its root,
   and that manual used to carry a **Run query** button posting to `/graphql`
   on the same origin: a working console, no setup, no CORS negotiation. It is

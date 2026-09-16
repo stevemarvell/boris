@@ -9,7 +9,7 @@ import { apiBaseUrl, buildDocs, indexPage, MARKDOWN_PAGES } from '../../../scrip
 let root = '';
 let out = '';
 
-const FALLBACK = 'https://api-production-53f7b.up.railway.app';
+const FALLBACK = 'https://family-tree-api-stevemarvell-team.vercel.app';
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'docs-root-'));
@@ -41,22 +41,14 @@ describe('apiBaseUrl', () => {
     expect(apiBaseUrl({}, root)).toBe(FALLBACK);
   });
 
-  it('follows the build to a pull request environment', () => {
-    // The docs link to the API's own manual; on a preview that has to be the
-    // preview's API, for the same reason the bundle points there.
-    expect(apiBaseUrl({ VERCEL_GIT_PULL_REQUEST_ID: '20' }, root)).toBe(
-      'https://api-boris-pr-20.up.railway.app',
-    );
-  });
-
   it('prefers an explicit VITE_API_URL, trailing slash and all', () => {
     expect(apiBaseUrl({ VITE_API_URL: 'http://127.0.0.1:8254/' }, root)).toBe(
       'http://127.0.0.1:8254',
     );
   });
 
-  it('refuses a malformed URL rather than building a broken link', () => {
-    expect(() => apiBaseUrl({ API_URL: 'not a url' }, root)).toThrow(/well-formed/);
+  it('refuses a malformed explicit URL rather than building a broken link', () => {
+    expect(() => apiBaseUrl({ VITE_API_URL: 'not a url' }, root)).toThrow(/well-formed/);
   });
 
   it('says so when the fallback file has no VITE_API_URL', () => {
@@ -117,9 +109,9 @@ describe('buildDocs', () => {
   });
 
   it('points the index at the API that serves the API manual', () => {
-    const result = build({ VERCEL_GIT_PULL_REQUEST_ID: '20' });
-    expect(result.apiUrl).toBe('https://api-boris-pr-20.up.railway.app');
-    expect(read('index.html')).toContain('href="https://api-boris-pr-20.up.railway.app/"');
+    const result = build({ VITE_API_URL: 'https://pr-preview.example' });
+    expect(result.apiUrl).toBe('https://pr-preview.example');
+    expect(read('index.html')).toContain('href="https://pr-preview.example/"');
   });
 
   it('does not copy the API manual into the Vercel bundle', () => {
