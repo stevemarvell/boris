@@ -350,3 +350,64 @@ and report, which is how #118 got its list.
 
 The `/fewer-permission-prompts` skill does the tidying mechanically and has
 never been run here.
+
+---
+
+## SOP 8: A conflict between two branches is resolved as a union, not a choice
+
+**When two branches conflict, git offers a choice between two sides. For source
+that is usually right. For tests it usually is not, and taking a side there is
+how this repository loses a control it has already paid for.**
+
+### What went wrong
+
+The same-line run recorded on [#63](https://github.com/stevemarvell/boris/issues/63#issuecomment-5676905837)
+pointed two branches at line 46 of `scripts/review-scope.mjs`. Both conflicted
+in two files: the source, and `review-scope.test.ts`, where each branch had
+added a test at the same anchor. The source conflict had a right answer. The
+test conflict did not — both sides were *additions*, and both were correct.
+
+Resolved the lazy way, one side per file:
+
+```
+git checkout --ours   scripts/review-scope.mjs
+git checkout --theirs apps/web/src/review-scope.test.ts
+```
+
+Three assertions vanished, including the ones proving the governance half of
+the fix that had just merged. The behaviour stayed correct. The suite stayed
+green — 13 passed, from 14 — and `verify` would have stayed green with it.
+
+That is this repository's signature defect, a control present and inert,
+arriving by a route none of SOP 1–4 covers: written correctly, merged
+correctly, then quietly removed by a conflict resolution.
+
+### The rule
+
+- **Source:** pick the better change, deliberately. One of them usually is.
+- **Tests:** keep both sides unless one is genuinely the same test twice.
+  A conflict between two additions means two people each proved something.
+- **Anything removed on purpose** says so in the pull request body on a line
+  beginning `Removes tests:`.
+
+Never `git checkout --ours` or `--theirs` on a whole test file. It resolves the
+conflict by deleting evidence, and nothing in the file's own suite can tell.
+
+### What enforces this
+
+The `test census` check (#109, `scripts/test-census.mjs`) counts declarations on
+both sides of a pull request and goes red when the head has fewer without that
+line. It is the backstop, and it counts declarations rather than results — a
+row deleted from inside an `it.each` table is still invisible.
+
+The `contention` check (`scripts/pr-contention.mjs`) is the earlier warning.
+It three-way merges every open pull request against the base tip and against
+every other open head, and comments when two collide — naming which of the
+conflicting files are test files, because those are the ones this SOP is about.
+It reports and does not block: two colliding pull requests are not a defect in
+either, and a red check on both is one neither author can clear alone.
+
+Neither sees a collision with no textual overlap. #72 added a field to
+`/health`, #77 pinned its exact JSON, and the merge was clean in both
+directions — two branches sharing a *contract* is the harder case than two
+sharing a file, and only CI catches it.
