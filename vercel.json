@@ -3,7 +3,7 @@
   "services": {
     "api": {
       "root": ".",
-      "entrypoint": "api.main:app"
+      "entrypoint": "apps.api.src.api.main:app"
     }
   },
   "rewrites": [
