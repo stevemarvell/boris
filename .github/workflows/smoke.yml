@@ -1,8 +1,8 @@
 name: smoke
 
-# Runs after a merge reaches develop, once Railway and Vercel have had time to
-# redeploy. Catches the class of failure that unit and e2e tests cannot: the
-# deployed build's configuration.
+# Runs after a merge reaches develop, once Vercel has had time to redeploy
+# both services. Catches the class of failure that unit and e2e tests cannot:
+# the deployed build's configuration.
 on:
   push:
     branches: [develop]
@@ -19,12 +19,13 @@ jobs:
     permissions: {}
 
     env:
-      API: https://api-production-53f7b.up.railway.app
+      API: https://boris-stevemarvell-team.vercel.app
       WEB: https://family-tree-flame-ten.vercel.app
     steps:
       - name: Wait for the API to report the loaded tree
         run: |
-          # Railway sleeps when idle, so the first request is a cold start.
+          # A Fluid compute instance can be cold on the first request the way
+          # Railway's sleeping container was, so this still retries.
           for attempt in $(seq 1 30); do
             body=$(curl -fsS --max-time 30 "$API/health" || true)
             echo "attempt $attempt: $body"
@@ -57,75 +58,22 @@ jobs:
           echo "web never served a bundle querying generations" >&2
           exit 1
 
-      - name: Work out whether this push should have rebuilt the API
-        id: rebuild
-        env:
-          COMMITS: ${{ toJSON(github.event.commits) }}
-        run: |
-          # railway.json's watchPatterns decide whether Railway rebuilds at
-          # all, and most merges here touch none of them — docs, workflows and
-          # the web app deploy to Vercel and leave the API exactly where it
-          # was. That is correct behaviour, so the gate below must not wait for
-          # a deployment that is never coming.
-          #
-          # This list mirrors railway.json's watchPatterns. If that changes,
-          # change this with it; they are two statements of one fact, and the
-          # image job asserts what the Dockerfile copies, which is the third.
-          #
-          # github.event.commits is empty on workflow_dispatch and capped at 20
-          # commits on a push, so the answer is "no" when it cannot tell. That
-          # is the safe direction: the cost of a wrong "no" is losing this
-          # check for one run, and the cost of a wrong "yes" is ten minutes of
-          # waiting followed by a red smoke on a deployment that is fine.
-          # Every merge here is a squash, so a push carries one commit.
-          changed=$(printf '%s' "${COMMITS:-[]}" | python3 -c '
-          import json, sys
-          try:
-              commits = json.load(sys.stdin) or []
-          except Exception:
-              commits = []
-          watched = ("apps/api/", "data/", "manual/api/", "railway.json")
-          paths = set()
-          for commit in commits:
-              for key in ("added", "modified", "removed"):
-                  paths.update(commit.get(key) or [])
-          hit = sorted(p for p in paths if p.startswith(watched))
-          print("\n".join(hit))
-          ' 2>/dev/null || true)
-
-          if [ -n "$changed" ]; then
-            echo "this push touches the API image:"
-            printf '  %s\n' $changed
-            echo "rebuilt=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "this push touches nothing the API image contains; Railway will not rebuild"
-            echo "rebuilt=no" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Report which image is deployed
-        if: steps.rebuild.outputs.rebuilt != 'yes'
-        run: |
-          # No rebuild expected, so there is nothing to wait for — but say what
-          # is running, so a log never leaves the question unanswered.
-          body=$(curl -fsS --max-time 30 "$API/health" || true)
-          echo "deployed: $body"
-          echo "this run is for $GITHUB_SHA, which does not change the API image"
-
       - name: Wait for the API to report this commit
-        if: steps.rebuild.outputs.rebuilt == 'yes'
         run: |
           # The one check that tells a *current* deployment from a stale one.
           #
-          # Issue #50: railway.json watched only apps/api/**, while the
-          # Dockerfile also copies data/ and manual/api/, so a commit changing
-          # only the family tree or only the manual never rebuilt. Every check
-          # below still passed, because each asks whether the deployed API is
-          # correct and none asked whether it is *this* one. Probes on the
-          # pull request environment confirmed the behaviour: a manual-only
-          # commit did not redeploy under the old patterns and did under the
-          # widened ones.
+          # This used to be conditional: railway.json's watchPatterns decided
+          # whether Railway rebuilt at all, and issue #50 was a commit that
+          # should have rebuilt the image and silently didn't, because the
+          # patterns disagreed with what the Dockerfile actually copied. Every
+          # other check here still passed, because each asks whether the
+          # deployed API is correct and none asked whether it is *this* one.
           #
-          # /health reports RAILWAY_GIT_COMMIT_SHA, which Railway injects per
+          # Vercel has no equivalent skip: every push to the production branch
+          # redeploys, so the wait below is unconditional now — there is no
+          # "this push shouldn't have rebuilt" case left to detect.
+          #
+          # /health reports VERCEL_GIT_COMMIT_SHA, which Vercel injects per
           # deployment. Matching it against the commit this run is for makes a
           # deploy that silently did not happen a red check.
           echo "waiting for $GITHUB_SHA"
@@ -172,7 +120,7 @@ jobs:
             fi
 
             # Production serves the manual, not its query console: the console
-            # is gated on API_ENVIRONMENT, which is unset on Railway and so
+            # is gated on API_ENVIRONMENT, which is unset on Vercel and so
             # reads "production". The endpoint string is the console's fetch
             # target and appears nowhere else in the page — which is also what
             # makes it the signal for "this is the new image", since the image
@@ -203,7 +151,7 @@ jobs:
           # publishes the parameters and response schemas of every route. They
           # are now gated on API_ENVIRONMENT, the same mechanism as the
           # GraphiQL IDE, introspection and the manual's console, which is
-          # unset on Railway and so reads "production".
+          # unset on Vercel and so reads "production".
           #
           # The assertion is the wait, for the reason the manual step above
           # records: this is something a new build changes, so a non-404 has to
