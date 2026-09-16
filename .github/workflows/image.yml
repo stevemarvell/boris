@@ -41,10 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # From the repository root, not apps/api: the Dockerfile copies data/
-      # and manual/api/, which live outside apps/api. Building from apps/api
-      # is the failure this line exists to keep out — it is exactly what
-      # Railway's root-directory setting would have done.
+      # From the repository root, matching how Railway builds it: railway.json
+      # names apps/api/Dockerfile but not a separate context, so Railway's
+      # implicit context is the repository root, and this has to match that
+      # or a path the Dockerfile resolves correctly here could fail there.
+      # data/ and manual/ now live inside apps/api (#126), so this is no
+      # longer required to reach them — apps/api is self-contained — but
+      # matching Railway's actual build context is still the point.
       - name: Build the image from the repository root
         run: docker build -f apps/api/Dockerfile -t "$IMAGE" .
 
@@ -63,12 +66,12 @@ jobs:
       - name: Check the data and the manual are not writable by it
         run: |
           set -euo pipefail
-          # data/ and manual/api/ are COPYed without --chown so they stay
+          # data/ and manual/ are COPYed without --chown so they stay
           # root-owned and read-only to the runtime user: the API only ever
           # reads them. A --chown added to either COPY would land here.
           docker run --rm "$IMAGE" sh -c '
             set -e
-            for path in /app/data /app/data/family.json /app/manual/api /app/manual/api/index.html; do
+            for path in /app/data /app/data/family.json /app/manual /app/manual/index.html; do
               if [ -w "$path" ]; then echo "$path is writable by $(id -un)" >&2; exit 1; fi
               echo "not writable: $path"
             done
@@ -81,12 +84,12 @@ jobs:
       - name: Check the image ships the committed manual
         run: |
           set -euo pipefail
-          docker run --rm "$IMAGE" cat /app/manual/api/index.html > /tmp/shipped.html
-          cmp /tmp/shipped.html manual/api/index.html \
+          docker run --rm "$IMAGE" cat /app/manual/index.html > /tmp/shipped.html
+          cmp /tmp/shipped.html apps/api/manual/index.html \
             || { echo "the manual in the image is not the committed manual" >&2; exit 1; }
-          echo "manual/api/index.html matches, $(wc -c < /tmp/shipped.html) bytes"
-          for screenshot in manual/api/*.jpg; do
-            docker run --rm "$IMAGE" cat "/app/$screenshot" > /tmp/shot
+          echo "apps/api/manual/index.html matches, $(wc -c < /tmp/shipped.html) bytes"
+          for screenshot in apps/api/manual/*.jpg; do
+            docker run --rm "$IMAGE" cat "/app/manual/$(basename "$screenshot")" > /tmp/shot
             cmp /tmp/shot "$screenshot" \
               || { echo "$screenshot is missing or different in the image" >&2; exit 1; }
             echo "$screenshot matches"
@@ -105,7 +108,7 @@ jobs:
 
           # Derived from the file the image ships rather than typed in, so
           # adding a person does not turn this job red.
-          people=$(python3 -c 'import json;print(len(json.load(open("data/family.json"))["people"]))')
+          people=$(python3 -c 'import json;print(len(json.load(open("apps/api/data/family.json"))["people"]))')
           echo "expecting $people people"
 
           for environment in production development; do
@@ -119,7 +122,7 @@ jobs:
               sleep 2
             done
             echo "health: $health"
-            # commit is RAILWAY_GIT_COMMIT_SHA, which only Railway sets, so in
+            # commit is VERCEL_GIT_COMMIT_SHA, which only Vercel sets, so in
             # a container built here it is null — and asserting that is worth
             # doing: a non-null value would mean the build is reading a commit
             # from somewhere it should not.
@@ -138,7 +141,7 @@ jobs:
           # rather than importing it: a test that calls the code under test to
           # work out what it should have produced proves nothing.
           dropped = "no-console" if sys.argv[1] == "development" else "console"
-          html = open("manual/api/index.html", encoding="utf-8").read()
+          html = open("apps/api/manual/index.html", encoding="utf-8").read()
           rendered = re.sub(
               rf"<!-- {dropped}:start -->.*?<!-- {dropped}:end -->", "", html, flags=re.S
           )
@@ -167,7 +170,7 @@ jobs:
             # The screenshots come off the static mount, not the route above.
             curl -fsS --max-time 10 -o /tmp/shot.jpg "http://127.0.0.1:$PORT/app-generations.jpg" \
               || { echo "the manual's screenshots are not served" >&2; exit 1; }
-            cmp /tmp/shot.jpg manual/api/app-generations.jpg \
+            cmp /tmp/shot.jpg apps/api/manual/app-generations.jpg \
               || { echo "the served screenshot is not the committed one" >&2; exit 1; }
 
             docker rm -f "$id" >/dev/null
