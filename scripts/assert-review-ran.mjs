@@ -14,7 +14,11 @@
 // 2. The session ends with `is_error: true`. Three of the twenty runs before
 //    this script existed did (34875160558, 34835904028, 34814480801), and the
 //    job's own log says "No buffered inline comments" — nothing reached the
-//    pull request.
+//    pull request. But sometimes plenty did: on run 34961716119 the security
+//    review posted a full verdict and *then* errored, and this script called
+//    that "posted nothing" too (#113). So the result message says how the run
+//    ended and not what was posted, and the two are read separately —
+//    `postedReview` below.
 // 3. The action starts no session for its own reasons, on a pull request that
 //    changes no workflow file. #98 did this: eighteen seconds, no execution
 //    log, while the code review job on the same commit produced a full review
@@ -87,10 +91,21 @@ export function reviewVerdict({
   }
 
   if (result.is_error === true) {
+    const posted = postedReview(messages);
+    const turns = result.num_turns ?? 'an unknown number of';
+
+    if (posted.inlineComments > 0 || posted.verdict) {
+      return {
+        ok: false,
+        headline: `The ${kind} review errored after producing a review`,
+        detail: `The session ended with \`is_error: true\` after ${turns} turns, but the log shows it had already produced a review: ${evidenceOf(posted)}. \`track_progress\` writes the session's output into the tracking comment as it goes and the action prepends its error to it, so that review is on the pull request now. Read it and judge whether it is complete before re-running — a re-run buys a second review of a change that already has one. The run still failed: what this cannot tell you is whether the session had more to say when it fell over.`,
+      };
+    }
+
     return {
       ok: false,
       headline: `The ${kind} review errored and posted nothing`,
-      detail: `The session ended with \`is_error: true\` after ${result.num_turns ?? 'an unknown number of'} turns. This is a failure of the run, not a finding about the change — treat the pull request as unreviewed rather than as clean.`,
+      detail: `The session ended with \`is_error: true\` after ${turns} turns. This is a failure of the run, not a finding about the change — treat the pull request as unreviewed rather than as clean.`,
     };
   }
 
@@ -107,6 +122,99 @@ export function reviewVerdict({
     headline: `The ${kind} review ran to a verdict`,
     detail: `${result.num_turns ?? 0} turns. The verdict is on the pull request, in the tracking comment.`,
   };
+}
+
+/**
+ * What the log shows the session put on the pull request, as distinct from
+ * how the session ended. The two are independent — #113: the security review
+ * on #112 posted a completed checklist, five paragraphs and
+ * `Verdict: this belongs on develop as it stands.`, and *then* ended with
+ * `is_error: true`. Reading that error as "posted nothing" was an inference,
+ * and it cost a re-run that produced the review already sitting on the pull
+ * request. The code review on the same run errored for real, with a checklist
+ * that stops at `[ ] Get diff` — same result message, different fact.
+ *
+ * Two observations, both from the message array rather than from the result:
+ *
+ * - a `create_inline_comment` call that did not come back an error. A finding
+ *   is on a line of the diff. A call whose `tool_result` carries
+ *   `is_error: true` posted nothing and is not counted — a control that is
+ *   observed by "it was called" rather than "it worked" is the failure this
+ *   repository keeps shipping.
+ * - a final assistant message carrying the verdict line both rubrics ask for.
+ *   `track_progress` mirrors the session's output into the tracking comment,
+ *   so a session that wrote a verdict has a verdict on the pull request.
+ *
+ * The patterns below are the rubrics' own closing words, matched as
+ * statements rather than as mentions, and only against the *last* non-empty
+ * assistant text — mid-session narration about forming a verdict is not one.
+ * Neither observation can prove a review is *complete*; both can show it is
+ * not empty, which is the claim being corrected.
+ */
+const INLINE_COMMENT_TOOL = 'mcp__github_inline_comment__create_inline_comment';
+
+const VERDICT_LINES = [
+  // "Verdict: …", "**Verdict** — …": the rubric's word, used as a heading.
+  /^[\s*_>#-]*verdict\b\s*[:—–-]/im,
+  // The security rubric's closing line, and its negation, which contains it.
+  /\bbelongs?\s+on\s+[`'"*]*develop\b/i,
+  // The code rubric's: would you merge it.
+  /\bwould(?:n't|\s+not)?\s+merge\b/i,
+  // "An empty review is a real result and has to be stated" — this is it
+  // being stated.
+  /\bno\s+findings\b/i,
+];
+
+/**
+ * The content blocks of a log message, whichever shape it arrives in. A
+ * stream-json message wraps them in `message.content`; be tolerant of a flat
+ * one rather than silently reading a review as absent.
+ */
+function contentBlocks(message) {
+  const content = message?.message?.content ?? message?.content;
+  return Array.isArray(content) ? content : [];
+}
+
+function postedReview(messages) {
+  const failed = new Set();
+  for (const message of messages) {
+    for (const block of contentBlocks(message)) {
+      if (block?.type === 'tool_result' && block.is_error === true && block.tool_use_id) {
+        failed.add(block.tool_use_id);
+      }
+    }
+  }
+
+  let inlineComments = 0;
+  let lastText = '';
+  for (const message of messages) {
+    if (message?.type !== 'assistant') continue;
+    for (const block of contentBlocks(message)) {
+      if (block?.type === 'tool_use' && block.name === INLINE_COMMENT_TOOL && !failed.has(block.id)) {
+        inlineComments += 1;
+      }
+      if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+        lastText = block.text;
+      }
+    }
+  }
+
+  return { inlineComments, verdict: VERDICT_LINES.some((pattern) => pattern.test(lastText)) };
+}
+
+/**
+ * What was observed, as counts and flags only. Never the text: the log holds
+ * tool output, and this job's environment holds two credentials.
+ */
+function evidenceOf({ inlineComments, verdict }) {
+  const parts = [];
+  if (inlineComments > 0) {
+    parts.push(
+      `${inlineComments} inline comment${inlineComments === 1 ? '' : 's'} it posted with \`create_inline_comment\``,
+    );
+  }
+  if (verdict) parts.push('a final message carrying the verdict line the rubric asks for');
+  return parts.join(', and ');
 }
 
 /**
