@@ -159,11 +159,12 @@ jobs:
           #
           # The assertion is the wait, for the reason the manual step above
           # records: this is something a new build changes, so a non-404 has to
-          # mean "go round again", never "fail". The commit gate earlier only
-          # runs when the push touched a watched path, so nothing before this
-          # point is guaranteed to have proved the new build is live. A cold
-          # start or a proxy error answers with neither 404 nor a served page,
-          # and is retried for the same reason.
+          # mean "go round again", never "fail". The commit-wait step earlier
+          # is unconditional now, but its own retry loop only proves the new
+          # build is live *at that point* -- nothing carries that guarantee
+          # forward to here, so this step still has to earn it independently.
+          # A cold start or a proxy error answers with neither 404 nor a
+          # served page, and is retried for the same reason.
           for attempt in $(seq 1 30); do
             open_paths=''
             for path in /docs /redoc /openapi.json; do
