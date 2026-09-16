@@ -14,7 +14,7 @@ not a fix for a live hole.
 **The headers, and why each one.**
 
 * `X-Content-Type-Options: nosniff` -- the mount at "/" serves whatever files
-  are in `manual/api/`, and a browser that sniffs a mistyped file into
+  are in `apps/api/manual/`, and a browser that sniffs a mistyped file into
   `text/html` executes it. Costs nothing.
 * `Referrer-Policy: no-referrer` -- the manual links out to GitHub, Vercel and
   the deployed API. Nothing in this service's URLs is worth leaking to those

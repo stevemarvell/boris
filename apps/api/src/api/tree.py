@@ -4,6 +4,7 @@ import json
 import os
 from functools import cached_property
 from pathlib import Path
+from typing import Protocol
 
 from api.models import Person
 
@@ -15,8 +16,10 @@ class DataError(Exception):
 def default_data_path() -> Path:
     """Locate data/family.json by walking up from this module.
 
-    Works unchanged in the repository and in the container, where the data
-    directory is copied to /app/data. FAMILY_DATA overrides it.
+    Works unchanged in the repository and in the container: apps/api is a
+    self-contained Vercel project now (#126), so data/ lives inside it rather
+    than at the repository root, and this walk still finds it -- it just
+    stops one directory higher than it used to. FAMILY_DATA overrides it.
     """
     override = os.environ.get("FAMILY_DATA")
     if override:
@@ -26,6 +29,44 @@ def default_data_path() -> Path:
         if candidate.exists():
             return candidate
     raise DataError("could not locate data/family.json; set FAMILY_DATA")
+
+
+class Repository(Protocol):
+    """Where FamilyTree gets its people from.
+
+    One method, because loading is the only thing a caller ever needs from a
+    source of people -- FamilyTree does the validating, deriving and querying
+    once it has them. Swapping the source (a different file, a database, a
+    fixture in a test) means writing something that satisfies this and
+    passing it to FamilyTree.load(repository=...), the classmethod every real
+    caller uses -- not reaching for the constructor directly.
+    """
+
+    def people(self) -> list[Person]: ...
+
+
+class InMemoryRepository:
+    """Reads a JSON file once, at construction, and holds the result.
+
+    "In memory" names the actual cost of a call to people(): none, because
+    the file was read once and every request since has been answered from
+    the list already in the process. FamilyTree was already loaded exactly
+    this way -- module-level, at import -- so this names the existing
+    behaviour rather than changing it. It stays swappable: a caller wanting a
+    different source implements Repository directly, not this class.
+    """
+
+    def __init__(self, path: Path) -> None:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError as err:
+            raise DataError(f"no family file at {path}") from err
+        except json.JSONDecodeError as err:
+            raise DataError(f"{path} is not valid JSON: {err}") from err
+        self._people = [Person.from_json(p) for p in raw.get("people", [])]
+
+    def people(self) -> list[Person]:
+        return self._people
 
 
 class FamilyTree:
@@ -38,15 +79,16 @@ class FamilyTree:
         self._check_references()
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "FamilyTree":
-        path = path or default_data_path()
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError as err:
-            raise DataError(f"no family file at {path}") from err
-        except json.JSONDecodeError as err:
-            raise DataError(f"{path} is not valid JSON: {err}") from err
-        return cls([Person.from_json(p) for p in raw.get("people", [])])
+    def load(
+        cls, path: Path | None = None, *, repository: Repository | None = None
+    ) -> "FamilyTree":
+        """`repository` is the actual swap point Repository's docstring
+        promises. Without it, every real caller went through `path`, and
+        `FamilyTree(some_repository.people())` -- while it worked -- was not
+        a path anything here exercised or a caller would think to reach for.
+        """
+        repository = repository or InMemoryRepository(path or default_data_path())
+        return cls(repository.people())
 
     def _check_references(self) -> None:
         for person in self.people.values():

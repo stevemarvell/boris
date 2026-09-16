@@ -13,12 +13,11 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 | Path | Holds |
 | --- | --- |
-| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
+| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root — #126 moved them so a Vercel project rooted at `apps/api` can bundle both without reaching outside its own root directory. |
 | `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
-| `data/` | The family tree itself, stored as files in this repository. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run. |
-| `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
+| `manual/web/` | The web app's reference manual. Ships to Vercel with it. |
 
 ## Rules
 
@@ -124,9 +123,9 @@ deployment, along with the rest of the documentation — see "Documentation".
 | What | Where | Built from |
 | --- | --- | --- |
 | API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
-| Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
+| Web | Vercel project `family-tree-web` | root directory `apps/web`, deploys from `develop` |
 | Docs | `/docs/` on the Vercel deployment | `scripts/build-docs.mjs`, run by the web `prebuild` |
-| API manual | `/` on the Railway API | `manual/api/`, copied into the image |
+| API manual | `/` on the Railway API | `apps/api/manual/`, copied into the image |
 
 There is no GitHub Pages entry any more. Pages on a private repository needs a
 paid plan, so everything it published moved onto the two deployments above.

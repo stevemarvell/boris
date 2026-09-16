@@ -30,16 +30,19 @@ USER api
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY --chown=api:api apps/api/src ./src
-# The family tree is a file in the repository, so it ships inside the image.
-# It is copied without --chown, which leaves it owned by root regardless of
-# the USER above (COPY always runs as the builder, not the runtime user) —
-# so the api user keeps its normal read access but cannot write it, matching
-# that the API only ever reads the tree.
-COPY data ./data
+# The family tree is a file in apps/api now (#126 -- moved so a Vercel
+# project rooted at apps/api can bundle it without reaching outside its own
+# root directory). It ships inside this image too, unchanged. Copied without
+# --chown, which leaves it owned by root regardless of the USER above (COPY
+# always runs as the builder, not the runtime user) — so the api user keeps
+# its normal read access but cannot write it, matching that the API only
+# ever reads the tree.
+COPY apps/api/data ./data
 # The reference manual is served from the root of this service, so it ships
-# with it — see default_manual_path() in api.main. Read-only to the api user
-# for the same reason the tree is: nothing here should ever write to it.
-COPY manual/api ./manual/api
+# with it — see default_manual_path() in api.main. Moved alongside the data
+# in #126, for the same reason. Read-only to the api user for the same
+# reason the tree is: nothing here should ever write to it.
+COPY apps/api/manual ./manual
 RUN uv sync --frozen --no-dev
 
 ENV PORT=8000

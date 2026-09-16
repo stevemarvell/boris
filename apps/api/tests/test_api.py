@@ -1,3 +1,4 @@
+import importlib
 from typing import Any
 
 import pytest
@@ -126,7 +127,7 @@ def test_cors_allows_local_and_vercel_origins() -> None:
     for origin in (
         "http://127.0.0.1:4173",
         "http://localhost:5173",
-        "https://family-tree-flame-ten.vercel.app",
+        "https://family-tree-web-eta.vercel.app",
     ):
         response = client.options(
             "/graphql",
@@ -173,6 +174,22 @@ def test_health_reports_the_commit_it_was_built_from(
         "people": 44,
         "commit": "0123456789abcdef",
     }
+
+
+def test_deployed_commit_reads_the_railway_variable_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two tests above patch the module attribute directly, so neither
+    would catch a typo in the env var name itself. Follows the pattern
+    api.limits.RATE_LIMIT tests: set the env var, reload the module, check
+    what it picked up.
+    """
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "fedcba9876543210")
+    try:
+        assert importlib.reload(main).DEPLOYED_COMMIT == "fedcba9876543210"
+    finally:
+        monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA")
+        importlib.reload(main)
 
 
 def test_health_reports_no_commit_when_the_platform_does_not_say(

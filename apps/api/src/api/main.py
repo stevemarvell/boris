@@ -18,8 +18,8 @@ from api.tree import FamilyTree
 # The web app is deployed separately (Vercel), so it is always cross-origin.
 # Anyone can deploy to vercel.app, so the regex is scoped to this project's
 # own hostnames rather than the whole domain: the production alias
-# (family-tree-flame-ten) and the family-tree-<hash>-<scope> shape Vercel
-# gives preview deployments, both under family-tree-*.vercel.app.
+# (family-tree-web-eta) and the family-tree-web-<hash>-<scope> shape Vercel
+# gives preview deployments, both under family-tree-web-*.vercel.app.
 #
 # There is no GitHub Pages origin here. The API manual used to be served from
 # stevemarvell.github.io and called this API from the browser, which needed an
@@ -55,14 +55,22 @@ API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 # that silently did not happen fails a check instead of going unnoticed.
 # Railway injects RAILWAY_GIT_COMMIT_SHA into every service; it is absent
 # locally and in the container tests, where None is the honest answer.
+#
+# Still Railway, not Vercel, even though #126 moved apps/api's own build
+# config onto Vercel: production traffic has not actually cut over yet, and
+# this has to keep naming whichever platform smoke actually checks, or smoke
+# would stop verifying anything real. See #126 for the cutover this waits on.
 DEPLOYED_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA")
 
 
 def default_manual_path() -> Path | None:
-    """Locate manual/api by walking up from this module, as the tree loader does.
+    """Locate apps/api/manual by walking up from this module, as the tree
+    loader locates its data.
 
-    Works unchanged in the repository and in the container, where the manual is
-    copied to /app/manual/api. API_MANUAL_DIR overrides it.
+    Works unchanged in the repository and in the container. apps/api is a
+    self-contained Vercel project now (#126), so the manual lives inside it
+    -- at apps/api/manual, not repo-root manual/api -- and this walk stops
+    one directory higher than it used to. API_MANUAL_DIR overrides it.
 
     Returns None when there is no manual to serve. The manual is documentation:
     a deployment that somehow lacks it should still answer GraphQL rather than
@@ -73,7 +81,7 @@ def default_manual_path() -> Path | None:
     if override:
         return Path(override)
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "manual" / "api"
+        candidate = parent / "manual"
         if (candidate / "index.html").exists():
             return candidate
     return None
