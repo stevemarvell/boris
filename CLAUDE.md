@@ -191,7 +191,9 @@ git worktree add ../boris-<name> -b feat/<name>
 cd ../boris-<name> && npm run bootstrap
 ```
 
-`node_modules` and `.venv` are per-worktree, not shared — `npm run bootstrap`
+`node_modules` and `.venv` are per-worktree, not shared — both at the worktree
+root, since the root `pyproject.toml` makes `apps/api` a uv workspace member
+and uv puts the environment at the workspace root. `npm run bootstrap`
 installs both toolchains and the Playwright browser.
 
 End-to-end ports are derived from the worktree directory name by

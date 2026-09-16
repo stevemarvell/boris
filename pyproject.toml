@@ -28,6 +28,15 @@ members = ["apps/api"]
 # outside the workspace and keeps resolving exactly as it does today.
 exclude = ["apps/mcp"]
 
+# Two consequences of the workspace, both load-bearing and neither obvious:
+#
+# - apps/api/uv.lock is deleted. uv resolves a workspace member against the
+#   root lock and ignores the member's own, so leaving it would leave a file
+#   that looks authoritative, is not read, and silently goes stale.
+# - `uv sync --directory apps/api` now builds .venv at the repository root
+#   rather than in apps/api. Still one environment per worktree, which is what
+#   CLAUDE.md's "Worktrees" section actually requires; just one level up.
+#
 # api.main already exposes a module-level `app`, so this points at it directly
 # rather than introducing a second entrypoint file to keep in step.
 [tool.vercel]
