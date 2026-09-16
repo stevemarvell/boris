@@ -127,7 +127,7 @@ def test_cors_allows_local_and_vercel_origins() -> None:
     for origin in (
         "http://127.0.0.1:4173",
         "http://localhost:5173",
-        "https://family-tree-flame-ten.vercel.app",
+        "https://family-tree-web-eta.vercel.app",
     ):
         response = client.options(
             "/graphql",

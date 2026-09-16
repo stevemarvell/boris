@@ -19,8 +19,8 @@ jobs:
     permissions: {}
 
     env:
-      API: https://boris-stevemarvell-team.vercel.app
-      WEB: https://family-tree-flame-ten.vercel.app
+      API: https://family-tree-api-stevemarvell-team.vercel.app
+      WEB: https://family-tree-web-eta.vercel.app
     steps:
       - name: Wait for the API to report the loaded tree
         run: |

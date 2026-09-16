@@ -34,8 +34,8 @@ deployment:
 | `POST api-production-53f7b.up.railway.app/graphql` | `200` — `{ people { name } }` returns all 44 names |
 | `GET api-production-53f7b.up.railway.app/graphql` | `404` — there is no IDE to open |
 | `POST .../graphql` asking for `__schema` | `200` with errors — *"GraphQL introspection has been disabled"* |
-| `GET family-tree-flame-ten.vercel.app/` | `200` — the web app |
-| `GET family-tree-flame-ten.vercel.app/docs/` | `200` — the documentation, this page among it |
+| `GET family-tree-web-eta.vercel.app/` | `200` — the web app |
+| `GET family-tree-web-eta.vercel.app/docs/` | `200` — the documentation, this page among it |
 | `GET stevemarvell.github.io/boris/` | `404` — Pages is gone, see below |
 
 Vercel's preview deployments are open as well, and deliberately so: an agent

@@ -123,9 +123,9 @@ deployment, along with the rest of the documentation — see "Documentation".
 | What | Where | Built from |
 | --- | --- | --- |
 | API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
-| Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
+| Web | Vercel project `family-tree-web` | root directory `apps/web`, deploys from `develop` |
 | Docs | `/docs/` on the Vercel deployment | `scripts/build-docs.mjs`, run by the web `prebuild` |
-| API manual | `/` on the Railway API | `manual/api/`, copied into the image |
+| API manual | `/` on the Railway API | `apps/api/manual/`, copied into the image |
 
 There is no GitHub Pages entry any more. Pages on a private repository needs a
 paid plan, so everything it published moved onto the two deployments above.

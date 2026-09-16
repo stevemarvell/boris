@@ -18,8 +18,8 @@ from api.tree import FamilyTree
 # The web app is deployed separately (Vercel), so it is always cross-origin.
 # Anyone can deploy to vercel.app, so the regex is scoped to this project's
 # own hostnames rather than the whole domain: the production alias
-# (family-tree-flame-ten) and the family-tree-<hash>-<scope> shape Vercel
-# gives preview deployments, both under family-tree-*.vercel.app.
+# (family-tree-web-eta) and the family-tree-web-<hash>-<scope> shape Vercel
+# gives preview deployments, both under family-tree-web-*.vercel.app.
 #
 # There is no GitHub Pages origin here. The API manual used to be served from
 # stevemarvell.github.io and called this API from the browser, which needed an
