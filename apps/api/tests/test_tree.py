@@ -313,8 +313,8 @@ def test_in_memory_repository_reads_people_once(tmp_path) -> None:
 
 
 def test_family_tree_accepts_any_repository() -> None:
-    """The point of the abstraction: a source that satisfies Repository but
-    reads from nowhere on disk builds a FamilyTree exactly like a file does.
+    """The constructor accepts a plain list, so any Repository's people()
+    output builds a FamilyTree exactly like a file's would.
     """
 
     class FixedRepository:
@@ -322,5 +322,22 @@ def test_family_tree_accepts_any_repository() -> None:
             return [Person(id="a", name="A", parents=(), spouse=None)]
 
     tree = FamilyTree(FixedRepository().people())
+
+    assert tree.people == {"a": Person(id="a", name="A", parents=(), spouse=None)}
+
+
+def test_load_accepts_a_repository_directly() -> None:
+    """The actual swap point: load() takes a Repository, not just a path.
+
+    Every real caller goes through load(), never the bare constructor, so
+    this -- not the test above -- is what proves the source is swappable
+    where it's used.
+    """
+
+    class FixedRepository:
+        def people(self) -> list[Person]:
+            return [Person(id="a", name="A", parents=(), spouse=None)]
+
+    tree = FamilyTree.load(repository=FixedRepository())
 
     assert tree.people == {"a": Person(id="a", name="A", parents=(), spouse=None)}

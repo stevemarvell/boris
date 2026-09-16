@@ -37,8 +37,9 @@ class Repository(Protocol):
     One method, because loading is the only thing a caller ever needs from a
     source of people -- FamilyTree does the validating, deriving and querying
     once it has them. Swapping the source (a different file, a database, a
-    fixture in a test) means writing something that satisfies this, not
-    touching FamilyTree at all.
+    fixture in a test) means writing something that satisfies this and
+    passing it to FamilyTree.load(repository=...), the classmethod every real
+    caller uses -- not reaching for the constructor directly.
     """
 
     def people(self) -> list[Person]: ...
@@ -78,8 +79,16 @@ class FamilyTree:
         self._check_references()
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "FamilyTree":
-        return cls(InMemoryRepository(path or default_data_path()).people())
+    def load(
+        cls, path: Path | None = None, *, repository: Repository | None = None
+    ) -> "FamilyTree":
+        """`repository` is the actual swap point Repository's docstring
+        promises. Without it, every real caller went through `path`, and
+        `FamilyTree(some_repository.people())` -- while it worked -- was not
+        a path anything here exercised or a caller would think to reach for.
+        """
+        repository = repository or InMemoryRepository(path or default_data_path())
+        return cls(repository.people())
 
     def _check_references(self) -> None:
         for person in self.people.values():
