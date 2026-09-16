@@ -24,32 +24,25 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOME=/app
 
-# apps/api is a uv workspace member now (see the root pyproject.toml, added
-# for the Vercel spike in #126), so the lockfile that matters lives at the
-# repository root and apps/api/pyproject.toml has to sit at the same relative
-# path it occupies on disk for uv to recognise it as that member.
-#
-# Dependencies resolve in their own layer so source edits do not re-install
-# them. family-tree-api is excluded from this first sync alongside the root
-# project: it is a workspace member too, and installing it here would mean
-# building its wheel from apps/api/src, which does not exist until the layer
-# below copies it in.
-COPY --chown=api:api pyproject.toml uv.lock ./
-COPY --chown=api:api apps/api/pyproject.toml ./apps/api/pyproject.toml
+# Dependencies resolve in their own layer so source edits do not re-install them.
+COPY --chown=api:api apps/api/pyproject.toml apps/api/uv.lock ./
 USER api
-RUN uv sync --frozen --no-dev --no-install-project --no-install-package family-tree-api
+RUN uv sync --frozen --no-dev --no-install-project
 
-COPY --chown=api:api apps/api/src ./apps/api/src
-# The family tree is a file in the repository, so it ships inside the image.
-# It is copied without --chown, which leaves it owned by root regardless of
-# the USER above (COPY always runs as the builder, not the runtime user) —
-# so the api user keeps its normal read access but cannot write it, matching
-# that the API only ever reads the tree.
-COPY data ./data
+COPY --chown=api:api apps/api/src ./src
+# The family tree is a file in apps/api now (#126 -- moved so a Vercel
+# project rooted at apps/api can bundle it without reaching outside its own
+# root directory). It ships inside this image too, unchanged. Copied without
+# --chown, which leaves it owned by root regardless of the USER above (COPY
+# always runs as the builder, not the runtime user) — so the api user keeps
+# its normal read access but cannot write it, matching that the API only
+# ever reads the tree.
+COPY apps/api/data ./data
 # The reference manual is served from the root of this service, so it ships
-# with it — see default_manual_path() in api.main. Read-only to the api user
-# for the same reason the tree is: nothing here should ever write to it.
-COPY manual/api ./manual/api
+# with it — see default_manual_path() in api.main. Moved alongside the data
+# in #126, for the same reason. Read-only to the api user for the same
+# reason the tree is: nothing here should ever write to it.
+COPY apps/api/manual ./manual
 RUN uv sync --frozen --no-dev
 
 ENV PORT=8000

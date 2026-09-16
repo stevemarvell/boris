@@ -3,7 +3,7 @@ import json
 import pytest
 
 from api.models import Person
-from api.tree import DataError, FamilyTree
+from api.tree import DataError, FamilyTree, InMemoryRepository
 
 
 def build(*rows: tuple[str, tuple[str, ...], str | None]) -> FamilyTree:
@@ -295,3 +295,32 @@ def test_round_trips_through_json(tmp_path, tree: FamilyTree) -> None:
         encoding="utf-8",
     )
     assert FamilyTree.load(path).people == tree.people
+
+
+# -- the repository FamilyTree loads through -----------------------------
+
+
+def test_in_memory_repository_reads_people_once(tmp_path) -> None:
+    """The class FamilyTree.load() delegates to, used directly."""
+    path = tmp_path / "family.json"
+    path.write_text(
+        json.dumps({"people": [{"id": "a", "name": "A", "parents": [], "spouse": None}]}),
+        encoding="utf-8",
+    )
+    repository = InMemoryRepository(path)
+
+    assert repository.people() == [Person(id="a", name="A", parents=(), spouse=None)]
+
+
+def test_family_tree_accepts_any_repository() -> None:
+    """The point of the abstraction: a source that satisfies Repository but
+    reads from nowhere on disk builds a FamilyTree exactly like a file does.
+    """
+
+    class FixedRepository:
+        def people(self) -> list[Person]:
+            return [Person(id="a", name="A", parents=(), spouse=None)]
+
+    tree = FamilyTree(FixedRepository().people())
+
+    assert tree.people == {"a": Person(id="a", name="A", parents=(), spouse=None)}

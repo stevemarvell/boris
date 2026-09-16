@@ -13,12 +13,11 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 | Path | Holds |
 | --- | --- |
-| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
+| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root — #126 moved them so a Vercel project rooted at `apps/api` can bundle both without reaching outside its own root directory. |
 | `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
-| `data/` | The family tree itself, stored as files in this repository. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run. |
-| `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
+| `manual/web/` | The web app's reference manual. Ships to Vercel with it. |
 
 ## Rules
 
@@ -191,9 +190,7 @@ git worktree add ../boris-<name> -b feat/<name>
 cd ../boris-<name> && npm run bootstrap
 ```
 
-`node_modules` and `.venv` are per-worktree, not shared — both at the worktree
-root, since the root `pyproject.toml` makes `apps/api` a uv workspace member
-and uv puts the environment at the workspace root. `npm run bootstrap`
+`node_modules` and `.venv` are per-worktree, not shared — `npm run bootstrap`
 installs both toolchains and the Playwright browser.
 
 End-to-end ports are derived from the worktree directory name by

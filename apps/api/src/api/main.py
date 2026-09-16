@@ -64,10 +64,13 @@ DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
 def default_manual_path() -> Path | None:
-    """Locate manual/api by walking up from this module, as the tree loader does.
+    """Locate apps/api/manual by walking up from this module, as the tree
+    loader locates its data.
 
-    Works unchanged in the repository and in the container, where the manual is
-    copied to /app/manual/api. API_MANUAL_DIR overrides it.
+    Works unchanged in the repository and in the container. apps/api is a
+    self-contained Vercel project now (#126), so the manual lives inside it
+    -- at apps/api/manual, not repo-root manual/api -- and this walk stops
+    one directory higher than it used to. API_MANUAL_DIR overrides it.
 
     Returns None when there is no manual to serve. The manual is documentation:
     a deployment that somehow lacks it should still answer GraphQL rather than
@@ -78,7 +81,7 @@ def default_manual_path() -> Path | None:
     if override:
         return Path(override)
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "manual" / "api"
+        candidate = parent / "manual"
         if (candidate / "index.html").exists():
             return candidate
     return None
