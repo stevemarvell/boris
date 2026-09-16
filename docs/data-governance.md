@@ -154,8 +154,10 @@ The page above is about what the *deployments* expose. This section is about
 what the *pull request checks* hold, because it has the same shape and until
 now had no written trigger.
 
-Two jobs in `.github/workflows/claude-code-review.yml` run credentialed: the
-code review and the security review. Each one checks out the pull request and
+Three jobs run branch code with something live in the step. Two are in
+`.github/workflows/claude-code-review.yml` and carry a credential — the code
+review and the security review; the third is `contention`, which carries a
+write-scoped token instead and is described after them. Each one checks out the pull request and
 then runs a script from that checkout before the review starts.
 
 ```yaml
@@ -192,6 +194,29 @@ The scope job is no longer in this list: since #99 it checks out the base
 commit, so the rule deciding which reviews run is not the branch's copy. The
 two credentialed jobs still check out the merge ref, because a reviewer that
 cannot read the change under review is not a reviewer.
+
+### A third job of the same shape, holding a different thing
+
+`contention` in `.github/workflows/contention.yml` carries no Grafana
+credential, and it is in this list anyway, because the structure is identical:
+it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
+from *that* checkout, with `GITHUB_TOKEN` scoped `pull-requests: write` live in
+the step.
+
+What that scope permits is wider than what the job does with it. GitHub has no
+comment-only permission, so the scope that lets it post and edit its own
+comment also permits **merging, closing, retitling and labelling any open pull
+request**. A pull request that edits `scripts/pr-contention.mjs` runs its own
+code with that scope, the same way one editing
+`scripts/write-ci-telemetry-settings.mjs` runs its own code with the Grafana
+credential.
+
+The same two things bound it — `pull_request` rather than `pull_request_target`,
+and one account with write access — and the same trigger voids it. So on that
+day this job needs the same treatment as the other two: run the script from the
+default branch rather than the branch under review. It is listed here because
+the remediation plan below has to be a complete list on the day it is used, and
+a job missing from the inventory is a job nobody remembers to fix.
 
 ### The trigger
 
