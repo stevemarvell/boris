@@ -347,19 +347,37 @@ file rather than letting the untracked one absorb the difference.
 
 ### What enforces this
 
-Nothing mechanical, and there is a specific reason it cannot be an agent's job
-to fix. **An agent cannot edit either file.** Attempted on 2026-09-15 and
-refused by the auto-mode classifier — an agent changing its own permission
-grants is an agent deciding what it is allowed to do, and "I was only
-tightening it" is what the unsafe version would say too. The same gate refused
-two edits to `CLAUDE.md`'s restraint rule the same day (SOP 6).
+**The auto-mode classifier, in one direction only.** This section used to say
+flatly that an agent cannot edit either file. That was wider than the evidence
+it cited, and it mispredicted the first time it was tested against a real edit.
 
-So permission changes are `human` work by construction, not by preference —
-#118 is labelled that way on evidence. What an agent can do is audit the files
-and report, which is how #118 got its list.
+What has actually been observed, and nothing more:
 
-The `/fewer-permission-prompts` skill does the tidying mechanically and has
-never been run here.
+- **Widening was refused.** On 2026-09-15 an agent tried to add to the tracked
+  file and the classifier stopped it. An agent changing its own permission
+  grants is an agent deciding what it is allowed to do, and *"I was only
+  tightening it"* is what the unsafe version would say too. The same gate
+  refused two edits to `CLAUDE.md`'s restraint rule the same day (SOP 6).
+- **Narrowing was not.** On 2026-09-21, on #123, an agent removed seven entries
+  that #126 and #129 had killed — four `railway *` commands and three hosts
+  that no longer answer — and was not stopped. Removing a grant cannot expand
+  what an agent may do, so the argument above does not reach it.
+
+Nobody has established that a removal is refused under other conditions, so
+what is written here is the observation and not a guarantee: expect a widening
+edit to be stopped, and expect nothing either way of a removal. A rule that
+predicts a refusal which does not happen is the shape this whole document
+exists to avoid, which is why the wider claim came out.
+
+So *adding* a permission is `human` work by construction rather than by
+preference — #118 is labelled that way on that evidence, and its own text
+carries the older, wider claim. What an agent can do is audit both files,
+report, and take dead entries out of the tracked one.
+
+The `/fewer-permission-prompts` skill does the tidying mechanically. It has
+been run once, over 50 transcripts and 5,750 tool calls; the result was #123,
+which added nine entries and, on the day it merged, removed the seven its own
+branch had gone stale holding.
 
 ---
 
