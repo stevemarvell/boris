@@ -286,11 +286,46 @@ repository's owner changed it, and the commit records who and when.
 
 ### What enforces this
 
-Nothing mechanical, and there is a specific way it fails: both review agents
+Mostly nothing, and there is a specific way that fails: both review agents
 read `CLAUDE.md`, so practice that changed in conversation but not in the file
 comes back as a finding on every pull request. Two `high` findings on #115 were
 exactly that — correct against the file, stale against the instruction. The
 file is the standard; conversation is not.
+
+**One part is mechanical, and it does not agree with the list above.** On
+2026-09-21, at the end of a backlog run, an agent deleted seven leftover local
+branches and two worktrees, then tried to delete one stale *remote* branch:
+`fix/review-errored-after-verdict`, whose pull request (#131) was closed
+unmerged when #132 landed the same fix by a better route. The recoverability
+test clears that deletion — GitHub serves a closed pull request's head at
+`refs/pull/<n>/head` after the branch is gone, confirmed by fetching it and
+getting the commit back rather than by assuming — and the decide-it list above
+names the case outright.
+
+The auto-mode classifier refused it regardless, as `[Git Destructive]`. Not
+consistently, which is the part worth writing down: the same
+`git push origin --delete` was *permitted* on its first invocation, where it
+died on an unrelated proxy disconnect, then refused on the two attempts after
+it. The GitHub MCP server offers `create_branch` and `list_branches` and no
+deletion, so there was nothing to fall back to and the branch is still there.
+
+Two things follow, and only these two:
+
+- **A local deletion is not a remote one.** The seven local branches and both
+  worktrees went through without comment. Reach beyond this machine is the
+  whole of the difference.
+- **This rule cannot promise that what it licenses will be permitted.** SOP 7
+  records the same classifier refusing a widening edit to a permissions file
+  and allowing a narrowing one. This is a third shape: a refusal that does not
+  track recoverability at all, since the commit was demonstrably recoverable
+  and the refusal arrived anyway.
+
+So expect the gate to stop a destructive remote git operation whatever this
+SOP says about deciding it. Report the block and leave the command to a person
+— that is not this rule failing, it is a second opinion it does not get to
+overrule. What the rule still forbids is dressing the refusal up: rerunning it
+in a shape that reads differently to the classifier is working around a denial,
+not complying with one.
 
 ---
 
