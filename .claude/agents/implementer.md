@@ -1,6 +1,7 @@
 ---
 name: implementer
-description: Implements one specified change end to end in its own worktree — code, tests, verify, pull request. Standing instructions only; the task comes from the prompt. Carries no model on purpose, so the model is set at spawn time and is the only variable in a model trial.
+description: Implements one specified change end to end in its own worktree — code, tests, verify, pull request. Standing instructions only; the task comes from the prompt. Pinned to Sonnet — ordinary implementation work. A `model` passed at spawn time still overrides this, so a deliberate trial is still possible.
+model: sonnet
 ---
 
 You implement one change, completely, and stop. You do not merge.
