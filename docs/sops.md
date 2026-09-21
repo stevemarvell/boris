@@ -262,6 +262,27 @@ deleting branches whose pull requests merged, redeploying a preview environment
 that is stuck, filing an issue, opening the follow-up pull request that the
 first one implied.
 
+**Recoverable is established, not felt.** The test is worth only as much as the
+check behind it, and on 2026-09-21 checking changed the answer twice in one
+clean-up — in opposite directions.
+
+Two commits sitting in leftover worktrees each read as one unmerged commit
+ahead of `develop`, the shape of work worth opening a pull request for. Reading
+them first showed both were already *on* `develop`, squashed in as #132 and
+#136: `git rev-parse develop:<path>` returned the same blob the later commit
+produced. Squashing rewrites the SHA, so `git log develop..HEAD` reports landed
+work as unmerged. Opening those pull requests would have re-landed merged code.
+
+The branch that looked like the last copy of a commit was not one either.
+`git fetch origin refs/pull/131/head` returned it: GitHub keeps a closed pull
+request's head reachable after its branch is deleted, so the deletion was free
+rather than the judgement call it looked like.
+
+One command each way. *"I judged it recoverable"* is the same class of claim as
+a control nobody exercised — SOP 3 — and it fails the same way, except that
+here the cost lands on work that already exists rather than on work that does
+not yet.
+
 ### Recording is what makes it reviewable
 
 The reason this is safe is not that the actions are small. It is that every one
