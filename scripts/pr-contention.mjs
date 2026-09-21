@@ -21,6 +21,11 @@
 //   - before a merge: "this and #108 both change these files and conflict"
 //   - after one: "#108 landed and this no longer merges"
 //
+// Both sides of a collision are told, not just the pull request whose event
+// fired. Reporting only the trigger left the earlier pull request blind — it
+// gets no event of its own when a rival appears — which #135 recorded from a
+// real two-agent run.
+//
 // WHY `merge-tree`. `git merge-tree --write-tree` does a real three-way merge
 // against a real merge base and writes only to the object store, so this needs
 // no working tree, no checkout per pair, and no guessing from overlapping diff
@@ -148,23 +153,46 @@ export function selectPullRequests(list, max = MAX_PULL_REQUESTS) {
 }
 
 /**
- * The pull request heads a run needs fetched.
+ * Every pull request this run reports on.
  *
- * `selected` bounds the *rivals*, where the quadratic cost is. The subject
- * does not go through that filter — a pull request whose own event triggered
- * the run is always reported on — so its head has to be fetched even when the
- * ceiling would have dropped it. Deriving the fetch list from `selected`
- * alone left exactly that gap: with more than MAX_PULL_REQUESTS open and the
- * trigger among the newer ones, its head was never fetched and every
- * comparison against it failed. Found in review on this pull request.
+ * **Both sides of a collision, not just the one whose event fired.** The first
+ * version reported only on the triggering pull request, which made the
+ * pre-merge warning one-sided: a pull request already open when a rival
+ * appears gets no event of its own, so it was never told. The two-agent run
+ * for #130 is the evidence — #132 got a correct warning naming #131, and #131
+ * got nothing, then lost the race it had never been told it was in. The
+ * author who most needs the warning was the one not getting it (#135).
+ *
+ * Reporting on every selected pull request costs nothing extra in merges: the
+ * pairwise matrix is already computed and already bounded by
+ * MAX_PULL_REQUESTS. It costs no noise either, because `commentAction` writes
+ * nothing for a pull request whose verdict is clean and unchanged.
+ *
+ * A pull request named on the command line is included even when the ceiling
+ * would have dropped it: the one whose event triggered the run must never
+ * fall out silently.
+ */
+export function reportingTargets(open, only = []) {
+  const { selected } = selectPullRequests(open);
+  const byNumber = new Map(selected.map((pr) => [pr.number, pr]));
+  for (const number of only) {
+    if (byNumber.has(number)) continue;
+    const pr = (open ?? []).find((candidate) => candidate.number === number);
+    if (pr) byNumber.set(number, pr);
+  }
+  return [...byNumber.values()].sort((a, b) => a.number - b.number);
+}
+
+/**
+ * The heads a run needs fetched: exactly the pull requests it will report on.
+ *
+ * Derived from `reportingTargets` rather than computed alongside it, so the
+ * two cannot disagree. They did once — the fetch list came from the ceiling's
+ * selection while the reported-on subject did not, and past the ceiling the
+ * triggering pull request was compared against a head that was never there.
  */
 export function refsToFetch(open, only = []) {
-  const { selected } = selectPullRequests(open);
-  const numbers = new Set(selected.map((pr) => pr.number));
-  for (const number of only) {
-    if ((open ?? []).some((pr) => pr.number === number)) numbers.add(number);
-  }
-  return [...numbers].sort((a, b) => a - b).map((number) => `refs/pull/${number}/head`);
+  return reportingTargets(open, only).map((pr) => `refs/pull/${pr.number}/head`);
 }
 
 const list = (paths) => paths.map((path) => `\`${path}\``).join(', ');
@@ -339,12 +367,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const baseSha = process.env['BASE_SHA'];
   const repository = process.env['GITHUB_REPOSITORY'] ?? '';
   const dryRun = args.includes('--dry-run') || !process.env['GH_TOKEN'];
-  // A named subject is reported on even when the ceiling would have dropped it:
-  // the pull request whose event triggered this run is the one thing that must
-  // never fall out of the comparison silently. The ceiling still bounds the
-  // rivals, which is where the quadratic cost is.
+  // Every selected pull request, not only the one whose event fired — see
+  // `reportingTargets`. Writing a verdict for each is what makes the warning
+  // reach both sides of a collision; the quiet ones stay quiet because
+  // `commentAction` suppresses an unchanged clean verdict.
   const only = args.filter((arg) => /^\d+$/.test(arg)).map(Number);
-  const subjects = only.length ? open.filter((pr) => only.includes(pr.number)) : selected;
+  const subjects = reportingTargets(open, only);
 
   if (!baseSha) {
     console.error('BASE_SHA is required');

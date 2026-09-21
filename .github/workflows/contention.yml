@@ -101,9 +101,11 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           OPEN_PRS: ${{ steps.open.outputs.json }}
           BASE_REF: develop
-        # On a pull request, only that pull request is commented on; on a push
-        # to develop, every open pull request is re-checked against the new tip,
-        # which is the case that has no other signal at all.
+        # Every open pull request is reported on, whichever event fired. The
+        # first version commented only on the triggering one, which left the
+        # pull request that was already open with no warning at all — a rival
+        # opening gives it no event of its own (#135). The quiet ones stay
+        # quiet: the script writes nothing for a clean, unchanged verdict.
         #
         # BASE_SHA is resolved here rather than from the event payload: on a
         # pull_request event `base.sha` is the tip as of when the event fired,
