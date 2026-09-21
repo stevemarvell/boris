@@ -40,23 +40,12 @@ deployment, along with the rest of the documentation — see "Documentation".
   (`delete_branch_on_merge`) — a repository setting, so it is recorded here
   rather than being visible in any file.
 
-- **Decide and act; report after.** This rule used to end *stop and ask for
-  anything destructive, outward-facing, or beyond what was asked*. That was
-  retired on 2026-09-15 on the instruction "you are supposed to be autonomous".
-  Pick the option you would have recommended, do it, and say what was done and
-  why — a recommendation offered as a question is work handed back.
-
-  What still stops is narrow, and the test is **recoverability, not scope**:
-  work nobody can get back, money, or anything reaching a third party. A
-  repository setting, a merged branch, a redeployed preview, an issue, a
-  follow-up pull request — decide those, and record them in the pull request
-  body. That is what makes the decision reviewable after the fact rather than
-  unreviewable before it, and the two reviewers read that body. The line, what
-  is on each side of it, and what this does *not* license: `docs/sops.md` SOP 6.
-
-  Both reviewers still measure against this file, so a change of practice that
-  is not written here reappears as a finding on every pull request until it is.
-  That is the rule working: the file is the standard, not the conversation.
+- **Decide and act; report after.** The rule above used to end *stop and ask
+  for anything destructive, outward-facing, or beyond what was asked*; that was
+  retired on 2026-09-15. The test that remains is **recoverability, not
+  scope**: stop for work nobody can get back, for money, and for anything
+  reaching a third party. Everything else is decided, done, and recorded in the
+  pull request body where the reviewers read it. `docs/sops.md` SOP 6.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
