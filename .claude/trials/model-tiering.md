@@ -161,9 +161,16 @@ failure and no warning. Haiku read the diff and described it.
 | Code review, security review | Sonnet minimum | Haiku produced a confidently empty review |
 | Design decisions, debugging from a symptom, orchestration | Opus | No oracle exists |
 
-**Do not set `CLAUDE_CODE_SUBAGENT_MODEL`.** Leaving it unset means subagents fall
-back to the session model, so the default is expensive-and-correct and cheapness is
-opted into per spawn. That matches how `API_ENVIRONMENT` defaults to `production`.
+**Do not set `CLAUDE_CODE_SUBAGENT_MODEL`.** Leaving it unset means a subagent with
+no pin of its own falls back to the session model, so cheapness stays opted into
+per spawn rather than defaulted into. That matches how `API_ENVIRONMENT` defaults
+to `production` — but it is no longer the whole story for the three roles this file
+is about. `implementer`/`code-checker`/`security-checker` now carry `model: sonnet`
+in their own frontmatter, which sits ahead of the session model in the resolution
+order stated above. Leaving the model unset at spawn for these three falls back to
+Sonnet, not the session model, whatever that session model is and whatever this
+env var says. A role added here later with no frontmatter pin is the one this
+paragraph's original claim still describes.
 
 **Token honesty.** Sonnet is not dramatically cheaper per task — 137k against 144k
 here. The real saving was wall-clock, and the real risk was a silent defect. Price per
