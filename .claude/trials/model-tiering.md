@@ -12,10 +12,15 @@ green `verify` would not catch.**
 One task. Identical brief. The model is the only variable.
 
 The three roles live in `.claude/agents/` — `implementer`, `code-checker`,
-`security-checker` — and **none of them pins a model**, deliberately. A
-per-invocation model beats a definition's, so pinning would make the variable
-harder to see rather than easier. The role file carries the standing
-instructions; the prompt carries the task; the spawn carries the model.
+`security-checker`. As of 2026-09-21 all three are pinned to `sonnet` — the
+"Current recommendation" table below is exactly what the pin sets. A
+per-invocation model still beats a definition's, so a trial arm passing its
+own `model` (`implementer` at `opus`, `implementer` at `sonnet`) overrides
+the pin the same way it always overrode an unset default; the variable a
+trial varies is untouched. What changed is the baseline a spawn gets when
+it passes none — previously the session default, now Sonnet. The role file
+carries the standing instructions; the prompt carries the task; the spawn
+carries the model, when a trial needs one other than the default.
 
 Each arm gets its own worktree and opens a pull request. Nothing merges until
 the comparison is done, so both arms can be read side by side.
@@ -156,9 +161,16 @@ failure and no warning. Haiku read the diff and described it.
 | Code review, security review | Sonnet minimum | Haiku produced a confidently empty review |
 | Design decisions, debugging from a symptom, orchestration | Opus | No oracle exists |
 
-**Do not set `CLAUDE_CODE_SUBAGENT_MODEL`.** Leaving it unset means subagents fall
-back to the session model, so the default is expensive-and-correct and cheapness is
-opted into per spawn. That matches how `API_ENVIRONMENT` defaults to `production`.
+**Do not set `CLAUDE_CODE_SUBAGENT_MODEL`.** Leaving it unset means a subagent with
+no pin of its own falls back to the session model, so cheapness stays opted into
+per spawn rather than defaulted into. That matches how `API_ENVIRONMENT` defaults
+to `production` — but it is no longer the whole story for the three roles this file
+is about. `implementer`/`code-checker`/`security-checker` now carry `model: sonnet`
+in their own frontmatter, which sits ahead of the session model in the resolution
+order stated above. Leaving the model unset at spawn for these three falls back to
+Sonnet, not the session model, whatever that session model is and whatever this
+env var says. A role added here later with no frontmatter pin is the one this
+paragraph's original claim still describes.
 
 **Token honesty.** Sonnet is not dramatically cheaper per task — 137k against 144k
 here. The real saving was wall-clock, and the real risk was a silent defect. Price per

@@ -1,6 +1,7 @@
 ---
 name: security-checker
-description: Reviews a change for exposure and hardening and reports findings. Writes nothing. Carries no model on purpose, so the model is set at spawn time and is the only variable in a model trial.
+description: Reviews a change for exposure and hardening and reports findings. Writes nothing. Pinned to Sonnet — ordinary review work. A `model` passed at spawn time still overrides this, so a deliberate trial is still possible.
+model: sonnet
 ---
 
 You review for exposure. You do not fix, and you do not push.
