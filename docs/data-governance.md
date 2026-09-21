@@ -116,9 +116,9 @@ Open is not the same as unguarded. What an anonymous caller can do is bounded
   that a burst large enough to matter is cheap enough for someone to actually
   run.
 - **A gate on the query console.** The API serves its own manual at its root,
-  and that manual used to carry a **Run query** button posting to `/graphql`
-  on the same origin: a working console, no setup, no CORS negotiation. It is
-  now gated on `API_ENVIRONMENT`, the same mechanism as the IDE, so production
+  and that manual carries a **Run query** button posting to `/graphql` on the
+  same origin: a working console, no setup, no CORS negotiation. It is gated
+  on `API_ENVIRONMENT`, the same mechanism as the IDE, so production
   serves the documentation without the console — confirmed on the deployment,
   which returns the manual with no `id="run"` and no endpoint string. The
   worked examples remain, with a `curl` that names whichever deployment is
@@ -213,8 +213,8 @@ Two things, and only one of them is written in the configuration:
   fact about the repository's membership, and it carries the whole of the
   remaining severity.
 
-The scope job is no longer in this list: since #99 it checks out the base
-commit, so the rule deciding which reviews run is not the branch's copy. The
+The scope job is not in this list: it checks out the base commit (#99), so the
+rule deciding which reviews run is not the branch's copy. The
 two credentialed jobs still check out the merge ref, because a reviewer that
 cannot read the change under review is not a reviewer.
 
@@ -276,7 +276,7 @@ Two side effects are worth knowing, because both look like breakage:
 
 - GitHub Actions minutes are billed now rather than free.
 - GitHub Pages needs a paid plan on a private repository, which is why
-  `stevemarvell.github.io/boris/` returns `404` and why everything it used to
+  `stevemarvell.github.io/boris/` returns `404` and why everything it would
   publish is served from Vercel, or from inside the API image, instead.
 
 Visibility was never the control. If it had been, the table above would be

@@ -5,8 +5,8 @@ How agent work is run in this repository. These are the procedures that govern
 across every task, and that nobody should have to rediscover.
 
 Each procedure states what it requires, what enforces it, and — where nothing
-does — says so plainly. A rule nobody can check is a convention, and calling it
-a control is how this project has been bitten four times already.
+does — says so plainly. A rule nobody can check is a convention; calling it a
+control is the failure SOP 3 catalogues.
 
 ---
 
@@ -15,11 +15,11 @@ a control is how this project has been bitten four times already.
 **Every skill, command, and agent declares a ceiling on how many times it will
 retry, and reports when it reaches it.**
 
-An agent that retries until it succeeds has no upper bound on cost. It is not a
-hypothetical: a subagent has already died mid-task on a session limit in this
-repository, and two more did during the seven-agent run of 2026-09-14. A loop
-that stops and says *"I tried three times, here is what failed"* is worth more
-than one that spends a budget silently and is killed halfway through.
+An agent that retries until it succeeds has no upper bound on cost, and the
+cost is not hypothetical: three subagents have died mid-task on session limits
+here. A loop that stops and says *"I tried three times, here is what failed"*
+is worth more than one that spends a budget silently and is killed halfway
+through.
 
 ### What the ceiling means
 
@@ -108,21 +108,19 @@ at the time:
 | The rate limiter's client key | returning correct `x-ratelimit-*` headers | enforced 5× the configured limit |
 | The rate limiter's counter | one budget, per its own docstring | one budget *per concurrent process*, and Vercel runs several |
 
-The rate-limit key is the clearest of the first four. Its 84 unit tests
-passed throughout, because `TestClient` is one process with one stable key
-and the deployment is neither. It took 600 concurrent requests against a live
-Railway environment to see it. The fifth was found the same way, against a
-different deployment: #126 retired Railway for Vercel, and 200 concurrent
-requests against the live Vercel API showed several execution environments
-answering in parallel, each counting independently — filed as issue #128
-rather than fixed on the spot, since the real fix (shared storage for the
-counters) is a bigger call than the platform-retirement cleanup that found it
-should make alone.
+Every one of them surfaced under load against a live deployment, never in the
+suite. The rate-limit key held 84 passing unit tests while enforcing five times
+its configured limit, because `TestClient` is one process with one stable key
+and a deployment is neither; 600 concurrent requests showed it. The counter
+beneath it is the same shape one layer down, and is open as #128: 200
+concurrent requests against the live Vercel API come back from several
+execution environments, each counting its own budget. The fix there is shared
+storage for the counters, which is a larger decision than the cleanup that
+found it.
 
-So: when a change adds a control, exercise it against the deployed pull
-request environment and put the real output
-in the pull request body. A test proves the code does what you wrote. Only the
-deployment proves the deployment does.
+So when a change adds a control, exercise it against the deployed pull request
+environment and put the real output in the pull request body. A test proves the
+code does what you wrote. Only the deployment proves the deployment does.
 
 ---
 
@@ -175,11 +173,11 @@ for, not the first.
 `critical`, `high`, `medium`. Three labels, and they are the only ranking in
 this repository.
 
-| Label | Means | Was |
-| --- | --- | --- |
-| `critical` | Do first. Wrong answers, real exposure, or work blocked until it lands. | `p1` |
-| `high` | Do next. A real defect, bounded today by something written down. | `p2` |
-| `medium` | Do eventually. Worth doing; nothing is wrong while it waits. | `p3` |
+| Label | Means |
+| --- | --- |
+| `critical` | Do first. Wrong answers, real exposure, or work blocked until it lands. |
+| `high` | Do next. A real defect, bounded today by something written down. |
+| `medium` | Do eventually. Worth doing; nothing is wrong while it waits. |
 
 ### Why one and not two
 
@@ -193,12 +191,10 @@ forgotten.
 This repository has one author and one queue. The answer to "how bad is it"
 *is* the answer to "when do we do it", so it is written once.
 
-The labels were `p1`/`p2`/`p3` until they were renamed in place, which carried
-every issue, open and closed. Severity had never been a label at all — it lived
-as prose in issue bodies, in whatever words that issue chose: "Severity today:
-low" (#86), "Honest severity: low" (#53), "Severity: moderate" (#58). Three
-spellings of a scale nobody had defined, next to a label set that already
-ranked the same thing.
+A severity written as prose in the issue body is not a second scale, it is an
+unlabelled one: "Severity today: low", "Honest severity: low", "Severity:
+moderate" are three spellings of a ranking the labels already carry. Rank in
+the label.
 
 ### What a ranking below `critical` has to say
 
@@ -210,7 +206,8 @@ posture, what bounds it, and the trigger that voids the decision.
 
 - #103 is `high` because one person has write access. The trigger is named: a
   second one gets it.
-- #86 was survivable because the schema it exposed described invented data.
+- An exposed schema ranks where it does because it describes invented data
+  (#86). The trigger is the same one below.
 - `docs/data-governance.md` is defensible because `data/family.json` contains
   nobody. The trigger is real data.
 
@@ -229,22 +226,21 @@ issue yourself.
 
 Nothing mechanical, and the same applies to both reviewers — the rubrics in
 `.claude/agents/` name the three words, but nothing rejects a review that coins
-a fourth. What does help is that there is now only one place to put a ranking:
-before this, an issue could be `p2` in its labels and "critical" in its second
-paragraph, and both were true of different systems.
+a fourth. What holds it together is that there is one place to put a ranking:
+an issue cannot be one thing in its labels and another in its second paragraph
+if only the label ranks.
 
 ---
 
 ## SOP 6: Decide and act; report after
 
-The pull-request rule in `CLAUDE.md` used to end *stop and ask for anything
-destructive, outward-facing, or beyond what was asked*. That clause was retired
-on 2026-09-15, on the instruction "you are supposed to be autonomous".
-
 Pick the option you would have recommended, do it, and say what was done and
 why. A recommendation offered back as a question is work handed back: the
 answer was already in the recommendation, and asking costs a round trip to
 arrive at it.
+
+Asking is not the cautious choice. It reads as deference, so it never draws the
+scrutiny a risky action draws, and that is what makes it expensive.
 
 ### The test is recoverability, not scope
 
@@ -263,25 +259,19 @@ that is stuck, filing an issue, opening the follow-up pull request that the
 first one implied.
 
 **Recoverable is established, not felt.** The test is worth only as much as the
-check behind it, and on 2026-09-21 checking changed the answer twice in one
-clean-up — in opposite directions.
+check behind it, and the check is one command. *"I judged it recoverable"* is
+the same class of claim as a control nobody exercised — SOP 3 — and it fails
+the same way, except that the cost lands on work that already exists.
 
-Two commits sitting in leftover worktrees each read as one unmerged commit
-ahead of `develop`, the shape of work worth opening a pull request for. Reading
-them first showed both were already *on* `develop`, squashed in as #132 and
-#136: `git rev-parse develop:<path>` returned the same blob the later commit
-produced. Squashing rewrites the SHA, so `git log develop..HEAD` reports landed
-work as unmerged. Opening those pull requests would have re-landed merged code.
+Two readings mislead, in opposite directions, so check both:
 
-The branch that looked like the last copy of a commit was not one either.
-`git fetch origin refs/pull/131/head` returned it: GitHub keeps a closed pull
-request's head reachable after its branch is deleted, so the deletion was free
-rather than the judgement call it looked like.
+| Looks like | Reality | Check |
+| --- | --- | --- |
+| A branch one commit ahead of `develop` | Squashing rewrites the SHA, so landed work reports as unmerged | `git rev-parse develop:<path>` — the same blob means it is already in |
+| A branch holding the only copy of a commit | GitHub keeps a closed pull request's head reachable after the branch goes | `git fetch origin refs/pull/<n>/head` |
 
-One command each way. *"I judged it recoverable"* is the same class of claim as
-a control nobody exercised — SOP 3 — and it fails the same way, except that
-here the cost lands on work that already exists rather than on work that does
-not yet.
+Reading the first wrong re-lands merged code. Reading the second wrong either
+loses the commit or turns a free deletion into a judgement call.
 
 ### Recording is what makes it reviewable
 
@@ -298,55 +288,39 @@ below, each recoverable from its pull request" is a report. "Cleaned up" is not.
 ### What this does not license
 
 Rewriting this rule, or the one in `CLAUDE.md` that points here, on the
-strength of something said in a session. That edit was attempted while writing
-this SOP and was refused by the auto-mode classifier — twice, on two different
-spellings of it. The refusal is right: an agent relaxing its own restraint,
-citing a conversational instruction that no later reader can see, is the one
-case where a person has to be in the loop. The rule changed here because the
-repository's owner changed it, and the commit records who and when.
+strength of something said in a session. The auto-mode classifier refuses it,
+and the refusal is right: an agent relaxing its own restraint, citing a
+conversational instruction that no later reader can see, is the one case where
+a person has to be in the loop. This rule changes when the repository's owner
+changes it, and the commit records who and when.
 
 ### What enforces this
 
 Mostly nothing, and there is a specific way that fails: both review agents
 read `CLAUDE.md`, so practice that changed in conversation but not in the file
-comes back as a finding on every pull request. Two `high` findings on #115 were
-exactly that — correct against the file, stale against the instruction. The
-file is the standard; conversation is not.
+comes back as a finding on every pull request — correct against the file, stale
+against the instruction, as on #115. The file is the standard; conversation is
+not.
 
-**One part is mechanical, and it does not agree with the list above.** On
-2026-09-21, at the end of a backlog run, an agent deleted seven leftover local
-branches and two worktrees, then tried to delete one stale *remote* branch:
-`fix/review-errored-after-verdict`, whose pull request (#131) was closed
-unmerged when #132 landed the same fix by a better route. The recoverability
-test clears that deletion — GitHub serves a closed pull request's head at
-`refs/pull/<n>/head` after the branch is gone, confirmed by fetching it and
-getting the commit back rather than by assuming — and the decide-it list above
-names the case outright.
+**One part is mechanical, and it does not agree with the list above.** The
+auto-mode classifier refuses a destructive *remote* git operation as
+`[Git Destructive]`, including deleting a branch this SOP licenses deleting —
+and refuses it inconsistently, the same `git push origin --delete` having been
+permitted once and refused twice. Local deletions do not draw it: branches and
+worktrees on this machine go without comment. Reach beyond this machine is the
+whole of the difference. There is no fallback through the GitHub MCP server,
+which offers `create_branch` and `list_branches` and no deletion.
 
-The auto-mode classifier refused it regardless, as `[Git Destructive]`. Not
-consistently, which is the part worth writing down: the same
-`git push origin --delete` was *permitted* on its first invocation, where it
-died on an unrelated proxy disconnect, then refused on the two attempts after
-it. The GitHub MCP server offers `create_branch` and `list_branches` and no
-deletion, so there was nothing to fall back to and the branch is still there.
+So this rule cannot promise that what it licenses will be permitted. SOP 7
+records the same classifier refusing a widening edit to a permissions file and
+allowing a narrowing one; this is a third shape, and unlike those it does not
+track recoverability — a demonstrably recoverable deletion is refused anyway.
 
-Two things follow, and only these two:
-
-- **A local deletion is not a remote one.** The seven local branches and both
-  worktrees went through without comment. Reach beyond this machine is the
-  whole of the difference.
-- **This rule cannot promise that what it licenses will be permitted.** SOP 7
-  records the same classifier refusing a widening edit to a permissions file
-  and allowing a narrowing one. This is a third shape: a refusal that does not
-  track recoverability at all, since the commit was demonstrably recoverable
-  and the refusal arrived anyway.
-
-So expect the gate to stop a destructive remote git operation whatever this
-SOP says about deciding it. Report the block and leave the command to a person
-— that is not this rule failing, it is a second opinion it does not get to
-overrule. What the rule still forbids is dressing the refusal up: rerunning it
-in a shape that reads differently to the classifier is working around a denial,
-not complying with one.
+Expect the gate, report the block, and leave the command to a person. That is a
+second opinion this rule does not get to overrule, not this rule failing. What
+stays forbidden is dressing the refusal up: rerunning a refused command in a
+shape that reads differently to the classifier is working around a denial
+rather than complying with one.
 
 ---
 
@@ -361,22 +335,17 @@ Claude Code reads permissions from two files here:
 
 Both grant the same thing. Only one of them is looked at.
 
-### What went wrong
+### How the untracked file fills up
 
-#56 found a wildcard in the tracked file that pre-approved arbitrary code
-execution in the project virtualenv, and replaced it with the specific commands
-actually in use. That fix was reviewed, merged, and holds: the tracked file is
-still 26 real entries.
+Nobody decides it. Each entry is one "yes" at one prompt during real work,
+frozen into a permanent rule in a file no review reads — which is how a grant
+removed from the tracked file for pre-approving arbitrary code execution (#56)
+reappears in the local one by a shorter route, as `Bash(python -)`.
 
-The local file then grew to 52, including `Bash(python -)` — arbitrary Python
-from standard input, the same capability #56 was closed for removing, by a
-shorter route. Nobody decided that. Each entry was one "yes" at one prompt
-during real work, frozen into a permanent rule, in a file no review reads.
-
-Fourteen of the 52 can never match again: a merge of pull request 4, pushes to
-branches deleted long ago, `curl`s against a Railway hostname two hostnames
-out of date. They are harmless in themselves and they are most of why this
-matters — noise that makes the four dangerous entries hard to see.
+Dead entries are the other half, and they are most of why this matters: a merge
+of a pull request long closed, pushes to deleted branches, `curl`s against
+hostnames two migrations out of date. Harmless in themselves, they are the
+noise that makes a dangerous entry hard to see.
 
 ### The boundary
 
@@ -403,37 +372,32 @@ file rather than letting the untracked one absorb the difference.
 
 ### What enforces this
 
-**The auto-mode classifier, in one direction only.** This section used to say
-flatly that an agent cannot edit either file. That was wider than the evidence
-it cited, and it mispredicted the first time it was tested against a real edit.
+**The auto-mode classifier, in one direction only.** What is observed, and
+nothing wider:
 
-What has actually been observed, and nothing more:
+- **Widening is refused.** An agent adding to the tracked file is stopped. An
+  agent changing its own permission grants is an agent deciding what it is
+  allowed to do, and *"I was only tightening it"* is what the unsafe version
+  says too. The same gate refuses edits to `CLAUDE.md`'s restraint rule
+  (SOP 6).
+- **Narrowing is not.** Removing entries killed by #126 and #129 — `railway *`
+  commands and hosts that no longer answer — went through on #123. Removing a
+  grant cannot expand what an agent may do, so the argument above does not
+  reach it.
 
-- **Widening was refused.** On 2026-09-15 an agent tried to add to the tracked
-  file and the classifier stopped it. An agent changing its own permission
-  grants is an agent deciding what it is allowed to do, and *"I was only
-  tightening it"* is what the unsafe version would say too. The same gate
-  refused two edits to `CLAUDE.md`'s restraint rule the same day (SOP 6).
-- **Narrowing was not.** On 2026-09-21, on #123, an agent removed seven entries
-  that #126 and #129 had killed — four `railway *` commands and three hosts
-  that no longer answer — and was not stopped. Removing a grant cannot expand
-  what an agent may do, so the argument above does not reach it.
-
-Nobody has established that a removal is refused under other conditions, so
-what is written here is the observation and not a guarantee: expect a widening
-edit to be stopped, and expect nothing either way of a removal. A rule that
-predicts a refusal which does not happen is the shape this whole document
-exists to avoid, which is why the wider claim came out.
+Nothing establishes that a removal is refused under other conditions, so this
+is an observation and not a guarantee: expect a widening edit to be stopped,
+and expect nothing either way of a removal. A rule predicting a refusal that
+does not happen is the shape this document exists to avoid.
 
 So *adding* a permission is `human` work by construction rather than by
-preference — #118 is labelled that way on that evidence, and its own text
-carries the older, wider claim. What an agent can do is audit both files,
-report, and take dead entries out of the tracked one.
+preference, and #118 is labelled that way on that evidence. What an agent can
+do is audit both files, report, and take dead entries out of the tracked one.
 
-The `/fewer-permission-prompts` skill does the tidying mechanically. It has
-been run once, over 50 transcripts and 5,750 tool calls; the result was #123,
-which added nine entries and, on the day it merged, removed the seven its own
-branch had gone stale holding.
+The `/fewer-permission-prompts` skill does the tidying mechanically, reading
+transcripts to find the commands actually run. #123 is what one run produces:
+nine entries added, and the seven its own branch had gone stale holding
+removed on the day it merged.
 
 ---
 
@@ -443,24 +407,25 @@ branch had gone stale holding.
 that is usually right. For tests it usually is not, and taking a side there is
 how this repository loses a control it has already paid for.**
 
-### What went wrong
+### Why a test conflict is not a choice
 
-The same-line run recorded on [#63](https://github.com/stevemarvell/boris/issues/63#issuecomment-5676905837)
-pointed two branches at line 46 of `scripts/review-scope.mjs`. Both conflicted
-in two files: the source, and `review-scope.test.ts`, where each branch had
-added a test at the same anchor. The source conflict had a right answer. The
-test conflict did not — both sides were *additions*, and both were correct.
+A source conflict usually has a right answer. A test conflict usually does not:
+when both sides are *additions*, both are correct, and picking one deletes a
+proof somebody already wrote.
 
-Resolved the lazy way, one side per file:
+Taking a side per file is how that happens:
 
 ```
 git checkout --ours   scripts/review-scope.mjs
 git checkout --theirs apps/web/src/review-scope.test.ts
 ```
 
-Three assertions vanished, including the ones proving the governance half of
-the fix that had just merged. The behaviour stayed correct. The suite stayed
-green — 13 passed, from 14 — and `verify` would have stayed green with it.
+On the same-line run recorded in
+[#63](https://github.com/stevemarvell/boris/issues/63#issuecomment-5676905837)
+that resolution dropped three assertions, including the ones proving the
+governance half of a fix that had just merged. The behaviour stayed correct and
+the suite stayed green — 13 passed, from 14 — so `verify` would have stayed
+green with it.
 
 That is this repository's signature defect, a control present and inert,
 arriving by a route none of SOP 1–4 covers: written correctly, merged

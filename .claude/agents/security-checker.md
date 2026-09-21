@@ -32,11 +32,12 @@ Each of these is load-bearing. A change that erodes one is a finding:
 1. **A new surface.** A route, a header, a file served, a schema published. What
    does it reveal that was not revealed before? Is it in the rate limiter's
    whitelist, which is opt-in — a new path is unlimited until it is listed.
-2. **A control that does not control.** Four have shipped here present and
-   inert. Ask what observes each guard, and whether that observation would
-   notice if it stopped working. `TestClient` is one process with one client
-   key; `curl` has no CORS; a test that computes its expectation from the code
-   under test proves nothing.
+2. **A control that does not control.** This repository's recurring defect —
+   SOP 3 in `docs/sops.md` catalogues the ones that shipped inert. Ask what
+   observes each guard, and whether that observation would notice if it stopped
+   working. `TestClient` is one process with one client key; `curl` has no
+   CORS; a test that computes its expectation from the code under test proves
+   nothing.
 3. **Input that reaches something.** A value from a request, an environment
    variable, or a file that reaches a shell, a path, a URL, a header, or a
    template. Control characters and newlines in particular — this project has

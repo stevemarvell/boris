@@ -5,15 +5,15 @@ A family tree application, built as a practice ground for climbing the stages in
 (Boris Cherny, Jul 2026). Each stage of the climb is deliberate; do not reach for
 tooling that belongs to a later stage.
 
-`index.html` at the root is the step-0 artifact. It used to be published by
-GitHub Pages; it is now republished at `/docs/step-0.html` on the Vercel
-deployment, along with the rest of the documentation — see "Documentation".
+`index.html` at the root is the step-0 artifact. It is published at
+`/docs/step-0.html` on the Vercel deployment, along with the rest of the
+documentation — see "Documentation".
 
 ## Layout
 
 | Path | Holds |
 | --- | --- |
-| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Vercel. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root — #126 moved them so a Vercel project rooted at `apps/api` can bundle both without reaching outside its own root directory, then retired Railway once that cutover held. |
+| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Vercel. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root, so that a Vercel project rooted at `apps/api` bundles both without reaching outside its own root directory (#126). |
 | `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run. |
@@ -40,12 +40,11 @@ deployment, along with the rest of the documentation — see "Documentation".
   (`delete_branch_on_merge`) — a repository setting, so it is recorded here
   rather than being visible in any file.
 
-- **Decide and act; report after.** The rule above used to end *stop and ask
-  for anything destructive, outward-facing, or beyond what was asked*; that was
-  retired on 2026-09-15. The test that remains is **recoverability, not
-  scope**: stop for work nobody can get back, for money, and for anything
-  reaching a third party. Everything else is decided, done, and recorded in the
-  pull request body where the reviewers read it. `docs/sops.md` SOP 6.
+- **Decide and act; report after.** The test is **recoverability, not scope**:
+  stop for work nobody can get back, for money, and for anything reaching a
+  third party. Everything else is decided, done, and recorded in the pull
+  request body where the reviewers read it. Recoverable is established by a
+  command, not by eye. `docs/sops.md` SOP 6.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
@@ -73,10 +72,10 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 - **Every loop declares a maximum, and reports when it hits it.** No skill,
   command, or agent retries until it succeeds — an unbounded loop has no upper
-  bound on cost, and three subagents have already been killed mid-task by
-  session limits here. Reaching the ceiling means stop and say what failed;
-  it is the procedure working, not a failure to hide. The declared ceilings,
-  and an honest account of which are mechanically enforced and which are only
+  bound on cost, and three subagents have been killed mid-task by session
+  limits here. Reaching the ceiling means stop and say what failed; it is the
+  procedure working, not a failure to hide. The declared ceilings, and an
+  honest account of which are mechanically enforced and which are only
   discipline, are in `docs/sops.md`.
 
 - **Work that needs a person is labelled, not attempted.** A dashboard behind
@@ -91,21 +90,21 @@ deployment, along with the rest of the documentation — see "Documentation".
   has the order of operations; model choice is the smallest lever, not the
   first.
 
-- **Known gaps live in GitHub issues, not in a file.** There was a
-  `docs/BACKLOG.md`; it went stale exactly as it predicted it would, because
-  nothing connected a merge to a line in it. Close an item the way the work
-  closes it — a `Closes #<n>` line in a pull request body. Write that example
-  with a placeholder, never a real number: #66 spelled one out to illustrate
-  the rule and GitHub closed that issue on merge. Labels carry what the file's
-  headings used to: `aia0`/`aia1`/`aia2` for the adoption step, `security` for
-  exposure, and one of `critical`/`high`/`medium` for how bad it is and
-  therefore when it gets done.
+- **Known gaps live in GitHub issues, not in a file.** A backlog file goes
+  stale, because nothing connects a merge to a line in it. Close an item the
+  way the work closes it — a `Closes #<n>` line in a pull request body. Write
+  that example with a placeholder, never a real number: spelling one out to
+  illustrate the rule closes that issue on merge. Labels carry the structure:
+  `aia0`/`aia1`/`aia2` for the adoption step, `security` for exposure, and one
+  of `critical`/`high`/`medium` for how bad it is and therefore when it gets
+  done.
 
 - **One scale ranks everything.** `critical`/`high`/`medium` carries both how
-  bad a thing is and when it gets done. There is no second severity axis:
-  two rankings drift apart, and the one in the label wins by default. Anything
-  below `critical` is a claim that something bounds it — the issue says what,
-  and what would void it. `docs/sops.md` SOP 5.
+  bad a thing is and when it gets done. There is no second severity axis: two
+  rankings drift apart, and the one in the label wins by default. The same goes
+  for any fact written in two places. Anything below `critical` is a claim that
+  something bounds it — the issue says what, and what would void it.
+  `docs/sops.md` SOP 5.
 
 ## Deployments
 
@@ -116,8 +115,8 @@ deployment, along with the rest of the documentation — see "Documentation".
 | Docs | `/docs/` on the Vercel deployment | `scripts/build-docs.mjs`, run by the web `prebuild` |
 | API manual | `/` on the Vercel API | `apps/api/manual/`, bundled into the deployment |
 
-There is no GitHub Pages entry (paid-plan-only on a private repository) or
-Railway entry (#126) any more — both deployments are Vercel end to end.
+Both deployments are Vercel end to end. GitHub Pages is not an option here —
+paid-plan-only on a private repository.
 
 Several settings here are load-bearing, non-obvious, and were each learned by
 something breaking quietly — how the API's `[tool.vercel] entrypoint`
