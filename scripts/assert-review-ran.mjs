@@ -174,6 +174,43 @@ const TRACKING_COMMENT_TOOL = 'mcp__github_comment__update_claude_comment';
 const VERDICT_LINE = /^[ \t>*_#-]*verdict\b[^\n]*\S/im;
 
 /**
+ * The ids of tool calls that came back an error.
+ *
+ * This is the one thing worth reading out of a tool *result*, and it does not
+ * reopen what the comment below rules out. That rule is about content the
+ * session was *shown* and could be echoing — the rubric's wording, the diff,
+ * another pull request's comments. `is_error` is not content: it is the other
+ * end's answer to whether the call worked, and it is the only record of that
+ * anywhere in the log.
+ *
+ * It matters because `create_inline_comment` fails routinely — GitHub rejects
+ * a review comment on a line that is not part of the diff, an easy mistake
+ * for a reviewer working from a truncated hunk. Counting that call would have
+ * this check announce "errored after producing 1 inline comment" and send
+ * somebody to a pull request with no comment on it: the same false claim as
+ * #113, one turn further in. A control observed by "it was called" rather
+ * than "it worked" is this repository's signature defect, and this script
+ * exists to catch exactly that.
+ *
+ * A call with no result at all is left counted, deliberately. The session
+ * died in flight and the log does not say which side of the call it died on,
+ * so "go and read the tracking comment" stays the cheaper answer of the two —
+ * nothing is asserted about what is in that comment either way.
+ */
+function rejectedCalls(messages) {
+  const rejected = new Set();
+  for (const message of messages) {
+    const content = message?.message?.content;
+    for (const block of Array.isArray(content) ? content : []) {
+      if (block?.type === 'tool_result' && block.is_error === true && block.tool_use_id) {
+        rejected.add(block.tool_use_id);
+      }
+    }
+  }
+  return rejected;
+}
+
+/**
  * What the session demonstrably produced before it stopped, as a phrase, or
  * `null` when the log shows nothing reaching the pull request.
  *
@@ -183,6 +220,7 @@ const VERDICT_LINE = /^[ \t>*_#-]*verdict\b[^\n]*\S/im;
  * verdict in a session that never wrote one.
  */
 function reviewEvidence(messages) {
+  const rejected = rejectedCalls(messages);
   let inlineComments = 0;
   let verdict = false;
 
@@ -193,6 +231,9 @@ function reviewEvidence(messages) {
       if (block?.type === 'text') {
         if (VERDICT_LINE.test(String(block.text ?? ''))) verdict = true;
       } else if (block?.type === 'tool_use') {
+        // A call the other end refused put nothing on the pull request, so it
+        // is not evidence of one — see `rejectedCalls`.
+        if (rejected.has(block.id)) continue;
         if (block.name === INLINE_COMMENT_TOOL) inlineComments += 1;
         // The body the session wrote into the tracking comment is the
         // strongest evidence there is: it is the text a person reading the
