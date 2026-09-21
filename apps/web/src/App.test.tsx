@@ -197,7 +197,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByTestId('error')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('error').textContent).toContain('too many requests');
-    expect(screen.getByTestId('retry').textContent).toContain('shortly');
+    await waitFor(() => expect(screen.getByTestId('retry').textContent).toContain('shortly'));
 
     // And pressing it anyway sends nothing.
     fireEvent.click(screen.getByTestId('retry'));
