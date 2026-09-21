@@ -14,6 +14,76 @@ const finished = (extra: Record<string, unknown> = {}) => [
   { type: 'result', subtype: 'success', is_error: false, num_turns: 11, ...extra },
 ];
 
+// The stream-json shapes the action writes to claude-execution-output.json.
+const assistant = (...content: unknown[]) => ({
+  type: 'assistant',
+  message: { id: 'msg_01', type: 'message', role: 'assistant', content },
+});
+const text = (value: string) => ({ type: 'text', text: value });
+const toolUse = (name: string, input: Record<string, unknown>) => ({
+  type: 'tool_use',
+  id: 'toolu_01',
+  name,
+  input,
+});
+const toolResult = (content: string) => ({
+  type: 'user',
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_01', content }] },
+});
+
+// Both of these are #112's run 34961716119, where the two reviews errored and
+// this check said the same thing about both of them. The comment bodies are
+// the ones actually on that pull request, abridged in the middle and not at
+// either end — the verdict line and the unticked checklist are the whole
+// point, so they are verbatim.
+const TRACKING_COMMENT = 'mcp__github_comment__update_claude_comment';
+const INLINE_COMMENT = 'mcp__github_inline_comment__create_inline_comment';
+
+const erroredAfterItsVerdict = () => [
+  { type: 'system', subtype: 'init' },
+  assistant(toolUse('Read', { file_path: '.claude/agents/security-checker.md' })),
+  toolResult('Then one line: does this change belong on `develop` as it stands.'),
+  assistant(
+    toolUse(TRACKING_COMMENT, {
+      body: [
+        '### Security review of PR #112 — exposure',
+        '',
+        '- [x] Read `CLAUDE.md`, `docs/sops.md`, `docs/data-governance.md`',
+        '- [x] Get the diff (`gh pr diff 112`)',
+        '- [x] Post inline findings, ranked',
+        '- [x] Final verdict',
+        '',
+        '**No findings.**',
+        '',
+        'This PR touches none of the controls `docs/data-governance.md` relies on',
+        '— no GraphQL, no depth limit, no rate limiter, no CORS.',
+        '',
+        '**Verdict: this belongs on `develop` as it stands.**',
+      ].join('\n'),
+    }),
+  ),
+  { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 8 },
+];
+
+const erroredBeforeIt = () => [
+  { type: 'system', subtype: 'init' },
+  assistant(toolUse('Read', { file_path: 'CLAUDE.md' })),
+  assistant(
+    toolUse(TRACKING_COMMENT, {
+      body: [
+        '### Reviewing PR #112',
+        '',
+        '- [x] Read `CLAUDE.md` and `docs/sops.md`',
+        '- [x] Read `.claude/agents/code-checker.md` rubric',
+        '- [ ] Get diff (`gh pr diff 112`)',
+        '- [ ] Review `scripts/test-census.mjs` and `.d.mts`',
+        '- [ ] Post findings and verdict',
+      ].join('\n'),
+    }),
+  ),
+  { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 4 },
+];
+
 describe('reviewVerdict', () => {
   it('passes a session that reached a verdict', () => {
     expect(reviewVerdict({ conclusion: 'success', execution: finished() }).ok).toBe(true);
@@ -35,6 +105,67 @@ describe('reviewVerdict', () => {
     const verdict = reviewVerdict({ execution: finished({ is_error: true }) });
     expect(verdict.ok).toBe(false);
     expect(verdict.detail).toContain('unreviewed');
+  });
+
+  it('does not say a review posted nothing when the log shows it posted a verdict', () => {
+    // #113. On #112 the security review wrote its completed checklist, its
+    // reasoning and `Verdict: this belongs on develop as it stands.` into the
+    // tracking comment, and *then* fell over. Telling somebody that pull
+    // request is unreviewed costs a re-run that produces the review already
+    // sitting on it.
+    const verdict = reviewVerdict({ kind: 'security', execution: erroredAfterItsVerdict() });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.headline).not.toContain('posted nothing');
+    expect(verdict.detail).not.toContain('treat the pull request as unreviewed');
+    expect(verdict.headline).toContain('verdict');
+    expect(verdict.detail).toContain('tracking comment');
+  });
+
+  it('keeps the unreviewed message for a session that errored before it reviewed anything', () => {
+    // The other half of the same run: the code review's checklist stops at an
+    // unticked `[ ] Get diff`. Nothing about this case changed, and the
+    // unticked `- [ ] Post findings and verdict` line must not read as one.
+    const verdict = reviewVerdict({ execution: erroredBeforeIt() });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.headline).toBe('The code review errored and posted nothing');
+    expect(verdict.detail).toContain('treat the pull request as unreviewed');
+  });
+
+  it('says the two cases differently', () => {
+    const after = reviewVerdict({ execution: erroredAfterItsVerdict() });
+    const before = reviewVerdict({ execution: erroredBeforeIt() });
+    expect(after.headline).not.toBe(before.headline);
+    expect(after.detail).not.toBe(before.detail);
+  });
+
+  it('counts inline findings a session posted before it errored', () => {
+    // No verdict line anywhere — the session was cut off before writing one —
+    // but two findings are on the pull request either way.
+    const verdict = reviewVerdict({
+      execution: [
+        assistant(toolUse(INLINE_COMMENT, { path: 'scripts/test-census.mjs', line: 41, body: 'a' })),
+        assistant(toolUse(INLINE_COMMENT, { path: 'scripts/test-census.mjs', line: 76, body: 'b' })),
+        { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 6 },
+      ],
+    });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain('2 inline comments');
+    expect(verdict.detail).not.toContain('treat the pull request as unreviewed');
+  });
+
+  it('does not mistake a verdict it was shown for a verdict it wrote', () => {
+    // The rubric it reads, the diff it fetches and the pull request's own
+    // comments all contain the word. A tool result is what the session was
+    // handed, not what it produced, and reading one would put this check back
+    // to inferring — which is the defect, not the fix.
+    const verdict = reviewVerdict({
+      execution: [
+        assistant(toolUse('Bash', { command: 'gh pr view 112' })),
+        toolResult('**Verdict: this belongs on `develop` as it stands.**'),
+        { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 3 },
+      ],
+    });
+    expect(verdict.headline).toBe('The code review errored and posted nothing');
   });
 
   it('fails a log that never reached a result', () => {
@@ -90,6 +221,21 @@ describe('reviewVerdict', () => {
     const verdict = reviewVerdict({
       execution: finished({ is_error: true, result: `failed while reading ${secret}` }),
     });
+    expect(`${verdict.headline} ${verdict.detail}`).not.toContain(secret);
+  });
+
+  it('does not leak the verdict it found either', () => {
+    // The errored-after-a-verdict branch reads message content to decide what
+    // to say. What it says is still a count and a phrase, never the text — the
+    // tracking comment is where a person reads the review.
+    const secret = 'sk-ant-oat-notarealtoken';
+    const verdict = reviewVerdict({
+      execution: [
+        assistant(text(`**Verdict:** would merge, once ${secret} is out of the workflow file.`)),
+        { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 9 },
+      ],
+    });
+    expect(verdict.detail).toContain('verdict');
     expect(`${verdict.headline} ${verdict.detail}`).not.toContain(secret);
   });
 
