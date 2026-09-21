@@ -20,15 +20,20 @@ const assistant = (...content: unknown[]) => ({
   message: { id: 'msg_01', type: 'message', role: 'assistant', content },
 });
 const text = (value: string) => ({ type: 'text', text: value });
-const toolUse = (name: string, input: Record<string, unknown>) => ({
+const toolUse = (name: string, input: Record<string, unknown>, id = 'toolu_01') => ({
   type: 'tool_use',
-  id: 'toolu_01',
+  id,
   name,
   input,
 });
-const toolResult = (content: string) => ({
+// `extra` carries what the other end said back: a different `tool_use_id`, or
+// `is_error: true` for a call it refused.
+const toolResult = (content: string, extra: Record<string, unknown> = {}) => ({
   type: 'user',
-  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_01', content }] },
+  message: {
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: 'toolu_01', content, ...extra }],
+  },
 });
 
 // Both of these are #112's run 34961716119, where the two reviews errored and
@@ -166,6 +171,60 @@ describe('reviewVerdict', () => {
       ],
     });
     expect(verdict.headline).toBe('The code review errored and posted nothing');
+  });
+
+  it('does not count an inline comment the other end refused', () => {
+    // `create_inline_comment` fails routinely: GitHub rejects a review comment
+    // on a line that is not part of the diff. The call is in the log either
+    // way, and counting it would have this check announce a finding and send
+    // somebody to a pull request with nothing on it — #113's false claim, one
+    // turn further in. "It was called" is not "it worked".
+    const verdict = reviewVerdict({
+      execution: [
+        assistant(toolUse(INLINE_COMMENT, { path: 'scripts/ports.mjs', line: 4, body: 'a' })),
+        toolResult('line 4 is not part of the diff', { is_error: true }),
+        { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 5 },
+      ],
+    });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.headline).toBe('The code review errored and posted nothing');
+    expect(verdict.detail).toContain('treat the pull request as unreviewed');
+  });
+
+  it('counts the findings that landed and not the ones that did not', () => {
+    // Two calls, one refused. The pull request carries one comment, so that is
+    // the number — not two, and not none.
+    const verdict = reviewVerdict({
+      execution: [
+        assistant(toolUse(INLINE_COMMENT, { path: 'a.mjs', line: 4, body: 'a' }, 'toolu_01')),
+        toolResult('line 4 is not part of the diff', { is_error: true }),
+        assistant(toolUse(INLINE_COMMENT, { path: 'b.mjs', line: 9, body: 'b' }, 'toolu_02')),
+        toolResult('created', { tool_use_id: 'toolu_02' }),
+        { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 7 },
+      ],
+    });
+    expect(verdict.detail).toContain('1 inline comment');
+    expect(verdict.detail).not.toContain('2 inline comments');
+  });
+
+  it('does not count a verdict the tracking-comment call failed to write', () => {
+    // The body of that call is the strongest evidence there is *because* it is
+    // the text a person reading the pull request finds. If the call was
+    // refused, that text is nowhere — the session wrote it, the comment never
+    // got it, and the reader must not be sent to look for it.
+    const verdict = reviewVerdict({
+      kind: 'security',
+      execution: [
+        assistant(
+          toolUse(TRACKING_COMMENT, {
+            body: '**Verdict: this belongs on `develop` as it stands.**',
+          }),
+        ),
+        toolResult('comment not found', { is_error: true }),
+        { type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 9 },
+      ],
+    });
+    expect(verdict.headline).toBe('The security review errored and posted nothing');
   });
 
   it('fails a log that never reached a result', () => {
