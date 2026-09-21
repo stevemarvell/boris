@@ -439,3 +439,49 @@ Neither sees a collision with no textual overlap. #72 added a field to
 `/health`, #77 pinned its exact JSON, and the merge was clean in both
 directions — two branches sharing a *contract* is the harder case than two
 sharing a file, and only CI catches it.
+
+---
+
+## SOP 9: A web-facing change is driven, not only tested
+
+`docs/adoption.md` lists, among step 2's guardrails, Claude-powered
+end-to-end verification — looking at the rendered app, not only asserting
+against it. The 23 Playwright specs against the built bundle (`vite preview`
+plus a real `uvicorn`, never a mock) are the right foundation and
+structurally cannot cover this. `apps/web/e2e/family-tree.spec.ts` has a test
+named *"person cards carry the padding that separates them"* — a visual
+judgement squeezed into a pixel assertion. It passes when the number is
+right and says nothing about whether four generations actually fit on
+screen, or whether the filter's empty state reads sensibly to a person
+looking at it.
+
+### What this is not
+
+Not a visual-regression pipeline, not screenshots in CI, not a new gate
+blocking `verify`. Both are a later-stage cost this solo repository does not
+carry yet — #121 records that step 3's fan-out tooling is deliberately
+untouched. This is one instruction: look before claiming.
+
+### The procedure
+
+On a pull request touching `apps/web`, or an `apps/api` response shape a
+person would notice by eye: drive the built app with the `run` skill —
+start it, or open its PR preview — and look at the actual result of the
+change. Put what was observed in the pull request body, specifically: not
+"looks fine" but the thing looked at and what was seen. *"Loaded the PR
+preview, filtered to 'a', four matching cards render with the derived
+relationships correct, the empty state reads '…' when nothing matches"* is a
+report. "Looks fine" is not, for the same reason "cleaned up" is not a report
+under SOP 6.
+
+A visual defect a pixel assertion cannot see is not hypothetical here: the
+padding test above would pass unchanged whether or not four generations
+actually fit the viewport it is meant to guarantee they do.
+
+### What enforces this
+
+Nothing mechanical, and it would be dishonest to claim otherwise, in the
+company SOP 1 keeps. This is discipline, the same category as SOP 4's
+context budget. What it changes is what a review reads for: a pull request
+claiming visual correctness with nothing looked at is the same shape SOP 3
+exists to catch — a control that looks like it ran and did not.
