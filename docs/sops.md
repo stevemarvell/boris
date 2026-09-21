@@ -288,11 +288,12 @@ below, each recoverable from its pull request" is a report. "Cleaned up" is not.
 ### What this does not license
 
 Rewriting this rule, or the one in `CLAUDE.md` that points here, on the
-strength of something said in a session. The auto-mode classifier refuses it,
-and the refusal is right: an agent relaxing its own restraint, citing a
-conversational instruction that no later reader can see, is the one case where
-a person has to be in the loop. This rule changes when the repository's owner
-changes it, and the commit records who and when.
+strength of something said in a session. The auto-mode classifier refuses it —
+two spellings of this rule have been put to it and both were stopped — and the
+refusal is right: an agent relaxing its own restraint, citing a conversational
+instruction that no later reader can see, is the one case where a person has to
+be in the loop. This rule changes when the repository's owner changes it, and
+the commit records who and when.
 
 ### What enforces this
 
