@@ -17,6 +17,15 @@ dev = [
     "ruff>=0.8",
 ]
 
+# Vercel's Root Directory for this project is apps/api (#126), so entrypoint
+# is resolved relative to this file's own directory: api.main:app would look
+# for api/main.py here, but the real file is at src/api/main.py, hence the
+# extra segment. Vercel checks this path exists on disk; it does not import
+# the module to resolve it, so a package-vs-path mismatch fails at build time
+# with a clear message rather than at runtime with an unclear one.
+[tool.vercel]
+entrypoint = "src.api.main:app"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

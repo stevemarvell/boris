@@ -1,8 +1,8 @@
 name: smoke
 
-# Runs after a merge reaches develop, once Railway and Vercel have had time to
-# redeploy. Catches the class of failure that unit and e2e tests cannot: the
-# deployed build's configuration.
+# Runs after a merge reaches develop, once Vercel has had time to redeploy
+# both projects. Catches the class of failure that unit and e2e tests cannot:
+# the deployed build's configuration.
 on:
   push:
     branches: [develop]
@@ -19,12 +19,13 @@ jobs:
     permissions: {}
 
     env:
-      API: https://api-production-53f7b.up.railway.app
-      WEB: https://family-tree-flame-ten.vercel.app
+      API: https://family-tree-api-stevemarvell-team.vercel.app
+      WEB: https://family-tree-web-eta.vercel.app
     steps:
       - name: Wait for the API to report the loaded tree
         run: |
-          # Railway sleeps when idle, so the first request is a cold start.
+          # The API is a Vercel serverless function, so the first request
+          # after an idle period is a cold start.
           for attempt in $(seq 1 30); do
             body=$(curl -fsS --max-time 30 "$API/health" || true)
             echo "attempt $attempt: $body"
@@ -57,77 +58,28 @@ jobs:
           echo "web never served a bundle querying generations" >&2
           exit 1
 
-      - name: Work out whether this push should have rebuilt the API
-        id: rebuild
-        env:
-          COMMITS: ${{ toJSON(github.event.commits) }}
-        run: |
-          # railway.json's watchPatterns decide whether Railway rebuilds at
-          # all, and most merges here touch none of them — docs, workflows and
-          # the web app deploy to Vercel and leave the API exactly where it
-          # was. That is correct behaviour, so the gate below must not wait for
-          # a deployment that is never coming.
-          #
-          # This list mirrors railway.json's watchPatterns. If that changes,
-          # change this with it; they are two statements of one fact, and the
-          # image job asserts what the Dockerfile copies, which is the third.
-          #
-          # github.event.commits is empty on workflow_dispatch and capped at 20
-          # commits on a push, so the answer is "no" when it cannot tell. That
-          # is the safe direction: the cost of a wrong "no" is losing this
-          # check for one run, and the cost of a wrong "yes" is ten minutes of
-          # waiting followed by a red smoke on a deployment that is fine.
-          # Every merge here is a squash, so a push carries one commit.
-          changed=$(printf '%s' "${COMMITS:-[]}" | python3 -c '
-          import json, sys
-          try:
-              commits = json.load(sys.stdin) or []
-          except Exception:
-              commits = []
-          watched = ("apps/api/", "data/", "manual/api/", "railway.json")
-          paths = set()
-          for commit in commits:
-              for key in ("added", "modified", "removed"):
-                  paths.update(commit.get(key) or [])
-          hit = sorted(p for p in paths if p.startswith(watched))
-          print("\n".join(hit))
-          ' 2>/dev/null || true)
-
-          if [ -n "$changed" ]; then
-            echo "this push touches the API image:"
-            printf '  %s\n' $changed
-            echo "rebuilt=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "this push touches nothing the API image contains; Railway will not rebuild"
-            echo "rebuilt=no" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Report which image is deployed
-        if: steps.rebuild.outputs.rebuilt != 'yes'
-        run: |
-          # No rebuild expected, so there is nothing to wait for — but say what
-          # is running, so a log never leaves the question unanswered.
-          body=$(curl -fsS --max-time 30 "$API/health" || true)
-          echo "deployed: $body"
-          echo "this run is for $GITHUB_SHA, which does not change the API image"
-
       - name: Wait for the API to report this commit
-        if: steps.rebuild.outputs.rebuilt == 'yes'
         run: |
           # The one check that tells a *current* deployment from a stale one.
           #
-          # Issue #50: railway.json watched only apps/api/**, while the
-          # Dockerfile also copies data/ and manual/api/, so a commit changing
-          # only the family tree or only the manual never rebuilt. Every check
-          # below still passed, because each asks whether the deployed API is
-          # correct and none asked whether it is *this* one. Probes on the
-          # pull request environment confirmed the behaviour: a manual-only
-          # commit did not redeploy under the old patterns and did under the
-          # widened ones.
+          # Issue #50 is why this exists: on Railway, railway.json's
+          # watchPatterns decided whether the API rebuilt at all, and a commit
+          # touching only data/ or only manual/api/ once fell outside that
+          # list and silently deployed nothing. Every other check below still
+          # passed, because each asks whether the deployed API is correct and
+          # none asked whether it is *this* one.
           #
-          # /health reports RAILWAY_GIT_COMMIT_SHA, which Railway injects per
-          # deployment. Matching it against the commit this run is for makes a
-          # deploy that silently did not happen a red check.
+          # #126 retired that gate along with Railway rather than translate
+          # it: Vercel has no per-project watch-pattern opt-in, and confirmed
+          # live (family-tree-api's own deployment history), it rebuilds on
+          # *every* push to a watched branch regardless of which paths
+          # changed. So the wait below is unconditional now — there is no
+          # "should this have rebuilt" question left to ask, only "has it
+          # finished yet".
+          #
+          # /health reports VERCEL_GIT_COMMIT_SHA, which Vercel exposes to the
+          # function at runtime. Matching it against the commit this run is
+          # for makes a deploy that silently did not happen a red check.
           echo "waiting for $GITHUB_SHA"
           for attempt in $(seq 1 40); do
             body=$(curl -fsS --max-time 30 "$API/health" || true)
@@ -135,22 +87,22 @@ jobs:
               'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
             echo "attempt $attempt: deployed=${deployed:-<none>}"
             case "$deployed" in
-              "$GITHUB_SHA") echo "the deployed image is this commit"; exit 0;;
+              "$GITHUB_SHA") echo "the deployed build is this commit"; exit 0;;
             esac
             sleep 15
           done
-          echo "the API never reported $GITHUB_SHA; it is serving an older image" >&2
+          echo "the API never reported $GITHUB_SHA; it is serving an older build" >&2
           exit 1
 
       - name: Wait for the API to serve its own manual
         run: |
-          # The manual ships inside the API image. If a Dockerfile change drops
+          # The manual is bundled into the API deployment. If a build change drops
           # it, nothing else notices: the API keeps answering GraphQL and the
           # documentation quietly 404s.
           #
           # This retries, and has to. The health check above is satisfied by
           # the *previous* deployment, so it is not the wait it looks like —
-          # nothing before this point proves the new image is live. The first
+          # nothing before this point proves the new build is live. The first
           # run of this step failed for exactly that reason, 10 seconds after
           # a merge, against an API that was still the old build.
           #
@@ -172,13 +124,13 @@ jobs:
             fi
 
             # Production serves the manual, not its query console: the console
-            # is gated on API_ENVIRONMENT, which is unset on Railway and so
+            # is gated on API_ENVIRONMENT, which is unset on the Vercel project and so
             # reads "production". The endpoint string is the console's fetch
             # target and appears nowhere else in the page — which is also what
-            # makes it the signal for "this is the new image", since the image
+            # makes it the signal for "this is the new build", since the build
             # before it genuinely does carry a console.
             if printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'"; then
-              echo "attempt $attempt: the manual still carries its console; waiting for the new image"
+              echo "attempt $attempt: the manual still carries its console; waiting for the new build"
               sleep 15
               continue
             fi
@@ -203,15 +155,16 @@ jobs:
           # publishes the parameters and response schemas of every route. They
           # are now gated on API_ENVIRONMENT, the same mechanism as the
           # GraphiQL IDE, introspection and the manual's console, which is
-          # unset on Railway and so reads "production".
+          # unset on the Vercel project and so reads "production".
           #
           # The assertion is the wait, for the reason the manual step above
           # records: this is something a new build changes, so a non-404 has to
-          # mean "go round again", never "fail". The commit gate earlier only
-          # runs when the push touched a watched path, so nothing before this
-          # point is guaranteed to have proved the new image is live. A cold
-          # start or a proxy error answers with neither 404 nor a served page,
-          # and is retried for the same reason.
+          # mean "go round again", never "fail". The commit-wait step earlier
+          # is unconditional now, but its own retry loop only proves the new
+          # build is live *at that point* -- nothing carries that guarantee
+          # forward to here, so this step still has to earn it independently.
+          # A cold start or a proxy error answers with neither 404 nor a
+          # served page, and is retried for the same reason.
           for attempt in $(seq 1 30); do
             open_paths=''
             for path in /docs /redoc /openapi.json; do

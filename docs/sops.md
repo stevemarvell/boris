@@ -96,8 +96,9 @@ inventing a way around it.
 
 Not in the test suite. On the deployment.
 
-Four controls in this repository have been present, running, and doing nothing,
-each with a green test suite at the time:
+Five controls in this repository have been present and running while doing
+either nothing or far less than they claimed to, each with a green test suite
+at the time:
 
 | Control | Looked like | Actually did |
 | --- | --- | --- |
@@ -105,13 +106,21 @@ each with a green test suite at the time:
 | OTLP endpoint | set by the workflow | overridden to `localhost` by a checked-out file |
 | slowapi's `SlowAPIMiddleware` | installed and running | exempted every request |
 | The rate limiter's client key | returning correct `x-ratelimit-*` headers | enforced 5× the configured limit |
+| The rate limiter's counter | one budget, per its own docstring | one budget *per concurrent process*, and Vercel runs several |
 
-The last one is the clearest. Its 84 unit tests passed throughout, because
-`TestClient` is one process with one stable key and the deployment is neither.
-It took 600 concurrent requests against a live Railway environment to see it.
+The rate-limit key is the clearest of the first four. Its 84 unit tests
+passed throughout, because `TestClient` is one process with one stable key
+and the deployment is neither. It took 600 concurrent requests against a live
+Railway environment to see it. The fifth was found the same way, against a
+different deployment: #126 retired Railway for Vercel, and 200 concurrent
+requests against the live Vercel API showed several execution environments
+answering in parallel, each counting independently — filed as issue #128
+rather than fixed on the spot, since the real fix (shared storage for the
+counters) is a bigger call than the platform-retirement cleanup that found it
+should make alone.
 
-So: when a change adds a control, exercise it against the deployed pull request
-environment — `api-boris-pr-<number>.up.railway.app` — and put the real output
+So: when a change adds a control, exercise it against the deployed pull
+request environment and put the real output
 in the pull request body. A test proves the code does what you wrote. Only the
 deployment proves the deployment does.
 
@@ -326,8 +335,9 @@ convenience, and nothing else. A path that exists on one laptop; a tool nobody
 else here runs.
 
 **Neither:** anything that reads a secret or changes what the world can reach.
-`railway variables` prints the deployment's environment, Grafana credential
-included. Leave it prompting. A prompt on a rare command costs a second; a
+`vercel env pull` writes a project's environment variables to a local file —
+whatever that project has configured, secret or not. Leave it prompting. A
+prompt on a rare command costs a second; a
 pre-approval on it costs the ability to notice.
 
 The failure mode this rule exists to prevent is the one that happened: the
@@ -350,3 +360,64 @@ and report, which is how #118 got its list.
 
 The `/fewer-permission-prompts` skill does the tidying mechanically and has
 never been run here.
+
+---
+
+## SOP 8: A conflict between two branches is resolved as a union, not a choice
+
+**When two branches conflict, git offers a choice between two sides. For source
+that is usually right. For tests it usually is not, and taking a side there is
+how this repository loses a control it has already paid for.**
+
+### What went wrong
+
+The same-line run recorded on [#63](https://github.com/stevemarvell/boris/issues/63#issuecomment-5676905837)
+pointed two branches at line 46 of `scripts/review-scope.mjs`. Both conflicted
+in two files: the source, and `review-scope.test.ts`, where each branch had
+added a test at the same anchor. The source conflict had a right answer. The
+test conflict did not — both sides were *additions*, and both were correct.
+
+Resolved the lazy way, one side per file:
+
+```
+git checkout --ours   scripts/review-scope.mjs
+git checkout --theirs apps/web/src/review-scope.test.ts
+```
+
+Three assertions vanished, including the ones proving the governance half of
+the fix that had just merged. The behaviour stayed correct. The suite stayed
+green — 13 passed, from 14 — and `verify` would have stayed green with it.
+
+That is this repository's signature defect, a control present and inert,
+arriving by a route none of SOP 1–4 covers: written correctly, merged
+correctly, then quietly removed by a conflict resolution.
+
+### The rule
+
+- **Source:** pick the better change, deliberately. One of them usually is.
+- **Tests:** keep both sides unless one is genuinely the same test twice.
+  A conflict between two additions means two people each proved something.
+- **Anything removed on purpose** says so in the pull request body on a line
+  beginning `Removes tests:`.
+
+Never `git checkout --ours` or `--theirs` on a whole test file. It resolves the
+conflict by deleting evidence, and nothing in the file's own suite can tell.
+
+### What enforces this
+
+The `test census` check (#109, `scripts/test-census.mjs`) counts declarations on
+both sides of a pull request and goes red when the head has fewer without that
+line. It is the backstop, and it counts declarations rather than results — a
+row deleted from inside an `it.each` table is still invisible.
+
+The `contention` check (`scripts/pr-contention.mjs`) is the earlier warning.
+It three-way merges every open pull request against the base tip and against
+every other open head, and comments when two collide — naming which of the
+conflicting files are test files, because those are the ones this SOP is about.
+It reports and does not block: two colliding pull requests are not a defect in
+either, and a red check on both is one neither author can clear alone.
+
+Neither sees a collision with no textual overlap. #72 added a field to
+`/health`, #77 pinned its exact JSON, and the merge was clean in both
+directions — two branches sharing a *contract* is the harder case than two
+sharing a file, and only CI catches it.

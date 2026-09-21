@@ -47,8 +47,9 @@ jobs:
   # Which reviews this pull request is worth spending a session on. One job so
   # the rule is computed once and both reviewers read the same answer; the rule
   # itself is scripts/review-scope.mjs, which has tests, because a path filter
-  # that is silently wrong is this repository's signature failure — see
-  # railway.json's watchPatterns and the paragraph about them in CLAUDE.md.
+  # that is silently wrong is this repository's signature failure — see issue
+  # #50, where railway.json's watchPatterns (retired along with Railway, #126)
+  # once left a whole class of commit silently undeployed.
   scope:
     name: scope
     runs-on: ubuntu-latest

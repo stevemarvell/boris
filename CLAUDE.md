@@ -13,12 +13,11 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 | Path | Holds |
 | --- | --- |
-| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Railway. |
+| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Vercel. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root — #126 moved them so a Vercel project rooted at `apps/api` can bundle both without reaching outside its own root directory, then retired Railway once that cutover held. |
 | `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
-| `data/` | The family tree itself, stored as files in this repository. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run. |
-| `manual/` | Reference manuals. `manual/web/` ships to Vercel, `manual/api/` into the API image. |
+| `manual/web/` | The web app's reference manual. Ships to Vercel with it. |
 
 ## Rules
 
@@ -76,9 +75,9 @@ deployment, along with the rest of the documentation — see "Documentation".
   data — and before proposing authentication, because CORS has to move in the
   same change.
 
-- **Merging deploys.** `develop` publishes the Vercel frontend and its docs,
-  and the Railway API and its manual. The approval path and the release path
-  are the same.
+- **Merging deploys.** `develop` publishes both Vercel projects — the frontend
+  and its docs, and the API and its manual. The approval path and the release
+  path are the same.
 
 - **Deployment config lives in the repo, not in dashboards.** A setting only
   visible in a web console is invisible to everyone working here.
@@ -123,19 +122,19 @@ deployment, along with the rest of the documentation — see "Documentation".
 
 | What | Where | Built from |
 | --- | --- | --- |
-| API | <https://api-production-53f7b.up.railway.app> | `apps/api/Dockerfile`, Railway project `family-tree` |
-| Web | Vercel project `family-tree` | root directory `apps/web`, deploys from `develop` |
+| API | <https://family-tree-api-stevemarvell-team.vercel.app> | Vercel project `family-tree-api`, root directory `apps/api` |
+| Web | Vercel project `family-tree-web` | root directory `apps/web`, deploys from `develop` |
 | Docs | `/docs/` on the Vercel deployment | `scripts/build-docs.mjs`, run by the web `prebuild` |
-| API manual | `/` on the Railway API | `manual/api/`, copied into the image |
+| API manual | `/` on the Vercel API | `apps/api/manual/`, bundled into the deployment |
 
-There is no GitHub Pages entry any more. Pages on a private repository needs a
-paid plan, so everything it published moved onto the two deployments above.
+There is no GitHub Pages entry (paid-plan-only on a private repository) or
+Railway entry (#126) any more — both deployments are Vercel end to end.
 
 Several settings here are load-bearing, non-obvious, and were each learned by
-something breaking quietly — which `railway.json` keys Railway honours, what
-selects the Dockerfile, how `API_ENVIRONMENT`, `API_RATE_LIMIT` and
-`VITE_API_URL` resolve, and how preview environments live and die.
-**Read the `deployment` skill before changing anything that deploys.**
+something breaking quietly — how the API's `[tool.vercel] entrypoint`
+resolves, how `API_ENVIRONMENT`, `API_RATE_LIMIT` and `VITE_API_URL` resolve,
+and how preview environments live and die. **Read the `deployment` skill
+before changing anything that deploys.**
 
 ## Documentation
 
@@ -179,7 +178,7 @@ building the wrong directory, the Dockerfile not copying `data/`, CORS refusing
 `127.0.0.1` — was configuration that unit tests structurally cannot reach.
 
 A `smoke` workflow runs after each merge to `develop` and checks the deployed
-API and web app, allowing for Railway's cold start. Claude Code Review comments
+API and web app, allowing for a Vercel cold start. Claude Code Review comments
 on every pull request; it is advisory, and `verify` is the only required check.
 
 ## Worktrees
@@ -198,8 +197,9 @@ End-to-end ports are derived from the worktree directory name by
 `scripts/ports.mjs`, so two checkouts never fight over a port. Set
 `E2E_API_PORT` and `E2E_WEB_PORT` to override.
 
-A branch gets a Vercel preview; a *pull request* gets a Railway environment too.
-So a branch with no pull request open shares the production API — treat the
-deployed API as shared state until one exists. Previews outlive the branches
-they were built from, and only one of the two providers tears anything down:
-the `deployment` skill has the lifecycle, and the retry for a stuck one.
+A branch gets a Vercel preview of the web app and, separately, one of the API
+— every push builds both projects, but a web build never reads its own
+branch's API preview: `VITE_API_URL` always resolves to the one production
+API, so a branch with no pull request open is no different from one with one.
+Vercel tears down neither kind of preview, so a stuck one has to be removed by
+hand — the `deployment` skill has the lifecycle, and why.

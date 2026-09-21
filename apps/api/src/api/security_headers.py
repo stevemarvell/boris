@@ -14,7 +14,7 @@ not a fix for a live hole.
 **The headers, and why each one.**
 
 * `X-Content-Type-Options: nosniff` -- the mount at "/" serves whatever files
-  are in `manual/api/`, and a browser that sniffs a mistyped file into
+  are in `apps/api/manual/`, and a browser that sniffs a mistyped file into
   `text/html` executes it. Costs nothing.
 * `Referrer-Policy: no-referrer` -- the manual links out to GitHub, Vercel and
   the deployed API. Nothing in this service's URLs is worth leaking to those
@@ -28,11 +28,17 @@ not a fix for a live hole.
   it. They say the same thing here, so the pair cannot contradict each other;
   if they ever diverge, `frame-ancestors` is the one to edit.
 
-**Strict-Transport-Security is deliberately absent.** Railway's edge terminates
-TLS and this service is never reached over plain HTTP, so the header would only
-matter for a host this app does not control, on a vendor domain shared with
-every other Railway deployment. Pinning HSTS onto `*.up.railway.app` from here
-is not ours to do.
+**Strict-Transport-Security is deliberately absent from this file.** Vercel's
+edge terminates TLS and this service is never reached over plain HTTP, so the
+header would only matter for a host this app does not control, on a vendor
+domain shared with every other Vercel deployment -- pinning HSTS onto
+`*.vercel.app` from here is not ours to do, the same reasoning that applied to
+Railway's `*.up.railway.app` before #126. Confirmed live rather than assumed:
+Vercel sends its own `Strict-Transport-Security: max-age=63072000;
+includeSubDomains; preload` on every response from `*.vercel.app` regardless
+of what this app sets, which is the platform's documented default for that
+domain -- so the header this app would add is not just redundant in theory,
+it is already present in practice.
 
 **The Content-Security-Policy, and what it honestly buys.**
 

@@ -18,8 +18,8 @@ from api.tree import FamilyTree
 # The web app is deployed separately (Vercel), so it is always cross-origin.
 # Anyone can deploy to vercel.app, so the regex is scoped to this project's
 # own hostnames rather than the whole domain: the production alias
-# (family-tree-flame-ten) and the family-tree-<hash>-<scope> shape Vercel
-# gives preview deployments, both under family-tree-*.vercel.app.
+# (family-tree-web-eta) and the family-tree-web-<hash>-<scope> shape Vercel
+# gives preview deployments, both under family-tree-web-*.vercel.app.
 #
 # There is no GitHub Pages origin here. The API manual used to be served from
 # stevemarvell.github.io and called this API from the browser, which needed an
@@ -36,33 +36,42 @@ ALLOWED_ORIGIN_REGEX = os.environ.get(
 # caller the schema shape for free. Defaults to "production" -- the safe
 # setting -- so a forgotten variable fails closed; set API_ENVIRONMENT=development
 # (see CLAUDE.md's "Running it" section) to get both back locally. Documented
-# in CLAUDE.md's deployment section too, since this is a Railway service
-# variable rather than something set in this repository's own config files.
+# in CLAUDE.md's deployment section too, since this is a Vercel project
+# environment variable rather than something set in this repository's own
+# config files.
 API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 
-# The commit this image was built from, reported by /health so that a caller
-# can tell a current deployment from a stale one.
+# The commit this deployment was built from, reported by /health so that a
+# caller can tell a current deployment from a stale one.
 #
-# This exists because of the failure recorded in issue #50: railway.json's
-# watchPatterns listed only apps/api/**, while the Dockerfile also copies
-# data/ and manual/api/, so a commit changing only the family tree or only the
-# manual never triggered a rebuild. Nothing reported it -- verify was green,
-# the deploy was green because there was no deploy, and smoke passed because
-# it asserted the manual was *present* rather than *current*.
+# This exists because of the failure recorded in issue #50: back when the API
+# deployed to Railway, railway.json's watchPatterns listed only apps/api/**,
+# while the Dockerfile also copied data/ and manual/api/, so a commit changing
+# only the family tree or only the manual never triggered a rebuild. Nothing
+# reported it -- verify was green, the deploy was green because there was no
+# deploy, and smoke passed because it asserted the manual was *present* rather
+# than *current*.
 #
-# Fixing the patterns closes the cause. This closes the detection: smoke
-# compares this value against the commit it is running for, so a deployment
-# that silently did not happen fails a check instead of going unnoticed.
-# Railway injects RAILWAY_GIT_COMMIT_SHA into every service; it is absent
-# locally and in the container tests, where None is the honest answer.
-DEPLOYED_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+# #126 retired Railway once the API had actually cut over to Vercel, whose
+# own build (apps/api/pyproject.toml's [tool.vercel] entrypoint) redeploys
+# from a push the same way the web project already did, so there is no
+# separate watch-pattern list to drift. This still closes the detection half:
+# smoke compares this value against the commit it is running for, so a
+# deployment that silently did not happen fails a check instead of going
+# unnoticed. Vercel's Python runtime exposes VERCEL_GIT_COMMIT_SHA to the
+# function at runtime, the same as every other runtime it supports; it is
+# absent locally and in the container tests, where None is the honest answer.
+DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 
 def default_manual_path() -> Path | None:
-    """Locate manual/api by walking up from this module, as the tree loader does.
+    """Locate apps/api/manual by walking up from this module, as the tree
+    loader locates its data.
 
-    Works unchanged in the repository and in the container, where the manual is
-    copied to /app/manual/api. API_MANUAL_DIR overrides it.
+    Works unchanged in the repository and in the container. apps/api is a
+    self-contained Vercel project now (#126), so the manual lives inside it
+    -- at apps/api/manual, not repo-root manual/api -- and this walk stops
+    one directory higher than it used to. API_MANUAL_DIR overrides it.
 
     Returns None when there is no manual to serve. The manual is documentation:
     a deployment that somehow lacks it should still answer GraphQL rather than
@@ -73,7 +82,7 @@ def default_manual_path() -> Path | None:
     if override:
         return Path(override)
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "manual" / "api"
+        candidate = parent / "manual"
         if (candidate / "index.html").exists():
             return candidate
     return None
@@ -109,13 +118,14 @@ def render_manual(html: str, is_development: bool) -> str:
     for the same reason and with the same default. A deployment that serves
     the data should not also host an unauthenticated console for querying it.
 
-    Consequence worth knowing: API_ENVIRONMENT is not set on Railway at all,
-    so it reads "production" on pull request environments as well, and their
-    manuals lose the console too -- which is most of what putting the manual
-    on the API bought. The fix is one service variable,
-    API_ENVIRONMENT=development, on the pull request environment; note that it
-    also turns on GraphiQL and introspection there, which is fine on invented
-    data in a throwaway environment and is not fine on production.
+    Consequence worth knowing: API_ENVIRONMENT is not set on the Vercel
+    project at all, so it reads "production" on preview deployments as well,
+    and their manuals lose the console too -- which is most of what putting
+    the manual on the API bought. The fix is one project environment
+    variable, API_ENVIRONMENT=development (scoped to Preview), on the Vercel
+    project; note that it also turns on GraphiQL and introspection there,
+    which is fine on invented data in a throwaway environment and is not fine
+    on production.
 
     A manual with neither marker -- a stub, a different document -- is
     returned unchanged.

@@ -26,7 +26,7 @@ SCHEMA_PATHS = ("/docs", "/redoc", "/openapi.json")
 
 
 def test_the_default_app_serves_no_schema_surface() -> None:
-    """A plain create_app() is what Railway runs, since API_ENVIRONMENT is unset there."""
+    """A plain create_app() is what the deployed service runs -- API_ENVIRONMENT is unset there."""
     for path in SCHEMA_PATHS:
         assert client.get(path).status_code == 404, path
 

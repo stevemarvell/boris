@@ -22,12 +22,8 @@ from api.main import app, create_app
 
 STATUS_QUERY = {"query": "{ status }"}
 
-# One caller, and the pool of edge nodes their requests arrive through. The
-# deployed environment showed five distinct nodes across 150 concurrent
-# requests from a single address; these stand in for them.
 CALLER = "31.48.12.206"
 OTHER_CALLER = "198.51.100.9"
-EDGE_POOL = ["152.233.29.1", "152.233.29.2", "152.233.29.3", "152.233.29.4", "152.233.29.5"]
 
 
 def limited_client(monkeypatch: pytest.MonkeyPatch, limit: str, **kwargs: object) -> TestClient:
@@ -40,22 +36,16 @@ def post_graphql(
     client: TestClient,
     forwarded_for: str | None = None,
     real_ip: str | None = None,
+    vercel_forwarded_for: str | None = None,
 ):
     headers = {}
     if forwarded_for:
         headers["x-forwarded-for"] = forwarded_for
     if real_ip:
         headers["x-real-ip"] = real_ip
+    if vercel_forwarded_for:
+        headers["x-vercel-forwarded-for"] = vercel_forwarded_for
     return client.post("/graphql", json=STATUS_QUERY, headers=headers)
-
-
-def railway_headers(caller: str, edge: str) -> str:
-    """An X-Forwarded-For shaped exactly as Railway's edge sends it.
-
-    Measured against the deployed PR environment: "<caller>, <edge node>",
-    where the edge node comes from a pool and varies between requests.
-    """
-    return f"{caller}, {edge}"
 
 
 def test_requests_under_the_limit_are_served(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,40 +80,44 @@ def test_a_second_client_keeps_its_own_budget(monkeypatch: pytest.MonkeyPatch) -
     assert post_graphql(client, "198.51.100.4").status_code == 200
 
 
-def test_one_caller_behind_a_pool_of_edge_nodes_is_one_bucket(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The regression test for what shipped broken.
-
-    Railway's edge is a pool, and the hop it appends is the node that handled
-    the request, so consecutive requests from one caller arrive with different
-    *rightmost* hops. Keying on that hop gave one caller a counter per node:
-    120/minute let 571 requests through in twelve seconds against the deployed
-    PR environment. Every request here is the same caller.
+def test_the_vercel_forwarded_for_header_is_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
+    """X-Vercel-Forwarded-For is Vercel's own name for the same value, documented
+    as the one immune to a proxy placed in front of Vercel -- see client_key's
+    docstring. It wins over the other two when all three are present.
     """
-    client = limited_client(monkeypatch, "3/minute")
-    for edge in EDGE_POOL[:3]:
-        assert post_graphql(client, railway_headers(CALLER, edge)).status_code == 200
-
-    # A fourth request, through a fourth node. Same caller, so no new budget.
-    assert post_graphql(client, railway_headers(CALLER, EDGE_POOL[3])).status_code == 429
-
-
-def test_the_edge_set_real_ip_is_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
-    """X-Real-IP is what Railway sends alongside X-Forwarded-For, with nothing to parse."""
     client = limited_client(monkeypatch, "2/minute")
-    for edge in EDGE_POOL[:2]:
-        response = post_graphql(client, railway_headers(CALLER, edge), real_ip=CALLER)
+    for _ in range(2):
+        response = post_graphql(
+            client, forwarded_for=OTHER_CALLER, real_ip=OTHER_CALLER, vercel_forwarded_for=CALLER
+        )
         assert response.status_code == 200
 
-    refused = post_graphql(client, railway_headers(CALLER, EDGE_POOL[2]), real_ip=CALLER)
+    refused = post_graphql(
+        client, forwarded_for=OTHER_CALLER, real_ip=OTHER_CALLER, vercel_forwarded_for=CALLER
+    )
     assert refused.status_code == 429
 
-    # A different caller through the same edge node still has its budget.
-    assert (
-        post_graphql(client, railway_headers(OTHER_CALLER, EDGE_POOL[2]), OTHER_CALLER).status_code
-        == 200
-    )
+    # The caller named by the other two headers still has its own budget --
+    # proof the vercel-forwarded-for value, not the others, was what was spent.
+    assert post_graphql(client, forwarded_for=OTHER_CALLER, real_ip=OTHER_CALLER).status_code == 200
+
+
+def test_the_edge_set_real_ip_is_preferred_over_forwarded_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """X-Real-IP is identical to X-Forwarded-For on Vercel (its own docs say
+    so), but is checked first for anything that only sets one.
+    """
+    client = limited_client(monkeypatch, "2/minute")
+    for _ in range(2):
+        response = post_graphql(client, forwarded_for=OTHER_CALLER, real_ip=CALLER)
+        assert response.status_code == 200
+
+    refused = post_graphql(client, forwarded_for=OTHER_CALLER, real_ip=CALLER)
+    assert refused.status_code == 429
+
+    # A different caller named only by X-Forwarded-For still has its budget.
+    assert post_graphql(client, forwarded_for=OTHER_CALLER).status_code == 200
 
 
 def test_the_socket_address_is_used_when_there_is_no_proxy(
@@ -142,8 +136,8 @@ def test_the_socket_address_is_used_when_there_is_no_proxy(
 def test_health_is_never_limited(monkeypatch: pytest.MonkeyPatch) -> None:
     """The trap in this change.
 
-    /health is Railway's healthcheck (railway.json) and Playwright's readiness
-    probe. Rate limiting it turns a burst into a restart loop, which is worse
+    /health is the URL Playwright polls to decide the API is up. Rate
+    limiting it turns a burst into readiness checks failing, which is worse
     than the burst.
     """
     client = limited_client(monkeypatch, "1/minute")
@@ -229,12 +223,13 @@ def make_request(headers: dict[str, str], client: tuple[str, int] | None = None)
     return Request({"type": "http", "headers": raw, "client": client})
 
 
-def test_the_key_is_the_caller_not_the_edge_node() -> None:
-    """The exact headers the deployed environment sends, keyed the way it must be."""
+def test_the_vercel_forwarded_for_header_wins_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exact header set Vercel's docs describe, keyed the way they recommend."""
     request = make_request(
         {
-            "x-forwarded-for": f"{CALLER}, {EDGE_POOL[3]}",
-            "x-real-ip": CALLER,
+            "x-vercel-forwarded-for": CALLER,
+            "x-forwarded-for": OTHER_CALLER,
+            "x-real-ip": OTHER_CALLER,
         },
         client=("100.64.0.8", 40000),
     )
@@ -242,14 +237,22 @@ def test_the_key_is_the_caller_not_the_edge_node() -> None:
     assert limits.client_key(request) == CALLER
 
 
-def test_the_leftmost_hop_is_the_fallback_when_there_is_no_real_ip() -> None:
-    request = make_request({"x-forwarded-for": f"{CALLER}, {EDGE_POOL[0]}"})
+def test_real_ip_is_the_fallback_when_there_is_no_vercel_forwarded_for() -> None:
+    request = make_request({"x-real-ip": CALLER, "x-forwarded-for": OTHER_CALLER})
+
+    assert limits.client_key(request) == CALLER
+
+
+def test_forwarded_for_is_the_fallback_when_neither_vercel_header_is_present() -> None:
+    request = make_request({"x-forwarded-for": CALLER})
 
     assert limits.client_key(request) == CALLER
 
 
 def test_the_socket_peer_is_the_last_resort() -> None:
-    """Railway's mesh address, 100.64.0.0/10, is never the caller -- but locally the peer is."""
+    """No proxy at all -- true of local development, where the socket peer is
+    the only thing there is to tell two clients apart.
+    """
     assert limits.client_key(make_request({}, client=("127.0.0.1", 40000))) == "127.0.0.1"
 
 
@@ -300,7 +303,8 @@ def test_the_rest_routes_share_the_graphql_budget(
 def test_health_is_still_exempt_beside_the_rest_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Railway healthchecks it; a 429 there reads as an unhealthy deployment."""
+    """A 429 on /health would read as an unhealthy deployment rather than a
+    caller being refused."""
     client = limited_client(monkeypatch, "1/minute")
 
     assert client.get("/person/fred-shaw").status_code == 200

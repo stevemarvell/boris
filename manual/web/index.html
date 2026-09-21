@@ -408,8 +408,8 @@
             <tr>
               <td>API it reads</td>
               <td>
-                <code>https://api-production-53f7b.up.railway.app/graphql</code>
-                — FastAPI and Strawberry on Railway
+                <code>https://family-tree-api-stevemarvell-team.vercel.app/graphql</code>
+                — FastAPI and Strawberry on Vercel
               </td>
             </tr>
             <tr>
@@ -548,9 +548,9 @@
             >
           </p>
           <p class="callout">
-            The API is on Railway, which sleeps when idle. A first load after a
-            quiet spell can take several seconds of spinner before the list
-            appears.
+            The API is a Vercel serverless function, which cold-starts when
+            idle. A first load after a quiet spell can take several seconds of
+            spinner before the list appears.
           </p>
         </div>
       </div>
@@ -890,10 +890,7 @@ export async function fetchGenerations(): Promise&lt;Generation[]&gt;</code></pr
 
       <p>
         Vite inlines <code>import.meta.env.VITE_API_URL</code> at build time, so
-        the API host is fixed in the bundle. The point of the machinery below is
-        that a deployment talks to <em>its own</em> API rather than a hardcoded
-        one: production to production, a pull-request preview to that pull
-        request's API.
+        the API host is fixed in the bundle.
       </p>
 
       <p>
@@ -925,57 +922,64 @@ export async function fetchGenerations(): Promise&lt;Generation[]&gt;</code></pr
               </td>
             </tr>
             <tr>
-              <td><code>VERCEL_GIT_PULL_REQUEST_ID</code> set</td>
-              <td><code>pr</code></td>
-              <td>
-                Writes
-                <code>VITE_API_URL=https://api-boris-pr-&lt;number&gt;.up.railway.app</code>,
-                from the template in <code>prApiUrl()</code> — overridable with
-                <code>RAILWAY_PR_API_TEMPLATE</code>.
-              </td>
-            </tr>
-            <tr>
-              <td><code>API_URL</code> set</td>
-              <td><code>mapped</code></td>
-              <td>
-                Writes <code>VITE_API_URL=&lt;API_URL&gt;</code>. Railway's
-                Vercel integration syncs its own <code>API_URL</code> in; this
-                maps it onto the <code>VITE_</code> prefix Vite requires to
-                expose a variable to client code.
-              </td>
-            </tr>
-            <tr>
               <td>Nothing set</td>
               <td><code>fallback</code></td>
               <td>
                 Writes nothing, so the committed
                 <code>apps/web/.env.production</code> stands:
-                <code>https://api-production-53f7b.up.railway.app</code>.
+                <code>https://family-tree-api-stevemarvell-team.vercel.app</code>.
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <h3>Why the pull-request case exists</h3>
+      <h3>Why there is no pull-request case</h3>
 
       <p>
-        The Railway integration syncs the <em>production</em> environment's
-        <code>API_URL</code> into Vercel for previews as well as production.
-        Without the <code>pr</code> branch, a preview frontend would be built
-        against the production API and show production's data — so a branch would
-        look correct in a browser while proving nothing. Reading Vercel's
-        <code>VERCEL_GIT_PULL_REQUEST_ID</code> and deriving the matching Railway
-        PR host closes that gap. The host pattern is a Railway convention rather
-        than a contract, which is why it is overridable.
+        The API and the web app are two independent Vercel projects (#126).
+        Nothing pairs their preview deployments — no integration syncs one
+        project's URL into the other's build. Earlier, while the API still
+        deployed to Railway, a Railway↔Vercel integration synced the
+        <em>production</em> API's URL into every Vercel build including
+        previews, and this script had a third case that read Vercel's
+        <code>VERCEL_GIT_PULL_REQUEST_ID</code> and derived that pull
+        request's own Railway host, so a preview frontend would not show
+        production's data by accident. Once Railway was retired (#126) that
+        mechanism had nothing to plug into.
+      </p>
+
+      <p>
+        Every build — production and every pull-request preview alike — now
+        points at the one production API. That is a deliberate choice, not a
+        gap: <code>data-governance</code> records that every preview serves
+        the same invented tree as production, so a preview frontend calling
+        the production API shows the same data a paired preview API would
+        have.
+      </p>
+
+      <p>
+        Vercel does give every deployment a predictable branch alias —
+        <code>family-tree-api-git-&lt;branch&gt;-stevemarvell-team.vercel.app</code>
+        — and reconstructing that string here was the alternative.
+        Rejected for the build itself: it would need this script to
+        reimplement Vercel's branch-name slugify (lowercase,
+        non-alphanumeric runs collapsed to one hyphen, truncated past some
+        length) from a community write-up rather than a guaranteed contract,
+        to buy a preview that — per the paragraph above — would show the same
+        data anyway. It is still the right answer for a person or an agent
+        who wants a <em>specific</em> pull request's own API deployment on
+        purpose, to verify a change to <code>apps/api</code> itself: find or
+        construct that URL directly rather than reading it out of a web
+        build.
       </p>
 
       <p>
         <code>writeApiUrl()</code> returns <code>{ action, url }</code> rather
         than only writing a file, so the precedence can be unit-tested without
-        touching the filesystem — see <code>src/write-api-url.test.ts</code>. The
-        CLI wrapper prints the decision, so a build log says which of the four
-        paths was taken.
+        touching the filesystem — see <code>src/write-api-url.test.ts</code>.
+        The CLI wrapper prints the decision, so a build log says which path was
+        taken.
       </p>
 
       <h2 id="testids">8. The test hooks</h2>

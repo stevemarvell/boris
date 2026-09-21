@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { prApiUrl, writeApiUrl } from '../../../scripts/write-api-url.mjs';
+import { writeApiUrl } from '../../../scripts/write-api-url.mjs';
 
 let dir = '';
 const local = () => join(dir, '.env.production.local');
@@ -15,62 +15,22 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('prApiUrl', () => {
-  it('substitutes the pull request number', () => {
-    expect(prApiUrl(20)).toBe('https://api-boris-pr-20.up.railway.app');
-    expect(prApiUrl('21')).toBe('https://api-boris-pr-21.up.railway.app');
-  });
-});
-
 describe('writeApiUrl', () => {
-  it('maps API_URL onto VITE_API_URL', () => {
-    const result = writeApiUrl({ API_URL: 'https://pr-123.up.railway.app' }, dir);
-    expect(result).toEqual({ action: 'mapped', url: 'https://pr-123.up.railway.app' });
-    expect(readFileSync(local(), 'utf8')).toBe('VITE_API_URL=https://pr-123.up.railway.app\n');
-  });
-
   it('leaves an explicit VITE_API_URL alone and writes nothing', () => {
-    const result = writeApiUrl({ VITE_API_URL: 'http://127.0.0.1:8254', API_URL: 'https://x' }, dir);
+    const result = writeApiUrl({ VITE_API_URL: 'http://127.0.0.1:8254' }, dir);
     expect(result.action).toBe('explicit');
     expect(existsSync(local())).toBe(false);
   });
 
-  it('points a pull request preview at its own Railway environment', () => {
-    // The Railway integration syncs production's API_URL into Vercel for
-    // previews too, so without this a preview shows production's data.
-    const result = writeApiUrl(
-      { VERCEL_GIT_PULL_REQUEST_ID: '20', API_URL: 'https://api-production-53f7b.up.railway.app' },
-      dir,
-    );
-    expect(result).toEqual({ action: 'pr', url: 'https://api-boris-pr-20.up.railway.app' });
-    expect(readFileSync(local(), 'utf8')).toContain('api-boris-pr-20');
-  });
-
-  it('lets the PR url template be overridden', () => {
-    const result = writeApiUrl(
-      { VERCEL_GIT_PULL_REQUEST_ID: '7', RAILWAY_PR_API_TEMPLATE: 'https://x-{pr}.example' },
-      dir,
-    );
-    expect(result.url).toBe('https://x-7.example');
-  });
-
-  it('still prefers an explicit VITE_API_URL over a pull request', () => {
-    const result = writeApiUrl(
-      { VITE_API_URL: 'http://127.0.0.1:8254', VERCEL_GIT_PULL_REQUEST_ID: '20' },
-      dir,
-    );
-    expect(result.action).toBe('explicit');
-  });
-
-  it('falls back to the committed file when neither is set', () => {
+  it('falls back to the committed file when nothing is set', () => {
     expect(writeApiUrl({}, dir)).toEqual({ action: 'fallback' });
     expect(existsSync(local())).toBe(false);
   });
 
   it('clears a stale file so the fallback is real', () => {
-    // A previous build wrote one. Without removing it, Vite loads
-    // .env.production.local ahead of .env.production and the fallback never
-    // actually happens.
+    // A previous build wrote one -- e.g. a local run that once set
+    // VITE_API_URL. Without removing it, Vite loads .env.production.local
+    // ahead of .env.production and the fallback never actually happens.
     writeFileSync(local(), 'VITE_API_URL=https://stale.example\n', 'utf8');
     expect(writeApiUrl({}, dir)).toEqual({ action: 'fallback' });
     expect(existsSync(local())).toBe(false);
@@ -82,60 +42,32 @@ describe('writeApiUrl', () => {
     expect(existsSync(local())).toBe(false);
   });
 
-  it('overwrites a stale file with the current API_URL', () => {
-    writeFileSync(local(), 'VITE_API_URL=https://stale.example\n', 'utf8');
-    writeApiUrl({ API_URL: 'https://fresh.example' }, dir);
-    expect(readFileSync(local(), 'utf8')).toContain('fresh.example');
-  });
-
-  it('refuses an API_URL with an embedded newline rather than writing it', () => {
+  it('refuses an explicit VITE_API_URL with an embedded newline rather than accepting it', () => {
     // new URL() strips tab/newline characters instead of rejecting them, so
-    // this has to be caught before the value ever reaches the URL parser —
-    // otherwise it would silently inject a second line into the env file.
+    // this has to be caught before the value ever reaches the URL parser --
+    // otherwise a value with an injected second line would parse "fine".
     expect(() =>
-      writeApiUrl({ API_URL: 'https://evil.example\nVITE_SOMETHING=injected' }, dir),
+      writeApiUrl({ VITE_API_URL: 'https://evil.example\nVITE_SOMETHING=injected' }, dir),
     ).toThrow(/control characters/);
     expect(existsSync(local())).toBe(false);
   });
 
-  it('refuses a malformed API_URL', () => {
-    expect(() => writeApiUrl({ API_URL: 'not a url' }, dir)).toThrow(/well-formed/);
+  it('refuses a malformed explicit VITE_API_URL', () => {
+    expect(() => writeApiUrl({ VITE_API_URL: 'not a url' }, dir)).toThrow(/well-formed/);
     expect(existsSync(local())).toBe(false);
   });
 
-  it('refuses an API_URL with a non-http(s) scheme', () => {
-    expect(() => writeApiUrl({ API_URL: 'ftp://example.com' }, dir)).toThrow(/http or https/);
+  it('refuses an explicit VITE_API_URL with a non-http(s) scheme', () => {
+    expect(() => writeApiUrl({ VITE_API_URL: 'javascript:alert(1)' }, dir)).toThrow(
+      /http or https/,
+    );
     expect(existsSync(local())).toBe(false);
   });
 
-  it('refuses a non-numeric VERCEL_GIT_PULL_REQUEST_ID before it reaches prApiUrl', () => {
-    expect(() =>
-      writeApiUrl({ VERCEL_GIT_PULL_REQUEST_ID: '20; rm -rf /', API_URL: 'https://x.example' }, dir),
-    ).toThrow(/pull request id/);
-    expect(existsSync(local())).toBe(false);
-  });
-
-  it('refuses a VERCEL_GIT_PULL_REQUEST_ID that is not a plain positive integer', () => {
-    for (const bad of ['0', '-1', '1.5', ' 1', '1 ', '01', 'one']) {
-      expect(() => writeApiUrl({ VERCEL_GIT_PULL_REQUEST_ID: bad }, dir)).toThrow(/pull request id/);
-    }
-  });
-
-  it('refuses a RAILWAY_PR_API_TEMPLATE that resolves to a malformed URL', () => {
-    expect(() =>
-      writeApiUrl(
-        {
-          VERCEL_GIT_PULL_REQUEST_ID: '20',
-          RAILWAY_PR_API_TEMPLATE: 'not-a-url-{pr}',
-        },
-        dir,
-      ),
-    ).toThrow(/well-formed/);
-    expect(existsSync(local())).toBe(false);
-  });
-
-  it('refuses an explicit VITE_API_URL that is malformed', () => {
-    expect(() => writeApiUrl({ VITE_API_URL: 'javascript:alert(1)' }, dir)).toThrow(/http or https/);
+  it('refuses an explicit VITE_API_URL with leading or trailing whitespace', () => {
+    expect(() => writeApiUrl({ VITE_API_URL: ' http://127.0.0.1:8254' }, dir)).toThrow(
+      /whitespace/,
+    );
     expect(existsSync(local())).toBe(false);
   });
 });

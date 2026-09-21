@@ -3,11 +3,12 @@ const API_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:8000';
 /**
  * How long one request may take before the client gives up on it.
  *
- * Chosen to be generous rather than tight. `railway.json` sets
- * `sleepApplication: true`, so the first request after an idle period wakes a
- * sleeping container, and that wake is measured in seconds — occasionally tens
- * of seconds. A short timeout would turn a working slow path into a visible
- * failure, which is worse than the hang this closes.
+ * Chosen to be generous rather than tight. The API is a Vercel serverless
+ * function, so a request after an idle period can hit a cold start — no
+ * warm process was waiting for it, so one has to be started first — and that
+ * wake is measured in seconds, occasionally tens of seconds. A short timeout
+ * would turn a working slow path into a visible failure, which is worse than
+ * the hang this closes.
  *
  * Thirty seconds is the number this repository already treats as the ceiling
  * for a single attempt: `smoke` polls the deployed API with `curl --max-time

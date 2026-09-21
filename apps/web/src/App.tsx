@@ -31,9 +31,10 @@ type State =
  * The first load gets one automatic retry; after that the user is in charge.
  *
  * A click is the wrong thing to ask for here. The realistic cause of the first
- * failure is a cold start that *this very request* triggered: Railway wakes the
- * container when the request arrives, the request dies at the gate, and the
- * container is up moments later. Making someone press a button to collect a
+ * failure is a cold start that *this very request* triggered: the API is a
+ * Vercel serverless function, so an idle deployment starts one when the
+ * request arrives, the request dies at the gate, and the function is up
+ * moments later. Making someone press a button to collect a
  * server their own page load already started is a worse first visit than simply
  * asking again. Beyond the second attempt the evidence has changed — the API is
  * not merely asleep — so a third automatic attempt would just be hammering, and

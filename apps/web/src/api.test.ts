@@ -72,7 +72,7 @@ describe('graphql', () => {
     expect(init.signal?.aborted).toBe(false);
   });
 
-  it('defaults to a timeout long enough to survive a Railway cold start', () => {
+  it('defaults to a timeout long enough to survive a Vercel cold start', () => {
     // A short timeout would turn a working wake into a visible failure, which
     // is worse than the hang. Thirty seconds matches `smoke`'s --max-time.
     expect(REQUEST_TIMEOUT_MS).toBe(30_000);

@@ -6,11 +6,10 @@
 // is rendered into apps/web/public/docs, which Vite copies verbatim into the
 // bundle, so it lands at /docs on the Vercel deployment.
 //
-// The API's own manual is *not* here. It ships inside the API image and is
-// served by the API itself, at the root of its Railway URL: it documents that
-// service, it calls that service from the browser, and keeping the two
-// together means a pull request environment's manual talks to that pull
-// request's API rather than to production.
+// The API's own manual is *not* here. It ships as part of the API's own
+// Vercel build and is served by the API itself, at the root of its own
+// deployment: it documents that service, and it calls that service from the
+// browser without crossing an origin to do it.
 //
 // The output directory is generated and gitignored. It is deleted and rebuilt
 // on every run, so a page removed from this script cannot linger in a build.
@@ -26,6 +25,9 @@ export const DOCS_DIR = join(REPO_ROOT, 'apps', 'web', 'public', 'docs');
 
 /** Where the API — and so its manual — lives for the build being made. */
 export function apiBaseUrl(env = process.env, root = REPO_ROOT) {
+  // The docs link to the API's own manual, and should name the same API the
+  // bundle itself will call -- see write-api-url.mjs for why that is always
+  // production, previews included.
   const chosen = chooseApiUrl(env);
   if (chosen.url) return chosen.url.replace(/\/+$/, '');
 
