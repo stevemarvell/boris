@@ -146,8 +146,8 @@ the moment.
 
 **Keep `CLAUDE.md` short.** It loads at session start, so it is in every
 request of every session *and* every subagent. Specialised knowledge belongs in
-a skill, which loads only when it is relevant — that is why the deployment and
-docs-site detail moved out of it. Target: under 200 lines.
+a skill, which loads only when it is relevant — that is why the deployment,
+docs-site and worktrees detail moved out of it. Target: under 200 lines.
 
 **Filter verbose output in a hook, not a subagent.** A hook runs outside the
 model loop, so it costs zero tokens; a subagent summarising the same log costs
@@ -165,6 +165,42 @@ well-scoped agents beat seven overlapping ones, and cost less than half.
 worth getting right — see `.claude/trials/model-tiering.md` for where a cheaper
 model is safe and where it silently is not — but it is the last lever to reach
 for, not the first.
+
+### The other two levers `docs/adoption.md` names
+
+Step 3's row also names advisors and LSPs alongside model selection and
+`CLAUDE.md` → Skills. #152 asked each of the four to be either in use or
+recorded as not applicable with the reason, the same treatment #120 and #64
+gave step 0–2 rows that did not apply.
+
+**Advisors: not applicable.** The [advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)
+is a beta *Messages API* feature — a hand-rolled executor loop calls
+`/v1/messages` with the `advisor-tool-2026-03-01` beta header so a cheap
+executor model can consult a stronger one mid-turn, billing most tokens at the
+executor's rate and only the consultations at the advisor's. It is not a
+Claude Code setting: there is no `.claude/settings.json` key for it, and it
+only pays off inside a custom agent loop built directly on the API. Every
+agent in this repository runs through Claude Code's own Task/subagent
+mechanism, not a hand-rolled Messages API loop, so there is no call site to
+attach it to. **Trigger:** this repository starts orchestrating its own agents
+directly against the Messages API rather than through Claude Code.
+
+**LSPs: not applicable.** Claude Code's [code intelligence plugins](https://code.claude.com/docs/en/discover-plugins#code-intelligence)
+(`pyright-lsp`, `typescript-lsp`, from the official marketplace) are free and
+need no third-party signup, and `enabledPlugins` in `.claude/settings.json` is
+a legitimate project-scoped switch for them. What stops short of turning it on
+here: the plugin does not install its language server — each machine needs
+`pyright-langserver` and `typescript-language-server` on `$PATH` itself, which
+is a `package.json`/bootstrap change outside this pull request's files, not a
+settings key; the LSP tool is unavailable in cloud sessions entirely, so it
+would not apply uniformly on the Windows dev machine and the Linux boxes other
+worktrees and CI use; and a plugin whose binary is missing fails quietly with
+an `Executable not found in $PATH` note in the `/plugin` Errors tab rather
+than a build failure — exactly the present-but-inert shape SOP 3 exists to
+catch, and this task has no way to exercise it to confirm otherwise. **Trigger:**
+a change that adds the language-server binaries to `npm run bootstrap` (or
+`uv sync`) for both platforms, at which point `enabledPlugins` is the one-line
+follow-up.
 
 ---
 
