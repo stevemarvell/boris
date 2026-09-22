@@ -130,11 +130,15 @@ jobs:
     # the spend least likely to be noticed.
     #
     # Only the credential lives here. Everything else the session needs is
-    # written into .claude/settings.local.json by the step below, because a
-    # settings file beats the process environment — see that script's header,
-    # and note that this job exported the right endpoint for three runs while
-    # the checked-out .claude/settings.json quietly overrode it with
-    # localhost:4317.
+    # written by the step below to a file outside this checkout, loaded with
+    # --settings in claude_args. Not .claude/settings.local.json any more:
+    # this job checks out a pull request's head to review it, and because
+    # that content is untrusted, claude-code-action deletes and restores
+    # .claude (among other paths) from the base branch immediately before the
+    # CLI starts — see scripts/write-ci-telemetry-settings.mjs's header. A
+    # settings.local.json written before that restore does not survive it,
+    # which is why issue #60 found every session in the store, CI included,
+    # carrying no environment=ci label at all.
     env:
       GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
       GRAFANA_CLOUD_OTLP_AUTH: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
@@ -200,6 +204,7 @@ jobs:
           # pinned. The rubric replaced it and lives in this repository.
           claude_args: |
             --model sonnet
+            --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
 
       - name: Check a review was actually produced
@@ -272,6 +277,7 @@ jobs:
             same thing.
           claude_args: |
             --model sonnet
+            --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
 
       - name: Check a review was actually produced

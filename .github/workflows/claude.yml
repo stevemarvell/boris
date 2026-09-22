@@ -49,10 +49,10 @@ jobs:
 
     # Same telemetry wiring as claude-code-review.yml — see the long comment
     # there, and the header of scripts/write-ci-telemetry-settings.mjs for why
-    # a settings file rather than the environment. The only difference is the
-    # workflow label, which is what lets the two kinds of unattended run be
-    # told apart: a review that happens on every pull request, and a tagged
-    # session somebody asked for.
+    # a settings file loaded with --settings rather than the environment or a
+    # project-local file. The only difference is the workflow label, which is
+    # what lets the two kinds of unattended run be told apart: a review that
+    # happens on every pull request, and a tagged session somebody asked for.
     env:
       GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
       GRAFANA_CLOUD_OTLP_AUTH: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
@@ -84,8 +84,11 @@ jobs:
           # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
           # prompt: 'Update the pull request description to include a summary of changes.'
 
-          # Optional: Add claude_args to customize behavior and configuration
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-          # claude_args: '--allowed-tools Bash(gh pr *)'
+          # --settings loads this session's telemetry config — see the env
+          # block above and scripts/write-ci-telemetry-settings.mjs's header.
+          # Add more flags here to customize behavior and configuration; see
+          # https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options.
+          claude_args: |
+            --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
 

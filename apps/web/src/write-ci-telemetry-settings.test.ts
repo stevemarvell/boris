@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ciTelemetryEnv,
+  defaultSettingsPath,
   writeCiTelemetrySettings,
 } from '../../../scripts/write-ci-telemetry-settings.mjs';
 
@@ -13,8 +14,8 @@ const CREDENTIAL = {
 };
 
 let dir = '';
-const settings = () => join(dir, '.claude', 'settings.local.json');
-const read = () => JSON.parse(readFileSync(settings(), 'utf8'));
+const settingsPath = () => join(dir, 'claude-ci-telemetry-settings.json');
+const read = () => JSON.parse(readFileSync(settingsPath(), 'utf8'));
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'ci-telemetry-'));
@@ -101,18 +102,33 @@ describe('ciTelemetryEnv', () => {
   });
 });
 
+describe('defaultSettingsPath', () => {
+  it('uses RUNNER_TEMP, outside any git checkout, when set', () => {
+    expect(defaultSettingsPath({ RUNNER_TEMP: '/home/runner/work/_temp' })).toBe(
+      join('/home/runner/work/_temp', 'claude-ci-telemetry-settings.json'),
+    );
+  });
+
+  it('falls back to the OS temp dir when RUNNER_TEMP is unset, for local and test runs', () => {
+    expect(defaultSettingsPath({})).toBe(join(tmpdir(), 'claude-ci-telemetry-settings.json'));
+  });
+});
+
 describe('writeCiTelemetrySettings', () => {
-  it('writes the project-local settings file that outranks the committed one', () => {
-    const result = writeCiTelemetrySettings({ ...CREDENTIAL, CI_TELEMETRY_WORKFLOW: 'claude-mention' }, dir);
+  it('writes a settings file at the given path, meant for --settings rather than a project directory', () => {
+    const result = writeCiTelemetrySettings(
+      { ...CREDENTIAL, CI_TELEMETRY_WORKFLOW: 'claude-mention' },
+      settingsPath(),
+    );
 
     expect(result.enabled).toBe(true);
-    expect(result.path).toBe(settings());
+    expect(result.path).toBe(settingsPath());
     expect(read().env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(CREDENTIAL.GRAFANA_CLOUD_OTLP_ENDPOINT);
     expect(read().env.OTEL_RESOURCE_ATTRIBUTES).toContain('workflow=claude-mention');
   });
 
   it('writes the off switch when there is no credential', () => {
-    const result = writeCiTelemetrySettings({}, dir);
+    const result = writeCiTelemetrySettings({}, settingsPath());
 
     expect(result.enabled).toBe(false);
     expect(read()).toEqual({ env: { CLAUDE_CODE_ENABLE_TELEMETRY: '0' } });
