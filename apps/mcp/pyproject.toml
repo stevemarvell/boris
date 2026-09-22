@@ -5,7 +5,7 @@ description = "MCP server over the family tree, built on api.tree.FamilyTree."
 requires-python = ">=3.12"
 dependencies = [
     "family-tree-api",
-    "mcp>=2",
+    "mcp==2.2.0",
 ]
 
 # How an MCP client launches it:
@@ -26,9 +26,9 @@ family-tree-api = { path = "../api", editable = true }
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3",
-    "pytest-asyncio>=0.24",
-    "ruff>=0.8",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.16.8",
 ]
 
 [build-system]

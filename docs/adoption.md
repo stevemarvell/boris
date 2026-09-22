@@ -1,6 +1,12 @@
-# Stages of agentic adoption
+# Steps of AI Adoption
 
-[Boris Cherny](mailto:boris@anthropic.com) — Jul 16, 2026
+[Boris Cherny](mailto:boris@anthropic.com) Jul 16, 2026
+
+The source is one table, six columns wide — **Step & your role**, **Agents**,
+**What it looks like**, **What’s the bottleneck**, **Products that help with
+each step**, **Guardrails** — with a full-width row between each pair of steps
+saying how to get from one to the next. It is rendered here as a section per
+step, one labelled field per column, and those transition rows as block quotes.
 
 ---
 
@@ -10,7 +16,7 @@
 
 **What it looks like:** Only older or lighter/faster models are approved, latency compounds through AI gateways and custom auth, no MCP governance, internal access to AI tools is gated or process-heavy. No IT infra or approval path for hosting Claude-created code or artifacts; outputs only exist locally.
 
-**What's the bottleneck:** Legacy security and approval processes, focuses on cost-per-token containment vs. outcomes, lack of true technical voices in decisionmaking.
+**What’s the bottleneck:** Legacy security and approval processes, focuses on cost-per-token containment vs. outcomes, lack of true technical voices in decisionmaking.
 
 **Products that help with each step:**
 
@@ -37,7 +43,7 @@
 
 **Unlock:** A change that used to fill an afternoon becomes something you finish between meetings.
 
-**What's the bottleneck:** Your attention and the need to inspect each response and code edit. Due to low trust for the model's output and lack of self-verification, you feel you must read everything, so you never look away. Work is synchronous: you sit and watch while Claude works, rather than moving on to the next task.
+**What’s the bottleneck:** Your attention and the need to inspect each response and code edit. Due to low trust for the model’s output and lack of self-verification, you feel you must read everything, so you never look away. Work is synchronous: you sit and watch while Claude works, rather than moving on to the next task.
 
 **Products that help with each step:**
 
@@ -69,7 +75,7 @@
 
 **Unlock:** A backlog that used to take the team weeks becomes one engineer's afternoon of orchestration.
 
-**What's the bottleneck:** Reviewing output. You're hand-writing less code and instead checking six streams of it, and this takes up more of your time. Prompting and steering the model as you juggle sessions.
+**What’s the bottleneck:** Reviewing output. You’re hand-writing less code and instead checking six streams of it, and this takes up more of your time. Prompting and steering the model as you juggle sessions.
 
 **Products that help with each step:**
 
@@ -101,15 +107,15 @@
 
 **Agents:** ~100
 
-**What it looks like:** Claude writes all or nearly all of the code. "Did you read the code?" becomes "what context was the model missing and how do we solve it for next time?"
+**What it looks like:** Claude writes all or nearly all of the code. “Did you read the code?” becomes “what context was the model missing and how do we solve it for next time?”
 
 **Unlock:** Claude proactively does work that you would have had to kick off manually before. Maintenance and cleanup that used to wait for someone to find the time now runs continuously in the background.
 
-**What's the bottleneck:** Trust in the loop and your team's decision throughput. The agent tree is too deep to babysit and your trap is scaling agent count before the loop has earned widespread trust. Ensuring tokens are used efficiently as usage increases. Requires monitoring (via OTel or Analytics) and a culture that encourages experimentation while controlling costs once internal use cases find PMF. Ask yourself: is this something an engineer would have done?
+**What’s the bottleneck:** Trust in the loop and your team’s decision throughput. The agent tree is too deep to babysit and your trap is scaling agent count before the loop has earned widespread trust. Ensuring tokens are used efficiently as usage increases. Requires monitoring (via OTel or Analytics) and a culture that encourages experimentation while controlling costs once internal use cases find PMF. Ask yourself: is this something an engineer would have done?
 
 **Products that help with each step:**
 
-- Subagents with worktree isolation (so parallel agents don't collide)
+- Subagents with worktree isolation (so parallel agents don’t collide)
 - Routines, /loop, /batch, and /goal to fan out repetitive work
 - [Dynamic workflows](https://code.claude.com/docs/en/workflows)
 - Claude Tag (have it monitor a channel or data source and kick off tasks proactively)
@@ -120,7 +126,7 @@
 - Automatic security review
 - [Agent sandboxing](https://github.com/anthropic-experimental/sandbox-runtime)
 - CLAUDE.md and Skills to encode standards
-- Tune [Auto mode](https://code.claude.com/docs/en/auto-mode-config) classifier based on your team's usage
+- Tune [Auto mode](https://code.claude.com/docs/en/auto-mode-config) classifier based on your team’s usage
 - Manage [token use](https://code.claude.com/docs/en/costs#reduce-token-usage) with model selection, advisors, LSPs, breaking up CLAUDE.md into lazy Skills
 
 > **How to get from step 3 to 4:** Scaled automation of domain-specific use cases (eg. code migration, fuzzing, feature-building, feedback remediation)
@@ -137,7 +143,7 @@
 
 **Unlock:** The quarter-long migration becomes a workflow you kick off and check on.
 
-**What's the bottleneck:** Identifying and automating work at scale, and enforcing the right guardrails for each type of work.
+**What’s the bottleneck:** Identifying and automating work at scale, and enforcing the right guardrails for each type of work.
 
 **Products that help with each step:**
 

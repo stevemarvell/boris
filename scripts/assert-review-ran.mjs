@@ -29,6 +29,16 @@
 // a control that ran, reported success, and did not do its job. This one says
 // so — and #100 is the reminder that saying the wrong thing is its own way of
 // saying nothing.
+//
+// #113 is that reminder again, one branch along. Case 2 above is not one case
+// but two. On #112 both reviews ended with `is_error: true` and this script
+// told both of them "errored and posted nothing" — but the security review's
+// tracking comment carried its completed checklist, its reasoning and
+// `Verdict: this belongs on develop as it stands.`, while the code review's
+// stopped at an unticked `[ ] Get diff`. One of those pull requests was
+// reviewed and one was not. `is_error: true` is where the session ended, not
+// what it produced, and reading it as "posted nothing" was an inference. The
+// log holds the messages, so the messages are what gets read.
 import { readFileSync } from 'node:fs';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -50,6 +60,11 @@ import { pathToFileURL } from 'node:url';
  * no workflow file. Three answers, three messages — the rule stated as fact
  * when it applies, ruled out when it does not, and offered as the likely
  * cause only when nobody knows.
+ *
+ * A session that ended with `is_error: true` is read the same way: the whole
+ * message array, not just the result, because the result says where the
+ * session stopped and the messages say what it produced on the way. See
+ * `reviewEvidence` and #113.
  */
 export function reviewVerdict({
   kind = 'code',
@@ -87,6 +102,14 @@ export function reviewVerdict({
   }
 
   if (result.is_error === true) {
+    const produced = reviewEvidence(messages);
+    if (produced) {
+      return {
+        ok: false,
+        headline: `The ${kind} review errored after producing ${produced}`,
+        detail: `The session ended with \`is_error: true\` after ${result.num_turns ?? 'an unknown number of'} turns, but the execution log shows it had already produced ${produced} before it fell over. So this is not an unreviewed pull request: read the tracking comment on it, decide whether what is there is complete enough to trust, and re-run the job only if it is not. The job still fails, because a session that fell over may have stopped short of what the rubric asks.`,
+      };
+    }
     return {
       ok: false,
       headline: `The ${kind} review errored and posted nothing`,
@@ -123,6 +146,112 @@ function noSessionCause(workflowChanged) {
     return 'This pull request changes no file under `.github/workflows/`, so the workflow-validation rule is not the cause and there is no workflow diff to go looking for. The action failed to start a session for its own reasons — the job log above is the only record of why. Treat the pull request as unreviewed and re-run the job.';
   }
   return 'The scope job did not report whether this pull request touches `.github/workflows/`, so the cause cannot be narrowed from here. The usual one is that rule: `claude-code-action` requires the workflow to be byte-identical to the copy on the default branch and exits early otherwise. If no workflow file changed, read the job log instead.';
+}
+
+/**
+ * The two tools by which a review session puts something on the pull request.
+ * Neither name is guessed: the inline-comment tool is the one named in
+ * `--allowedTools` in `claude-code-review.yml`, and the tracking-comment tool
+ * is what `track_progress: true` adds — the action prints both as
+ * `ALLOWED_TOOLS` in this job's own log.
+ */
+const INLINE_COMMENT_TOOL = 'mcp__github_inline_comment__create_inline_comment';
+const TRACKING_COMMENT_TOOL = 'mcp__github_comment__update_claude_comment';
+
+/**
+ * A verdict is a line that *begins* with the word, which is the shape both
+ * rubrics produce and the shape the prompt asks for ("End your final message
+ * with the one-line verdict the rubric asks for"). On #112 that line read
+ * `**Verdict: this belongs on \`develop\` as it stands.**`.
+ *
+ * Deliberately narrow, and narrow in the safe direction. Matching "would
+ * merge" or "belongs on develop" anywhere in the session's own chatter would
+ * put this script back to inferring — a first-turn "I'll work out whether I'd
+ * merge this" is not a verdict. A verdict this misses degrades to the message
+ * below, which is where this check already was; a verdict it invents is a new
+ * false claim on a pull request, which is the defect being fixed.
+ */
+const VERDICT_LINE = /^[ \t>*_#-]*verdict\b[^\n]*\S/im;
+
+/**
+ * The ids of tool calls that came back an error.
+ *
+ * This is the one thing worth reading out of a tool *result*, and it does not
+ * reopen what the comment below rules out. That rule is about content the
+ * session was *shown* and could be echoing — the rubric's wording, the diff,
+ * another pull request's comments. `is_error` is not content: it is the other
+ * end's answer to whether the call worked, and it is the only record of that
+ * anywhere in the log.
+ *
+ * It matters because `create_inline_comment` fails routinely — GitHub rejects
+ * a review comment on a line that is not part of the diff, an easy mistake
+ * for a reviewer working from a truncated hunk. Counting that call would have
+ * this check announce "errored after producing 1 inline comment" and send
+ * somebody to a pull request with no comment on it: the same false claim as
+ * #113, one turn further in. A control observed by "it was called" rather
+ * than "it worked" is this repository's signature defect, and this script
+ * exists to catch exactly that.
+ *
+ * A call with no result at all is left counted, deliberately. The session
+ * died in flight and the log does not say which side of the call it died on,
+ * so "go and read the tracking comment" stays the cheaper answer of the two —
+ * nothing is asserted about what is in that comment either way.
+ */
+function rejectedCalls(messages) {
+  const rejected = new Set();
+  for (const message of messages) {
+    const content = message?.message?.content;
+    for (const block of Array.isArray(content) ? content : []) {
+      if (block?.type === 'tool_result' && block.is_error === true && block.tool_use_id) {
+        rejected.add(block.tool_use_id);
+      }
+    }
+  }
+  return rejected;
+}
+
+/**
+ * What the session demonstrably produced before it stopped, as a phrase, or
+ * `null` when the log shows nothing reaching the pull request.
+ *
+ * Only `assistant` messages are read. A tool *result* is something the session
+ * was shown — the rubric file, the diff, another pull request's comments — and
+ * all three of those contain the word "verdict"; reading them would find a
+ * verdict in a session that never wrote one.
+ */
+function reviewEvidence(messages) {
+  const rejected = rejectedCalls(messages);
+  let inlineComments = 0;
+  let verdict = false;
+
+  for (const message of messages) {
+    if (message?.type !== 'assistant') continue;
+    const content = message.message?.content;
+    for (const block of Array.isArray(content) ? content : []) {
+      if (block?.type === 'text') {
+        if (VERDICT_LINE.test(String(block.text ?? ''))) verdict = true;
+      } else if (block?.type === 'tool_use') {
+        // A call the other end refused put nothing on the pull request, so it
+        // is not evidence of one — see `rejectedCalls`.
+        if (rejected.has(block.id)) continue;
+        if (block.name === INLINE_COMMENT_TOOL) inlineComments += 1;
+        // The body the session wrote into the tracking comment is the
+        // strongest evidence there is: it is the text a person reading the
+        // pull request will find. The checklist the action keeps in that same
+        // comment mentions "verdict" as an unticked item — `- [ ] Post
+        // findings and verdict` — which is why the pattern is line-anchored.
+        if (block.name === TRACKING_COMMENT_TOOL) {
+          if (VERDICT_LINE.test(String(block.input?.body ?? ''))) verdict = true;
+        }
+      }
+    }
+  }
+
+  const posted = inlineComments === 1 ? '1 inline comment' : `${inlineComments} inline comments`;
+  if (verdict && inlineComments > 0) return `a verdict and ${posted}`;
+  if (verdict) return 'a verdict';
+  if (inlineComments > 0) return posted;
+  return null;
 }
 
 /**

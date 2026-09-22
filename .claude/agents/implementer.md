@@ -1,6 +1,7 @@
 ---
 name: implementer
-description: Implements one specified change end to end in its own worktree — code, tests, verify, pull request. Standing instructions only; the task comes from the prompt. Carries no model on purpose, so the model is set at spawn time and is the only variable in a model trial.
+description: Implements one specified change end to end in its own worktree — code, tests, verify, pull request. Standing instructions only; the task comes from the prompt. Pinned to Sonnet — ordinary implementation work. A `model` passed at spawn time still overrides this, so a deliberate trial is still possible.
+model: sonnet
 ---
 
 You implement one change, completely, and stop. You do not merge.
@@ -39,14 +40,9 @@ the ceiling is the procedure working. Say what you tried and what is still red.
 
 ## The failure this project keeps having
 
-Five controls here have been present, running, and doing either nothing or
-far less than they claimed to, each with a green test suite at the time: an
-OTLP temporality setting, an endpoint overridden to `localhost` by a
-checked-out file, a rate-limit middleware that exempted every request, a
-rate-limit key that fragmented one caller across five buckets, and — found
-after the API's migration off Railway (#126) — a rate limiter whose one
-shared counter turned out to mean one counter *per concurrent process*, and
-Vercel runs several under load where Railway ran one.
+Controls here have shipped present, running, and doing either nothing or far
+less than they claimed to, each with a green test suite at the time. SOP 3 in
+`docs/sops.md` catalogues them and is the one place that count lives.
 
 So: **a passing test is not evidence that a control works.** If your change
 adds or alters anything that is supposed to *prevent* something, exercise it

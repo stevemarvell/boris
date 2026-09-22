@@ -8,6 +8,7 @@ import {
   parseMergeTree,
   partitionConflicts,
   refsToFetch,
+  reportingTargets,
   selectPullRequests,
 } from '../../../scripts/pr-contention.mjs';
 
@@ -141,6 +142,35 @@ describe('refsToFetch', () => {
 
   it('does not fetch a head for a pull request that is not open', () => {
     expect(refsToFetch([{ number: 3 }], [999])).toEqual(['refs/pull/3/head']);
+  });
+});
+
+describe('reportingTargets', () => {
+  it('reports on every open pull request, not only the one that triggered the run', () => {
+    // The defect this fixes: reporting only the trigger left the pull request
+    // that was already open with no warning at all, because a rival opening
+    // gives it no event of its own. #132 was told about #131; #131 was told
+    // nothing, and then lost the race (#135).
+    const open = [{ number: 131 }, { number: 132 }];
+    expect(reportingTargets(open, [132]).map((pr) => pr.number)).toEqual([131, 132]);
+  });
+
+  it('includes a named pull request the ceiling would have dropped', () => {
+    const many = Array.from({ length: MAX_PULL_REQUESTS + 3 }, (_, i) => ({ number: i + 1 }));
+    const numbers = reportingTargets(many, [MAX_PULL_REQUESTS + 3]).map((pr) => pr.number);
+    expect(numbers).toContain(MAX_PULL_REQUESTS + 3);
+    expect(numbers).toHaveLength(MAX_PULL_REQUESTS + 1);
+  });
+
+  it('fetches a head for every pull request it will report on', () => {
+    // These two disagreed once, and the pull request being reported on was
+    // compared against a head that had never been fetched. Derived from one
+    // list now, and asserted to stay that way.
+    const many = Array.from({ length: MAX_PULL_REQUESTS + 3 }, (_, i) => ({ number: i + 1 }));
+    const only = [MAX_PULL_REQUESTS + 2];
+    expect(refsToFetch(many, only)).toEqual(
+      reportingTargets(many, only).map((pr) => `refs/pull/${pr.number}/head`),
+    );
   });
 });
 

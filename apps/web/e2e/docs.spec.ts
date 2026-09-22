@@ -11,9 +11,10 @@ test.describe('the docs Vercel serves', () => {
     await expect(page.getByRole('heading', { name: 'boris docs' })).toBeVisible();
 
     for (const name of [
-      'Stages of agentic adoption',
+      'Steps of AI Adoption',
       'Data governance',
       'Standard operating procedures',
+      'Extracting the baseline',
       'Web app manual',
       'API manual',
     ]) {
@@ -23,7 +24,7 @@ test.describe('the docs Vercel serves', () => {
 
   test('renders the adoption document, not its Markdown', async ({ page }) => {
     await page.goto('/docs/adoption.html');
-    await expect(page.getByRole('heading', { name: 'Stages of agentic adoption' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Steps of AI Adoption' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '0: Gated' })).toBeVisible();
     await expect(page.locator('body')).not.toContainText('**');
   });
@@ -87,6 +88,23 @@ test.describe('the docs Vercel serves', () => {
     for (const file of ['.claude/settings.json', '.claude/settings.local.json']) {
       await expect(page.locator('body')).toContainText(file);
     }
+  });
+
+  test('publishes the extraction report', async ({ page }) => {
+    // The report exists to be read when starting the *next* project, which by
+    // definition is from outside this checkout. Rendering locally is not the
+    // claim; reaching the deployment is.
+    await page.goto('/docs/extraction.html');
+    await expect(page.getByRole('heading', { name: 'Extracting the baseline' })).toBeVisible();
+
+    // The section that stops a reader copying this project's security verdict
+    // onto a project with real data. It is the one part of the report that is
+    // dangerous to lose, so it is the part asserted.
+    await expect(
+      page.getByRole('heading', { name: 'What must not be inherited' }),
+    ).toBeVisible();
+    await expect(page.locator('body')).toContainText('Do not take the verdict.');
+    await expect(page.locator('body')).not.toContainText('**');
   });
 
   test('serves the web manual with its screenshots', async ({ page }) => {

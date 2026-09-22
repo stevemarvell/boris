@@ -40,7 +40,16 @@
       "Bash(git worktree*)",
       "Bash(curl -s localhost:*)",
       "Bash(curl -s http://localhost:*)",
-      "Bash(curl -s http://127.0.0.1:*)"
+      "Bash(curl -s http://127.0.0.1:*)",
+      "Bash(npm run verify:e2e)",
+      "Bash(git ls-tree *)",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude_ai_Vercel__list_projects",
+      "mcp__claude_ai_Vercel__get_project",
+      "mcp__claude_ai_Vercel__list_deployments",
+      "mcp__claude_ai_Vercel__get_deployment",
+      "mcp__claude_ai_Vercel__get_deployment_build_logs"
     ],
     "deny": [
       "Bash(git push --force*)",
