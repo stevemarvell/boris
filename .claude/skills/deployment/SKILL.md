@@ -42,6 +42,9 @@ Four settings are load-bearing and non-obvious:
   identical to the merged commit's, asking git with the script's own
   pathspecs (`node scripts/vercel-ignore.mjs paths api`), so a skipped build
   is not a stale one and the two cannot disagree about what the API reads.
+  The web app has the same gate: `scripts/build-docs.mjs` publishes the
+  build's `VERCEL_GIT_COMMIT_SHA` at `/docs/version.json`, and smoke diffs it
+  over the web pathspecs.
 - Vercel's Root Directory for the *web* project is `apps/web`. A `vercel.json`
   at the repository root is never read — Vercel looks for it inside each
   project's own root directory, which is why there are two.

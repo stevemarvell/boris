@@ -87,7 +87,12 @@ jobs:
           # /health reports VERCEL_GIT_COMMIT_SHA, which Vercel exposes to the
           # function at runtime. Matching it against the commit this run is
           # for makes a deploy that silently did not happen a red check.
-          mapfile -t pathspecs < <(node scripts/vercel-ignore.mjs paths api)
+          # Read into a variable first: a failure inside `< <(…)` does not trip
+          # `set -e`, and an empty list would turn the diff below into a
+          # whole-repository one — the gate changing its meaning, silently.
+          listed=$(node scripts/vercel-ignore.mjs paths api)
+          mapfile -t pathspecs <<< "$listed"
+          [ -n "$listed" ] || { echo "vercel-ignore.mjs listed no API pathspecs" >&2; exit 1; }
           echo "waiting for $GITHUB_SHA, or a build with the same ${pathspecs[*]}"
           for attempt in $(seq 1 40); do
             body=$(curl -fsS --max-time 30 "$API/health" || true)
@@ -219,6 +224,34 @@ jobs:
             sleep 15
           done
           echo "the web deployment never served the docs" >&2
+          exit 1
+
+      - name: Wait for the web app to report this commit
+        run: |
+          # The web counterpart of the API's commit gate. The web build can be
+          # skipped too (apps/web/vercel.json), and a path wrongly left out of
+          # vercel-ignore.mjs's web list would skip a build that should have
+          # run — with every check above still passing against the old bundle.
+          # /docs/version.json carries the commit its build was of
+          # (scripts/build-docs.mjs); accept this commit, or an older one
+          # whose web inputs are identical.
+          listed=$(node scripts/vercel-ignore.mjs paths web)
+          mapfile -t pathspecs <<< "$listed"
+          [ -n "$listed" ] || { echo "vercel-ignore.mjs listed no web pathspecs" >&2; exit 1; }
+          for attempt in $(seq 1 40); do
+            body=$(curl -fsS --max-time 30 "$WEB/docs/version.json" || true)
+            deployed=$(printf '%s' "$body" | python3 -c \
+              'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
+            echo "attempt $attempt: deployed=${deployed:-<none>}"
+            if [ "$deployed" = "$GITHUB_SHA" ]; then
+              echo "the deployed web build is this commit"; exit 0
+            fi
+            if [ -n "$deployed" ] && git diff --quiet "$deployed" "$GITHUB_SHA" -- "${pathspecs[@]}" 2>/dev/null; then
+              echo "the deployed web build ($deployed) has this commit's inputs; its build was skipped"; exit 0
+            fi
+            sleep 15
+          done
+          echo "the web app never reported $GITHUB_SHA; it is serving an older build" >&2
           exit 1
 
       - name: Check CORS from the deployed origin
