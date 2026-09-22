@@ -176,23 +176,6 @@ on every pull request; it is advisory, and `verify` is the only required check.
 
 ## Worktrees
 
-Each agent works in its own worktree, so parallel work cannot collide:
-
-```bash
-git worktree add ../boris-<name> -b feat/<name>
-cd ../boris-<name> && npm run bootstrap
-```
-
-`node_modules` and `.venv` are per-worktree, not shared — `npm run bootstrap`
-installs both toolchains and the Playwright browser.
-
-End-to-end ports are derived from the worktree directory name by
-`scripts/ports.mjs`, so two checkouts never fight over a port. Set
-`E2E_API_PORT` and `E2E_WEB_PORT` to override.
-
-A branch gets a Vercel preview of the web app and, separately, one of the API
-— every push builds both projects, but a web build never reads its own
-branch's API preview: `VITE_API_URL` always resolves to the one production
-API, so a branch with no pull request open is no different from one with one.
-Vercel tears down neither kind of preview, so a stuck one has to be removed by
-hand — the `deployment` skill has the lifecycle, and why.
+Each agent works in its own worktree, so parallel work cannot collide — how to
+create one, per-worktree e2e ports, and why previews do not pair themselves:
+**read the `worktrees` skill**.
