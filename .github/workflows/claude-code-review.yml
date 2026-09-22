@@ -34,6 +34,15 @@ name: Claude Code Review
 # that produced nothing *say so* — see "Check a review was actually produced"
 # below. Branch protection is not changed here; see the pull request body for
 # what would be worth changing and when.
+#
+# SANDBOXED. Both jobs read a pull request's head — untrusted content, by
+# `docs/data-governance.md`'s own definition — with a Bash tool `gh pr diff`
+# and `gh pr view` can run, and two credentials live in the step around it.
+# `--allowedTools` already narrows that Bash tool to those two commands; the
+# "Enable the sandbox" step in each job puts Claude Code's own OS-level
+# sandbox around it too, so what those two commands can reach is bounded by
+# bubblewrap rather than by the model choosing not to run anything else.
+# #150, `docs/sops.md` SOP 10.
 
 on:
   pull_request:
@@ -156,6 +165,37 @@ jobs:
       - name: Point this session's telemetry at Grafana Cloud
         run: node scripts/write-ci-telemetry-settings.mjs
 
+      # This job reads a pull request's head to review it — see the comment
+      # by the checkout step above the telemetry one — which is #150's
+      # nearest concrete case of the gap it names: a permission gate decides
+      # whether `gh pr diff` runs, but nothing before this stopped it from
+      # reaching anywhere the runner could reach once it did. The two steps
+      # below put Claude Code's own OS-level sandbox around this job's Bash
+      # tool instead: bubblewrap enforces it, `scripts/write-ci-sandbox-settings.mjs`
+      # configures it into the same out-of-checkout file the telemetry step
+      # just wrote (see that script's header for why it is not
+      # `.claude/settings.json`), and `docs/sops.md` SOP 10 has the rest.
+      - name: Install the sandbox's OS dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # With failIfUnavailable set, a sandbox that cannot start fails the
+          # review rather than running it unsandboxed. Prove it can start here,
+          # so a runner that refuses it says so in this step, not mid-review.
+          # Ubuntu 24.04 lets only AppArmor-profiled binaries create the user
+          # namespace bubblewrap needs. Grant that to /usr/bin/bwrap alone --
+          # Ubuntu's documented route -- rather than lifting the restriction
+          # system-wide.
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
+            || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
+          echo "bubblewrap started a network-isolated sandbox"
+
+      - name: Enable the sandbox for this session's Bash tool
+        run: node scripts/write-ci-sandbox-settings.mjs
+
       - name: Review the change against this repository's rubric
         id: review
         # So the assertion below always runs and explains what happened,
@@ -245,6 +285,29 @@ jobs:
 
       - name: Point this session's telemetry at Grafana Cloud
         run: node scripts/write-ci-telemetry-settings.mjs
+
+      # See the same two steps in the code-review job above for why: #150,
+      # docs/sops.md SOP 10.
+      - name: Install the sandbox's OS dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # With failIfUnavailable set, a sandbox that cannot start fails the
+          # review rather than running it unsandboxed. Prove it can start here,
+          # so a runner that refuses it says so in this step, not mid-review.
+          # Ubuntu 24.04 lets only AppArmor-profiled binaries create the user
+          # namespace bubblewrap needs. Grant that to /usr/bin/bwrap alone --
+          # Ubuntu's documented route -- rather than lifting the restriction
+          # system-wide.
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
+            || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
+          echo "bubblewrap started a network-isolated sandbox"
+
+      - name: Enable the sandbox for this session's Bash tool
+        run: node scripts/write-ci-sandbox-settings.mjs
 
       - name: Review the change for exposure
         id: review
