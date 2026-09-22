@@ -23,16 +23,21 @@ that pull request's branch is available (this worktree, or run
 
 ```bash
 for attempt in $(seq 1 40); do
-  gh pr checks <n> --json bucket,name,link,state
+  out=$(gh pr checks <n> --json bucket,name,link,state 2>&1)
   code=$?
   echo "attempt $attempt: gh pr checks exit=$code"
-  [ "$code" != "8" ] && break   # 8 is gh's own "checks pending" exit code
-  sleep 30
+  # 8 is gh's own "checks pending" exit code. Right after a push, GitHub has
+  # not registered any runs yet and gh exits 1 with "no checks reported" --
+  # that is also not-yet-settled, not a failure.
+  if [ "$code" = "8" ] || printf '%s' "$out" | grep -q 'no checks reported'; then
+    sleep 30; continue
+  fi
+  break
 done
 ```
 
-- Exit code `8` means pending — the only code this loop treats as "keep
-  waiting".
+- Exit code `8`, or "no checks reported" (nothing registered yet), means
+  pending — the only two states this loop treats as "keep waiting".
 - Any other exit code means settled: `0` is every check passed (or none
   required), non-zero-non-8 means at least one failed. Either way, stop
   polling and move to step 2.
@@ -87,9 +92,13 @@ One round is: read every open finding from step 2, then for each one:
   rule if the fix changes behaviour.
 - **Reply to every finding, fixed or not**, with what was done or why not:
   - Inline finding → reply in its own thread:
-    `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment_id>/replies -f body="…"`
-  - Top-level verdict comment → `gh pr comment <n> --body "…"` referencing
-    which point it answers.
+    `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment_id>/replies -F body=@/tmp/reply.md`
+  - Top-level verdict comment → `gh pr comment <n> --body-file /tmp/reply.md`
+    referencing which point it answers.
+  - Write the body to the file with a quoted heredoc (`cat > /tmp/reply.md
+    <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
+    replies quote CI and review output, and `$(…)` or a backtick in that text
+    would be executed by the shell.
 - Commit and push once per round, after all findings in that round are
   either fixed or answered — not per finding, so the branch never sits with
   a fix committed but unexplained.
@@ -135,8 +144,16 @@ Whichever step's ceiling was hit (step 1's poll, step 3's rounds, or
 `verify`'s own 3 attempts inside step 3):
 
 ```bash
-gh pr comment <n> --body "drive-pr stopped: <which ceiling>, after <n> attempts/rounds. <what was still failing>. <what is left to do>."
+cat > /tmp/drive-pr-stopped.md <<'MD'
+drive-pr stopped: <which ceiling>, after <n> attempts/rounds.
+<what was still failing>
+<what is left to do>
+MD
+gh pr comment <n> --body-file /tmp/drive-pr-stopped.md
 ```
+
+The quoted heredoc is the point: the failure text is CI output, and it must
+reach the comment as text, not be expanded by the shell.
 
 Then report the same thing back. This is the record SOP 1 asks for: what was
 attempted, what failed, what is left — on the pull request, where the next
@@ -150,16 +167,21 @@ Once step 4 has merged, `smoke.yml` fires on the push to `develop`. Confirm
 it, rather than assuming the merge was fine because `verify` was:
 
 ```bash
+sha=$(gh pr view <n> --json mergeCommit --jq .mergeCommit.oid)
 for attempt in $(seq 1 30); do
-  run=$(gh run list --workflow smoke --branch develop -L 1 \
+  run=$(gh run list --workflow smoke --branch develop --commit "$sha" -L 1 \
           --json databaseId,status,conclusion)
-  status=$(echo "$run" | jq -r '.[0].status')
+  status=$(echo "$run" | jq -r '.[0].status // "not-registered"')
   echo "attempt $attempt: $run"
   [ "$status" = "completed" ] && break
   sleep 30
 done
 ```
 
+- **Pinned to the merge commit.** `--commit "$sha"` selects the run for *this*
+  merge. Without it, the first poll can land before GitHub registers the new
+  run and read the previous merge's result as this one's. Until the run
+  appears, `status` is `not-registered`, which counts as not settled.
 - **Settled** means `status == "completed"`. Anything else after 30 attempts
   (60 → wait, 30 × 30s = 15 minutes, matched to the workflow's own timeout)
   is the ceiling: stop and report that `smoke` never finished, without
