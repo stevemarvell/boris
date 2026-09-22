@@ -11,7 +11,7 @@ test.describe('the docs Vercel serves', () => {
     await expect(page.getByRole('heading', { name: 'boris docs' })).toBeVisible();
 
     for (const name of [
-      'Stages of agentic adoption',
+      'Steps of AI Adoption',
       'Data governance',
       'Standard operating procedures',
       'Extracting the baseline',
@@ -24,7 +24,7 @@ test.describe('the docs Vercel serves', () => {
 
   test('renders the adoption document, not its Markdown', async ({ page }) => {
     await page.goto('/docs/adoption.html');
-    await expect(page.getByRole('heading', { name: 'Stages of agentic adoption' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Steps of AI Adoption' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '0: Gated' })).toBeVisible();
     await expect(page.locator('body')).not.toContainText('**');
   });

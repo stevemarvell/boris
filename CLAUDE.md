@@ -1,9 +1,9 @@
 # boris
 
-A family tree application, built as a practice ground for climbing the stages in
-`docs/adoption.md` — a rendering of the stages-of-agentic-adoption document
-(Boris Cherny, Jul 2026). Each stage of the climb is deliberate; do not reach for
-tooling that belongs to a later stage.
+A family tree application, built as a practice ground for climbing the steps in
+`docs/adoption.md` — a rendering of *Steps of AI Adoption* (Boris Cherny,
+Jul 2026). Each step of the climb is deliberate; do not reach for tooling that
+belongs to a later step.
 
 `index.html` at the root is the step-0 artifact. It is published at
 `/docs/step-0.html` on the Vercel deployment, along with the rest of the
