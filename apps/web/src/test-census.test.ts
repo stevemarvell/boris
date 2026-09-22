@@ -337,18 +337,19 @@ describe('the premise: this repository can actually be counted', () => {
       (path) => countTests(path, readFileSync(join(root, path), 'utf8')).tabular.length > 0,
     );
 
-    // Four files are table-driven, so a row deleted from inside one of them
+    // Five files are table-driven, so a row deleted from inside one of them
     // is the blind spot this check has. Listing them rather than asserting a
-    // count keeps that visible: a fifth is fine, and has to be a decision
+    // count keeps that visible: a sixth is fine, and has to be a decision
     // somebody made rather than something that drifted in.
     //
-    // The fifth entry is this file, which contains no table at all — it
+    // The sixth entry is this file, which contains no table at all — it
     // *discusses* `it.each` in a comment, and the detector reads comments
     // because it reads text. Being flagged costs it nothing (its declarations
     // are still counted, and a file flagged on both sides stays in the
     // comparison), and the alternative — a detector that parses instead of
     // matching — is not worth what it would cost here.
     expect(tables).toEqual([
+      'apps/api/tests/test_firewall.py',
       'apps/api/tests/test_limits.py',
       'apps/mcp/tests/test_queries.py',
       'apps/mcp/tests/test_relationships.py',

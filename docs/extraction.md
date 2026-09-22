@@ -349,10 +349,11 @@ Stated plainly, because a template that oversells is worse than none.
   and both reviews are advisory, and the reason is written down: a gate that
   goes red for its own reasons is one people learn to click past. A new project
   inherits that judgement and may want a different one.
-- **Two known open defects travel with the code.** The rate limiter's counter is
-  per-process while the platform runs several (#128), and `verify-on-stop.mjs`
-  has no iteration counter (#80). Both are worth fixing in the template rather
-  than in each project that forks it.
+- **One known open defect travels with the code.** `verify-on-stop.mjs` has no
+  iteration counter (#80). Worth fixing in the template rather than in each
+  project that forks it. The rate limiter's counter is per process, which is
+  why the ceiling on Vercel is a WAF rule (`apps/api/firewall.json`, #128). A
+  fork on another platform needs its own edge limit or shared storage.
 - **The e2e suite is the expensive part.** `verify:e2e` needs both toolchains
   and a Playwright browser per worktree. `scripts/bootstrap.mjs` handles it, but
   it is minutes, not seconds, and it is what makes parallel worktrees costly.

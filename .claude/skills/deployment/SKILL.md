@@ -52,13 +52,16 @@ Four settings are load-bearing and non-obvious:
 - The API's `API_RATE_LIMIT` Vercel project environment variable sets the
   per-caller limit on `/graphql` (see `apps/api/src/api/limits.py`). Like
   `API_ENVIRONMENT` it defaults to a real value, `120/minute`, so a deployment
-  nobody configured is still limited. Counters are per *process* and in
-  memory, and on Vercel that ceiling is weaker than it looks: measured against
-  the live deployment, 200 concurrent requests were answered by several
-  execution environments in parallel, each counting independently, rather
-  than by the single process Railway ran — see `api.limits.install_rate_limiting`'s
-  docstring and issue #128, filed for the gap this reopened rather than fixed
-  here. The caller is identified by `X-Vercel-Forwarded-For` (falling back to
+  nobody configured is still limited. Those counters are per *process*, and
+  Vercel answers a burst with several (#128), so the ceiling that holds is the
+  **Vercel WAF rule committed as `apps/api/firewall.json`**. It is not applied
+  by a deploy. After changing the file, apply it by hand with
+  `vercel firewall rules edit "Rate limit the tree" --json "$(node -e
+  'process.stdout.write(JSON.stringify(require("./apps/api/firewall.json").rules[0]))')"
+  --project family-tree-api --scope stevemarvell-team --yes`, then
+  `vercel firewall publish` with the same flags. `API_RATE_LIMIT` does not
+  change it, and `tests/test_firewall.py` goes red if the two disagree. Hobby
+  allows one rate-limit rule per project. The caller is identified by `X-Vercel-Forwarded-For` (falling back to
   `X-Real-IP`, then `X-Forwarded-For`) — see `client_key`'s docstring in
   `apps/api/src/api/limits.py` for what was measured and why, since getting
   this wrong silently defeats the limit.

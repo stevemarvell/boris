@@ -1,9 +1,19 @@
 """Per-client rate limiting for the GraphQL endpoint.
 
 MAX_QUERY_DEPTH in api.schema bounds what a *single* query costs. It says
-nothing about a thousand cheap ones, and this service is one Vercel Python
-function with no WAF of its own in front of it, so the only place a burst can
-be refused is here.
+nothing about a thousand cheap ones. There are two layers, and the edge one is
+the ceiling that holds:
+
+* **The Vercel WAF rule** in apps/api/firewall.json -- the same limit on the
+  same paths, counted per client IP at Vercel's edge, before any function
+  instance runs. Vercel answers a burst with several instances at once, each
+  with its own memory (#128), so only a counter outside the function can be
+  one budget per caller. tests/test_firewall.py holds the file and this module
+  to the same numbers; the smoke workflow's burst proves the rule is applied.
+* **This module**, in process. Per instance on Vercel, so weaker than its
+  number suggests, but it still refuses a single instance's worth, costs
+  nothing, and is the only limit when the app runs anywhere else (local
+  uvicorn, the e2e suite).
 
 Two decisions are worth reading before changing anything:
 

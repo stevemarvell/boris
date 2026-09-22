@@ -219,3 +219,31 @@ jobs:
             -D /tmp/h && grep -i '^access-control-allow-origin' /tmp/h)
           echo "$allowed"
           printf '%s' "$allowed" | grep -qi "$WEB" || { echo "CORS does not allow the web origin" >&2; exit 1; }
+
+      # Last on purpose: this burst spends the runner's whole rate-limit budget
+      # for a minute, and any /graphql step after it would be refused.
+      - name: Check a concurrent burst is refused at the edge
+        run: |
+          # The in-process limiter counts per Vercel instance, and a burst is
+          # answered by several (#128). The ceiling that holds is the WAF rule
+          # in apps/api/firewall.json, counted at Vercel's edge. A refusal from
+          # the edge never reaches the function, so it carries none of
+          # slowapi's X-RateLimit-* headers -- that is how the two are told
+          # apart. 300 requests against 120/60s: even a burst straddling a
+          # fixed-window boundary (at most 240 allowed) must see edge refusals.
+          mkdir -p /tmp/burst
+          seq 1 300 | xargs -P 50 -I{} sh -c 'curl -s -o /dev/null -D /tmp/burst/{} --max-time 30 \
+            -X POST "$API/graphql" -H "content-type: application/json" \
+            -d "{\"query\":\"{ status }\"}" || true'
+          ok=0; app429=0; edge429=0; other=0
+          for f in /tmp/burst/*; do
+            code=$(head -1 "$f" | awk '{print $2}')
+            case "$code" in
+              200) ok=$((ok+1));;
+              429) if grep -qi '^x-ratelimit-limit' "$f"; then app429=$((app429+1)); else edge429=$((edge429+1)); fi;;
+              *) other=$((other+1));;
+            esac
+          done
+          echo "200=$ok app-429=$app429 edge-429=$edge429 other=$other"
+          [ "$edge429" -gt 0 ] || { echo "no request was refused at the edge: the WAF rule is not in force" >&2; exit 1; }
+          [ "$ok" -le 240 ] || { echo "$ok requests allowed against 120/60s: the limit is not holding" >&2; exit 1; }
