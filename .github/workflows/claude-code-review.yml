@@ -176,7 +176,14 @@ jobs:
       # just wrote (see that script's header for why it is not
       # `.claude/settings.json`), and `docs/sops.md` SOP 10 has the rest.
       - name: Install the sandbox's OS dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # With failIfUnavailable set, a sandbox that cannot start fails the
+          # review rather than running it unsandboxed. Prove it can start here,
+          # so a runner that refuses it says so in this step, not mid-review.
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
+            || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
+          echo "bubblewrap started a network-isolated sandbox"
 
       - name: Enable the sandbox for this session's Bash tool
         run: node scripts/write-ci-sandbox-settings.mjs
@@ -274,7 +281,14 @@ jobs:
       # See the same two steps in the code-review job above for why: #150,
       # docs/sops.md SOP 10.
       - name: Install the sandbox's OS dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          # With failIfUnavailable set, a sandbox that cannot start fails the
+          # review rather than running it unsandboxed. Prove it can start here,
+          # so a runner that refuses it says so in this step, not mid-review.
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
+            || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
+          echo "bubblewrap started a network-isolated sandbox"
 
       - name: Enable the sandbox for this session's Bash tool
         run: node scripts/write-ci-sandbox-settings.mjs
