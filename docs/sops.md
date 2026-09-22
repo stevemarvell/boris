@@ -187,22 +187,17 @@ mechanism, not a hand-rolled Messages API loop, so there is no call site to
 attach it to. **Trigger:** this repository starts orchestrating its own agents
 directly against the Messages API rather than through Claude Code.
 
-**LSPs: not applicable.** Claude Code's [code intelligence plugins](https://code.claude.com/docs/en/discover-plugins#code-intelligence)
-(`pyright-lsp`, `typescript-lsp`, from the official marketplace) are free and
-need no third-party signup, and `enabledPlugins` in `.claude/settings.json` is
-a legitimate project-scoped switch for them. What stops short of turning it on
-here: the plugin does not install its language server — each machine needs
-`pyright-langserver` and `typescript-language-server` on `$PATH` itself, which
-is a `package.json`/bootstrap change outside this pull request's files, not a
-settings key; the LSP tool is unavailable in cloud sessions entirely, so it
-would not apply uniformly on the Windows dev machine and the Linux boxes other
-worktrees and CI use; and a plugin whose binary is missing fails quietly with
-an `Executable not found in $PATH` note in the `/plugin` Errors tab rather
-than a build failure — exactly the present-but-inert shape SOP 3 exists to
-catch, and this task has no way to exercise it to confirm otherwise. **Trigger:**
-a change that adds the language-server binaries to `npm run bootstrap` (or
-`uv sync`) for both platforms, at which point `enabledPlugins` is the one-line
-follow-up.
+**LSPs: in use (#160).** Claude Code's [code intelligence plugins](https://code.claude.com/docs/en/discover-plugins#code-intelligence)
+(`pyright-lsp`, `typescript-lsp`, from the official marketplace) are enabled
+project-wide by `enabledPlugins` in `.claude/settings.json`. They are free and
+need no signup. A plugin does not install its own language server, and it only
+looks for one on `$PATH`, so `npm run bootstrap` installs `pyright` and
+`typescript-language-server` globally on any machine that lacks them
+(`scripts/lsp.mjs`). Without them, the plugin fails quietly: an `Executable not
+found in $PATH` note in the `/plugin` Errors tab, and no build failure, which
+is the present-but-inert shape SOP 3 exists to catch. So the first check on a
+new machine is that tab, not the settings key. The LSP tool is unavailable in
+cloud sessions, so there navigation still costs grep-and-read.
 
 ---
 
