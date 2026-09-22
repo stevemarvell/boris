@@ -133,16 +133,23 @@ Then prune locally (the remote branch is deleted automatically —
 `delete_branch_on_merge` is a repository setting, see `CLAUDE.md`):
 
 ```bash
-git worktree remove <path-to-this-worktree>   # if this PR was driven from its own worktree
-git -C <main-checkout> fetch origin --prune
-[ "$(gh pr view <n> --json state --jq .state)" = MERGED ] \
-  && git -C <main-checkout> branch -D <branch-name>
+if [ "$(gh pr view <n> --json state --jq .state)" = MERGED ]; then
+  git worktree remove <path-to-this-worktree>   # if this PR was driven from its own worktree
+  git -C <main-checkout> fetch origin --prune
+  git -C <main-checkout> branch -D <branch-name>
+else
+  echo "PR <n> is not MERGED; leaving the worktree and branch in place" >&2
+fi
 ```
 
-`-D`, not `-d`: a squash merge puts a new commit on `develop`, so git never
-sees the branch as merged and `-d` refuses every time. Forcing it is safe only
-because the guard has just confirmed the PR merged, and GitHub keeps the head
-at `refs/pull/<n>/head`, so nothing is lost.
+Everything destructive sits inside the one guard: nothing is removed until
+GitHub says the merge happened. `-D`, not `-d`: a squash merge puts a new
+commit on `develop`, so git never sees the branch as merged and `-d` refuses
+every time. Forcing it is safe only because the guard has confirmed the PR
+merged, and GitHub keeps the head at `refs/pull/<n>/head`, so nothing is lost.
+On Windows, `git worktree remove` can fail with "Permission denied" while a
+process still holds files in the worktree. Git has already unregistered it by
+then, so delete the leftover directory once that process exits.
 
 ### 5. On hitting a ceiling: stop, comment, report
 
