@@ -205,6 +205,47 @@ Two deliberate choices in that script:
   ends, and a flush on exit is not documented. A short review could otherwise
   finish between exports and report nothing at all.
 
+### Checking it actually arrives
+
+Every telemetry failure here has been silent by construction: a failed OTLP
+export writes nothing to the Actions log, so a broken runner and a working one
+produce the same green job and the same clean log. Three separate causes have
+hidden behind that — wrong temporality (#39), the checked-out `settings.json`
+overriding the endpoint (#43), and the action deleting `.claude` before the CLI
+started (#60). Each was found the same way and could not have been found any
+other way: **read the store's own attributes, never the config.**
+
+Grafana Cloud, Explore, the `grafanacloud-…-prom` datasource, a 7-day window.
+Ask what is actually in there rather than opening a dashboard, which will show
+"No data" identically whether the metric is missing, misnamed, or never sent:
+
+```promql
+count by (environment, terminal_type) ({__name__=~"claude_code.*"})
+```
+
+What the answer means:
+
+| Result | Reading |
+| --- | --- |
+| A series with `environment="ci"` | CI telemetry is arriving. This is the one that matters. |
+| Only `terminal_type="windows-terminal"`, no `environment` | Laptop sessions only. CI is silent — this is the #60 symptom exactly. |
+| Nothing at all | Nothing is reaching the store, laptop included. Check the credential and the overlay before suspecting CI. |
+
+To pin it to one run, narrow by the attributes
+`write-ci-telemetry-settings.mjs` sets — `workflow` is
+`claude-code-review`, `claude-security-review` or `claude-mention`, and
+`run_id` is the GitHub run:
+
+```promql
+claude_code_token_usage_tokens_total{environment="ci", run_id="<the run>"}
+```
+
+One expected gap that is **not** a fault: `claude_code_pull_request_count` has
+no series for a review run. Claude Code emits it only when a session itself
+opens a pull request, and a reviewer does not. Misreading that particular "No
+data" is expensive, because tokens per merged pull request is the panel this
+whole directory exists to produce.
+
 ### Switching it on
 
 Grafana Cloud ships a **Claude Code integration** — Connections, the Claude Code
