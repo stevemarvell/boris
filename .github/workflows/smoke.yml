@@ -197,7 +197,7 @@ jobs:
             if [ -z "$missing" ]; then
               echo "attempt $attempt: every doc page served"
               curl -fsS --max-time 30 "$WEB/docs/adoption.html" \
-                | grep -q 'Stages of agentic adoption' \
+                | grep -q 'Steps of AI Adoption' \
                 || { echo "adoption.html did not render its heading" >&2; exit 1; }
               curl -fsS --max-time 30 "$WEB/docs/data-governance.html" \
                 | grep -q 'Data governance' \

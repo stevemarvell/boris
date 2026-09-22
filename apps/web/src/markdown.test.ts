@@ -15,7 +15,7 @@ describe('escapeHtml', () => {
 
 describe('slug', () => {
   it('makes a heading into an anchor', () => {
-    expect(slug('Stages of agentic adoption')).toBe('stages-of-agentic-adoption');
+    expect(slug('Steps of AI Adoption')).toBe('steps-of-ai-adoption');
     expect(slug('0: Gated')).toBe('0-gated');
     expect(slug('`aia0` — the **first** step')).toBe('aia0-the-first-step');
   });
