@@ -55,6 +55,11 @@ export const MARKDOWN_PAGES = [
     source: join('docs', 'sops.md'),
     blurb: 'How agent work is run here: bounded loops, work that needs a person, and where a control is proven.',
   },
+  {
+    slug: 'extraction',
+    source: join('docs', 'extraction.md'),
+    blurb: 'What in this repository is reusable on another project, and what is a conclusion that must not be copied.',
+  },
 ];
 
 const STYLE = `
