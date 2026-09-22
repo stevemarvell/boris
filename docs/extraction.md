@@ -15,9 +15,10 @@ The reusable part was never mixed in.
 
 Every file in `scripts/`, every hook in `.claude/hooks/`, and the status line
 were counted for references to this project's domain — the words *family*,
-*person*, *spouse*, *generation*, *cousin*, *sibling*. Across 1,980 lines of
-scripts and 407 lines of hooks, the total is **seven**, and every one of them is
-a comment, a CSS `font-family`, or the word "person" used about a human reader:
+*person*, *spouse*, *generation*, *cousin*, *sibling*. Across 1,985 lines of
+scripts and 407 lines of hooks and status line, the total is **eight**, and
+every one of them is a comment, a CSS `font-family`, or the word "person" used
+about a human reader:
 
 | File | Hits | What they are |
 | --- | --- | --- |
