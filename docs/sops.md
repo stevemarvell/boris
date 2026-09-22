@@ -38,6 +38,8 @@ Reaching a ceiling is not a failure to hide. It is the procedure working.
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
 | Polling a deployment in `smoke` | 30 attempts × 15s, 40 for the commit gate | `.github/workflows/smoke.yml`, per loop |
+| Polling `gh pr checks` in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
+| Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 
 `smoke.yml` is the model the rest of this follows. Every one of its waits is a
 `for attempt in $(seq 1 30)` with an explicit `sleep`, an echo per attempt, and
