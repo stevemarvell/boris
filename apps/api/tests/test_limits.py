@@ -328,3 +328,21 @@ def test_the_limit_is_per_caller_not_per_url(
     codes = [client.get(f"/person/{person_id}").status_code for person_id in ids]
 
     assert codes == [200, 200, 200, 429, 429]
+
+
+@pytest.mark.parametrize("raw", ["/%67raphql", "/graph%71l", "/%70erson/p1", "/m%65"])
+def test_a_percent_encoded_limited_path_is_not_served(raw: str) -> None:
+    """The edge rule matches the path text; the app decodes it before routing.
+
+    If Vercel's WAF matched the undecoded path, `/%67raphql` would miss the
+    edge rule and still reach the real /graphql handler, back on the
+    per-instance limiter alone (#128). Refusing any limited path that arrived
+    encoded closes that whatever the edge does, so it need not be measured.
+    """
+    response = TestClient(app).post(raw, json=STATUS_QUERY)
+    assert response.status_code == 404
+
+
+def test_the_canonical_path_is_still_served() -> None:
+    response = TestClient(app).post("/graphql", json=STATUS_QUERY)
+    assert response.status_code == 200

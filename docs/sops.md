@@ -112,11 +112,11 @@ Every one of them surfaced under load against a live deployment, never in the
 suite. The rate-limit key held 84 passing unit tests while enforcing five times
 its configured limit, because `TestClient` is one process with one stable key
 and a deployment is neither; 600 concurrent requests showed it. The counter
-beneath it is the same shape one layer down, and is open as #128: 200
-concurrent requests against the live Vercel API come back from several
-execution environments, each counting its own budget. The fix there is shared
-storage for the counters, which is a larger decision than the cleanup that
-found it.
+beneath it was the same shape one layer down (#128): 200 concurrent requests
+against the live Vercel API came back from several execution environments,
+each counting its own budget. The fix moved the ceiling to Vercel's edge
+(`apps/api/firewall.json`), and `smoke` now fires a burst after every merge
+to prove the edge refuses it.
 
 So when a change adds a control, exercise it against the deployed pull request
 environment and put the real output in the pull request body. A test proves the

@@ -73,11 +73,12 @@ Open is not the same as unguarded. What an anonymous caller can do is bounded
   introspection and serves no GraphiQL. It is never set on the Vercel project,
   so the deployed behaviour is the default and a forgotten variable fails
   closed. Both are confirmed by the table above.
-- **Rate limiting, weaker on Vercel than it was on Railway, and not yet fixed
-  for that.** 120 requests per minute per caller, on `/graphql` only, in
-  `apps/api/src/api/limits.py`. The depth limit caps what one query costs and
-  says nothing about a thousand cheap ones, which matters more than usual
-  here: the API is a Vercel function with no WAF of its own in front of it.
+- **Rate limiting, at Vercel's edge and in process.** 120 requests per minute
+  per client IP, on `/graphql`, `/person` and `/me`. The ceiling that holds is
+  the Vercel WAF rule committed as `apps/api/firewall.json`, counted at the
+  edge before any function instance runs; `apps/api/src/api/limits.py` repeats
+  the limit in process, per instance. The depth limit caps what one query
+  costs and says nothing about a thousand cheap ones.
   `/health` and the manual are deliberately *not* limited — `/health` is the
   path Playwright polls for readiness, and a 429 there is the wrong signal to
   give anything that acts on it.
@@ -94,27 +95,21 @@ Open is not the same as unguarded. What an anonymous caller can do is bounded
   because `TestClient` is one process with one stable key and the deployment
   is neither.
 
-  The *ceiling* half does not hold, and #126's migration is what surfaced it:
-  200 concurrent requests against the live Vercel deployment were answered by
-  several execution environments in parallel, each with its own in-memory
-  counter, rather than by the single process Railway ran — `X-RateLimit-Remaining`
-  repeated the same values instead of draining once. The real ceiling today is
-  the configured limit times however many concurrent instances Vercel chooses
-  to run for a burst, a number this service cannot see or bound. Filed as
-  issue #128 rather than fixed in the migration that found it: a limit that
-  holds under Vercel's concurrency needs shared storage, which is a bigger
-  decision than a platform-retirement cleanup should make unilaterally. That
-  makes five times, not four, that a control here was present, running, and
-  doing less than its own tests and its own docstring claimed — and the only
-  thing that has ever caught one is measuring the deployed service, never the
-  test suite alone. What bounds this one today: the data behind it is
-  invented (see above), the team is on Vercel's Hobby plan by policy, whose
-  own usage caps would surface a large enough burst as a billing or
-  availability problem before it became an unbounded cost, and the limiter
-  still refuses *some* traffic rather than none. The trigger that would void
-  that bound is the same one this whole page turns on: real data, or evidence
-  that a burst large enough to matter is cheap enough for someone to actually
-  run.
+  The in-process *ceiling* does not hold on Vercel, and #126's migration is
+  what surfaced it: 200 concurrent requests against the live deployment were
+  answered by several execution environments in parallel, each with its own
+  in-memory counter — `X-RateLimit-Remaining` repeated the same values instead
+  of draining once. That made five times that a control here was present,
+  running, and doing less than its own tests and docstring claimed. The fix
+  (#128) is the edge rule above: Vercel's WAF rate limiting is available on
+  Hobby at no cost (one rule per project, IP-keyed, fixed window), so no new
+  service or storage was needed. Two limits remain on the WAF itself. Its
+  counters are per *region*, so one caller spread across regions could exceed
+  the limit, though a single address reaches one region. And the rule is
+  applied with `vercel firewall`, not by a deploy, so the file and the live
+  config can drift: `tests/test_firewall.py` holds the file to `limits.py`,
+  and the `smoke` workflow's last step fires a 300-request burst and fails
+  unless the edge refuses some of it.
 - **A gate on the query console.** The API serves its own manual at its root,
   and that manual carries a **Run query** button posting to `/graphql` on the
   same origin: a working console, no setup, no CORS negotiation. It is gated

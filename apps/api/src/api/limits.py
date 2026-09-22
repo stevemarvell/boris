@@ -1,9 +1,19 @@
 """Per-client rate limiting for the GraphQL endpoint.
 
 MAX_QUERY_DEPTH in api.schema bounds what a *single* query costs. It says
-nothing about a thousand cheap ones, and this service is one Vercel Python
-function with no WAF of its own in front of it, so the only place a burst can
-be refused is here.
+nothing about a thousand cheap ones. There are two layers, and the edge one is
+the ceiling that holds:
+
+* **The Vercel WAF rule** in apps/api/firewall.json -- the same limit on the
+  same paths, counted per client IP at Vercel's edge, before any function
+  instance runs. Vercel answers a burst with several instances at once, each
+  with its own memory (#128), so only a counter outside the function can be
+  one budget per caller. tests/test_firewall.py holds the file and this module
+  to the same numbers; the smoke workflow's burst proves the rule is applied.
+* **This module**, in process. Per instance on Vercel, so weaker than its
+  number suggests, but it still refuses a single instance's worth, costs
+  nothing, and is the only limit when the app runs anywhere else (local
+  uvicorn, the e2e suite).
 
 Two decisions are worth reading before changing anything:
 
@@ -185,7 +195,19 @@ class GraphQLRateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         limiter: Limiter = request.app.state.limiter
-        if not limiter.enabled or not is_limited_path(request.url.path):
+        if not is_limited_path(request.url.path):
+            return await call_next(request)
+
+        # The edge rule in firewall.json matches path text, and this app
+        # routes on the *decoded* path. A limited path that arrived
+        # percent-encoded (/%67raphql) is refused outright, so it can never
+        # reach a handler while missing the edge rule, however Vercel's WAF
+        # treats encoding.
+        raw_path = request.scope.get("raw_path")
+        if raw_path is not None and raw_path.decode("latin-1") != request.url.path:
+            return Response(status_code=404)
+
+        if not limiter.enabled:
             return await call_next(request)
 
         error_response, inject_headers = await async_check_limits(
