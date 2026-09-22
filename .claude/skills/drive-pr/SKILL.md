@@ -185,8 +185,12 @@ it, rather than assuming the merge was fine because `verify` was:
 sha=$(gh pr view <n> --json mergeCommit --jq .mergeCommit.oid)
 for attempt in $(seq 1 30); do
   run=$(gh run list --workflow smoke --branch develop --commit "$sha" -L 1 \
-          --json databaseId,status,conclusion)
-  status=$(echo "$run" | jq -r '.[0].status // "not-registered"')
+          --json databaseId,status,conclusion --jq '.[0]')
+  # gh's own --jq, not a jq binary: jq is not installed on every machine
+  # this runs on, and without it every poll fails and the loop runs to its
+  # ceiling reporting nothing.
+  status=$(gh run list --workflow smoke --branch develop --commit "$sha" -L 1 \
+             --json status --jq '.[0].status // "not-registered"')
   echo "attempt $attempt: $run"
   [ "$status" = "completed" ] && break
   sleep 30
@@ -213,7 +217,8 @@ explicitly, since the command does not decide for you:
 
 ```bash
 labels=medium            # or: labels=critical,security  -- see above
-id=$(echo "$run" | jq -r '.[0].databaseId')
+id=$(gh run list --workflow smoke --branch develop --commit "$sha" -L 1 \
+       --json databaseId --jq '.[0].databaseId')
 gh run view "$id" --log-failed > /tmp/smoke-failure.log
 gh issue create \
   --title "smoke failed after merging #<n>" \
