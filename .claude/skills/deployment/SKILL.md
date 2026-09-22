@@ -33,8 +33,9 @@ Four settings are load-bearing and non-obvious:
   `vercel.json` sets an `ignoreCommand` running `scripts/vercel-ignore.mjs`,
   which diffs `VERCEL_GIT_PREVIOUS_SHA` (the last *successful* deployment, so
   never a skipped one) against `HEAD` over the paths that project reads, and
-  skips when nothing changed. A branch's first push has no previous SHA and
-  compares with `develop`'s tip. Exit 0 means *skip*; every failure path
+  skips when nothing changed. A branch's first push has no previous SHA, and
+  Vercel's clone cannot fetch `develop` (no credentials — measured on #168),
+  so it compares with the nearest squash-merge ancestor instead (`forkPoint`). Exit 0 means *skip*; every failure path
   exits 1 and builds. The path lists are in the script, and a new top-level
   directory rebuilds the web app until it is listed.
 - `smoke.yml`'s commit gate (#50) accepts a deployed API whose `apps/api` is

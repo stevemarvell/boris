@@ -17,7 +17,8 @@
 // The base is VERCEL_GIT_PREVIOUS_SHA — the last *successful* deployment of
 // this project on this branch — so a skipped build never becomes a base, and
 // the next build diffs against the last one that actually shipped. A branch's
-// first push has none; that compares against develop's tip instead.
+// first push has none; that compares against where it left develop instead
+// (`forkPoint`).
 //
 // smoke.yml asks the same question after a merge (`paths api`), so a skipped
 // API build is not mistaken for a stale one.
@@ -72,18 +73,34 @@ export function decide(project, env, git) {
       return { build: true, reason: `cannot fetch the previous deployment's commit ${base}` };
     }
   } else {
-    if (git(['fetch', '--no-tags', '--depth=1', 'origin', 'develop']).status !== 0) {
-      return { build: true, reason: 'no previous deployment, and cannot fetch develop to compare with' };
-    }
-    const tip = git(['rev-parse', 'FETCH_HEAD']);
-    if (tip.status !== 0) return { build: true, reason: 'cannot resolve develop' };
-    base = tip.stdout.trim();
+    base = forkPoint(git);
+    if (!base) return { build: true, reason: 'no previous deployment, and no merged pull request in the clone' };
   }
 
   const diff = git(['diff', '--quiet', base, 'HEAD', '--', ...pathspecs]);
   if (diff.status === 0) return { build: false, reason: `nothing ${project} reads changed since ${base}` };
   if (diff.status === 1) return { build: true, reason: `${project} changed since ${base}` };
   return { build: true, reason: `git diff failed against ${base}` };
+}
+
+// Where a branch left develop, found without develop. Vercel's clone has no
+// credentials to fetch it — measured on #168's own first build — but it does
+// hold the branch's last few ancestors, and develop's commits are recognisable:
+// squash merges, committed by GitHub, with one parent and a "(#123)" subject.
+// A branch's own commits are committed locally, and GitHub's "update branch"
+// merges have two parents, so neither is mistaken for one. The nearest such
+// ancestor is the fork point, or near enough that the diff only over-counts.
+export function forkPoint(git) {
+  const log = git(['log', '-n', '50', '--format=%H%x09%P%x09%ce%x09%s', 'HEAD']);
+  if (log.status !== 0) return null;
+  for (const line of log.stdout.split('\n')) {
+    const [sha, parents, committer, subject] = line.split('\t');
+    if (!sha || parents === undefined || subject === undefined) continue;
+    if (committer === 'noreply@github.com' && parents.split(' ').length === 1 && /\(#\d+\)$/.test(subject)) {
+      return sha;
+    }
+  }
+  return null;
 }
 
 function hasCommit(git, sha) {

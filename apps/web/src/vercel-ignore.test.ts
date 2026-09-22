@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decide, type Git } from '../../../scripts/vercel-ignore.mjs';
+import { decide, forkPoint, type Git } from '../../../scripts/vercel-ignore.mjs';
 
 // A git stand-in: answers by the first argument, and records every call.
 function fakeGit(answers: Record<string, { status: number; stdout?: string }>) {
@@ -49,16 +49,45 @@ describe('decide', () => {
     expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
   });
 
-  it("compares a branch's first push with develop", () => {
-    const { git, calls } = fakeGit({ 'rev-parse': { status: 0, stdout: 'dev123\n' }, diff: { status: 0 } });
+  it("compares a branch's first push with where it left develop", () => {
+    const log = 'dev123\tpar1\tnoreply@github.com\tAdd a thing (#42)\n';
+    const { git, calls } = fakeGit({ log: { status: 0, stdout: log }, diff: { status: 0 } });
     expect(decide('web', {}, git).build).toBe(false);
-    expect(calls).toContainEqual(['fetch', '--no-tags', '--depth=1', 'origin', 'develop']);
     expect(calls.find((c) => c[0] === 'diff')?.slice(0, 4)).toEqual(['diff', '--quiet', 'dev123', 'HEAD']);
   });
 
-  it("builds a branch's first push when develop cannot be fetched", () => {
-    const { git } = fakeGit({ fetch: { status: 128 } });
+  it("builds a branch's first push when no fork point is in the clone", () => {
+    const { git } = fakeGit({ log: { status: 0, stdout: 'abc\tpar\tme@example.com\tWork\n' } });
     expect(decide('web', {}, git).build).toBe(true);
+  });
+});
+
+describe('forkPoint', () => {
+  const at = (stdout: string) => forkPoint(fakeGit({ log: { status: 0, stdout } }).git);
+
+  it('picks the nearest squash merge, past the branch’s own commits', () => {
+    expect(
+      at(
+        'b2\tb1\tme@example.com\tFix review finding (#7)\n' +
+          'b1\td2\tme@example.com\tStart\n' +
+          'd2\td1\tnoreply@github.com\tAdd a thing (#42)\n' +
+          'd1\td0\tnoreply@github.com\tAdd another (#41)\n',
+      ),
+    ).toBe('d2');
+  });
+
+  it('never takes a GitHub "update branch" merge, which carries the branch’s own changes', () => {
+    expect(
+      at(
+        'm1\tb1 d3\tnoreply@github.com\tMerge branch develop into feat (#9)\n' +
+          'b1\td2\tme@example.com\tStart\n' +
+          'd2\td1\tnoreply@github.com\tAdd a thing (#42)\n',
+      ),
+    ).toBe('d2');
+  });
+
+  it('gives up when git log fails', () => {
+    expect(forkPoint(fakeGit({ log: { status: 128 } }).git)).toBeNull();
   });
 });
 
