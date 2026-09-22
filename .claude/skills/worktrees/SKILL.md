@@ -24,7 +24,8 @@ End-to-end ports are derived from the worktree directory name by
 ## Previews
 
 A branch gets a Vercel preview of the web app and, separately, one of the API
-— every push builds both projects, but a web build never reads its own
+— each only when the branch changes what that project reads (the
+`deployment` skill has the ignore step) — but a web build never reads its own
 branch's API preview: `VITE_API_URL` always resolves to the one production
 API, so a branch with no pull request open is no different from one with one.
 Vercel tears down neither kind of preview, so a stuck one has to be removed by
