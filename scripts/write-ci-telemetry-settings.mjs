@@ -1,37 +1,43 @@
-// Point a GitHub runner's Claude Code session at Grafana Cloud, by writing
-// .claude/settings.local.json before the session starts.
+// Point a GitHub runner's Claude Code session at Grafana Cloud, by writing a
+// settings file the session loads with `--settings` before it starts.
 //
-// The workflow cannot do this with environment variables, and that is the whole
-// reason this file exists. Claude Code merges settings files by level —
-// .claude/settings.local.json (project local) outranks .claude/settings.json
-// (shared project), which outranks ~/.claude/settings.json (user) — and an
-// `env` block is an ordinary key that follows those levels. Crucially, a
-// settings `env` entry also beats the *process* environment: "Claude Code
-// writes each env entry into the process environment, replacing the value
-// inherited from the shell" (https://code.claude.com/docs/en/env-vars).
+// This used to write `.claude/settings.local.json`, on the theory that
+// *project local* outranks the committed `.claude/settings.json` and
+// therefore beats the endpoint it points at a laptop's collector
+// (`http://localhost:4317`). That was correct about Claude Code's own
+// precedence and still wrong in practice: `claude-code-action` checks out a
+// pull request's head to review it, and — because that content is
+// attacker-controlled — restores `.claude`, `.mcp.json`, `CLAUDE.md` and a
+// handful of other paths from the base branch immediately before the CLI
+// starts (`restoreConfigFromBase` in the action's own source). That restore
+// deletes the whole `.claude` directory first, including any untracked file
+// under it. A `.claude/settings.local.json` written by an earlier workflow
+// step exists for a few dozen seconds and is gone before Claude Code ever
+// reads it — CI silently falls back to the committed `localhost:4317` again,
+// which is the exact failure this file was first written to fix. Issue #60
+// found it by reading Grafana Cloud itself: every session in the store, CI
+// runs included, carried `terminal_type=windows-terminal` and no
+// `environment` label at all.
 //
-// This repository's committed .claude/settings.json points
-// OTEL_EXPORTER_OTLP_ENDPOINT at http://localhost:4317, because a laptop
-// session reports to the collector in telemetry/. That file is checked out on
-// the runner too, where it overwrote the Grafana Cloud endpoint the workflow
-// had just exported — so every CI run shipped its metrics to a port nothing
-// was listening on. An OTLP export that fails writes nothing to the Actions
-// log, so the run looked identical to a working one: green, fully
-// credentialed, and silent. It went unnoticed until the cloud dashboard was
-// read attribute by attribute and reported 100% windows hosts over 24 hours,
-// with three Linux review runs missing.
+// The fix this time works outside the path the restore can reach. Claude
+// Code's settings precedence, highest first, is: managed settings, the
+// `--settings` command-line flag, project local, shared project, user
+// (https://code.claude.com/docs/en/settings). `--settings` outranks project
+// local, so it does not need to survive as a project-local file at all — and
+// writing it to `$RUNNER_TEMP` rather than the checkout means
+// `restoreConfigFromBase` never touches it, because that function only
+// deletes and restores paths under the checked-out working tree.
 //
-// Writing the project-local file is the fix that works *with* that precedence
-// rather than against it. It has a second benefit worth keeping in mind:
-// claude-code-action forwards exactly nine OTEL_* variables from env into the
-// CLI (see its action.yml), and
-// OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE is not one of them. Values
-// written here reach the session whether the action forwards them or not.
+// This also still sidesteps the second limit the project-local approach was
+// chosen for: `claude-code-action` forwards exactly nine `OTEL_*` variables
+// from `env` into the CLI, and
+// `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` is not one of them. A
+// value in a settings file arrives regardless of which nine the action
+// forwards.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-export const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 /**
  * A credential arriving through a GitHub secret is not attacker-controlled, but
@@ -142,9 +148,20 @@ export function ciTelemetryEnv(env = process.env) {
   };
 }
 
-export function writeCiTelemetrySettings(env = process.env, root = REPO_ROOT) {
+/**
+ * Where the settings file goes: outside the checked-out working tree, so
+ * `claude-code-action`'s restore of PR-untrusted paths (which operates on
+ * `.claude` and friends inside the checkout, not on `$RUNNER_TEMP`) cannot
+ * reach it. `RUNNER_TEMP` is set on every GitHub Actions runner; `tmpdir()`
+ * is the fallback for running this outside CI (locally, or in this file's
+ * own tests).
+ */
+export function defaultSettingsPath(env = process.env) {
+  return join(env.RUNNER_TEMP || tmpdir(), 'claude-ci-telemetry-settings.json');
+}
+
+export function writeCiTelemetrySettings(env = process.env, path = defaultSettingsPath(env)) {
   const block = ciTelemetryEnv(env);
-  const path = join(root, '.claude', 'settings.local.json');
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify({ env: block }, null, 2)}\n`);
   return { path, enabled: block.CLAUDE_CODE_ENABLE_TELEMETRY === '1' };
@@ -155,7 +172,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   // Never print the block itself; it carries the credential.
   console.log(
     enabled
-      ? `Telemetry on: wrote ${path} pointing this session at Grafana Cloud.`
+      ? `Telemetry on: wrote ${path} for this session's --settings flag to load.`
       : `Telemetry off: wrote ${path} with CLAUDE_CODE_ENABLE_TELEMETRY=0 (no credential).`,
   );
 }

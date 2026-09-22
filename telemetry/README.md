@@ -169,13 +169,31 @@ overwrote it, and every run shipped its metrics to a port nothing was listening
 on. Nothing failed: the job was green, the credential was present, the log was
 clean, and the dashboard was empty.
 
-`scripts/write-ci-telemetry-settings.mjs` writes
-`.claude/settings.local.json` instead, which is *project local* and therefore
-outranks the committed `.claude/settings.json`. Working with the precedence
-rather than against it also sidesteps a second limit: `claude-code-action`
-forwards exactly nine `OTEL_*` variables from `env` into the CLI, and
-`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` is not among them — a value
-written into the settings file arrives regardless.
+`scripts/write-ci-telemetry-settings.mjs` writes a settings file instead, and
+the session loads it with `--settings` in `claude_args`. That flag outranks
+even a project-local file
+(<https://code.claude.com/docs/en/settings>), so a value in it arrives
+regardless of the committed `.claude/settings.json` — and it sidesteps a
+second limit too: `claude-code-action` forwards exactly nine `OTEL_*`
+variables from `env` into the CLI, and
+`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` is not among them. A value
+in a settings file arrives regardless of which nine the action forwards.
+
+This script used to write `.claude/settings.local.json`, reasoning that
+*project local* outranks the committed `.claude/settings.json`. That was true
+and still wasn't enough: `claude-code-action` checks out a pull request's
+head to review it, and because that content is untrusted, it deletes and
+restores `.claude` (along with `.mcp.json`, `CLAUDE.md` and a few other
+paths) from the base branch immediately before the CLI starts. A
+`.claude/settings.local.json` written by an earlier workflow step is gone by
+the time Claude Code reads it, and CI falls back to the committed
+`localhost:4317` again — silently, the same way it did the first time. Issue
+#60 caught it by reading Grafana Cloud's own attributes: every session in the
+store, CI runs included, carried `terminal_type=windows-terminal` and no
+`environment` label at all, nine days after the settings-file fix had
+supposedly landed. Writing the file to `$RUNNER_TEMP` and loading it with
+`--settings` keeps it outside the checkout entirely, where that restore never
+looks.
 
 Two deliberate choices in that script:
 
