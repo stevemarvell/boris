@@ -94,10 +94,15 @@ documentation — see "Documentation".
   stale, because nothing connects a merge to a line in it. Close an item the
   way the work closes it — a `Closes #<n>` line in a pull request body. Write
   that example with a placeholder, never a real number: spelling one out to
-  illustrate the rule closes that issue on merge. Labels carry the structure:
-  `aia0`/`aia1`/`aia2` for the adoption step, `security` for exposure, and one
-  of `critical`/`high`/`medium` for how bad it is and therefore when it gets
-  done.
+  illustrate the rule closes that issue on merge. Where the issue's done-when
+  is confirmation *outside* the repository, `Closes` belongs on the pull
+  request that confirms, not the one that fixes — merging a fix is not
+  evidence it worked. #60 wanted CI metrics found in Grafana Cloud and
+  auto-closed on the fix's merge, two pull requests before anyone could look;
+  the fix happened to be right, and nothing about the merge said so. Labels
+  carry the structure: `aia0`/`aia1`/`aia2` for the adoption step, `security`
+  for exposure, and one of `critical`/`high`/`medium` for how bad it is and
+  therefore when it gets done.
 
 - **One scale ranks everything.** `critical`/`high`/`medium` carries both how
   bad a thing is and when it gets done. There is no second severity axis: two
