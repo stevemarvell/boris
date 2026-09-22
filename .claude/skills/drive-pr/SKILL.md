@@ -190,7 +190,14 @@ done
   an issue from it — the record this project's `smoke`-after-merge row
   currently has no mechanism for at all (issue #149's third row):
 
+Rank the new issue before filing it. It is `medium` unless the log tail shows
+something that contradicts `docs/data-governance.md`'s bounds (real data
+reachable, authentication changed unexpectedly). That ranks `critical` per
+SOP 5, adds `security`, and the issue body says why. Set the labels
+explicitly, since the command does not decide for you:
+
 ```bash
+labels=medium            # or: labels=critical,security  -- see above
 id=$(echo "$run" | jq -r '.[0].databaseId')
 gh run view "$id" --log-failed > /tmp/smoke-failure.log
 gh issue create \
@@ -198,13 +205,8 @@ gh issue create \
   --body "$(printf '%s\n\n```\n%s\n```\n' \
     "Refs #<n>. Failing step's log tail:" \
     "$(tail -n 60 /tmp/smoke-failure.log)")" \
-  --label medium
+  --label "$labels"
 ```
-
-Rank the new issue `medium` unless the log tail shows something that
-contradicts `docs/data-governance.md`'s bounds (real data reachable,
-authentication changed unexpectedly) — that ranks `critical` per SOP 5, and
-the issue body says why.
 
 This loop is deliberately separate from steps 1–5 above: it starts only
 after a merge has actually happened, so a ceiling hit here never blocks or
