@@ -181,6 +181,14 @@ jobs:
           # With failIfUnavailable set, a sandbox that cannot start fails the
           # review rather than running it unsandboxed. Prove it can start here,
           # so a runner that refuses it says so in this step, not mid-review.
+          # Ubuntu 24.04 lets only AppArmor-profiled binaries create the user
+          # namespace bubblewrap needs. Grant that to /usr/bin/bwrap alone --
+          # Ubuntu's documented route -- rather than lifting the restriction
+          # system-wide.
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
             || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
           echo "bubblewrap started a network-isolated sandbox"
@@ -286,6 +294,14 @@ jobs:
           # With failIfUnavailable set, a sandbox that cannot start fails the
           # review rather than running it unsandboxed. Prove it can start here,
           # so a runner that refuses it says so in this step, not mid-review.
+          # Ubuntu 24.04 lets only AppArmor-profiled binaries create the user
+          # namespace bubblewrap needs. Grant that to /usr/bin/bwrap alone --
+          # Ubuntu's documented route -- rather than lifting the restriction
+          # system-wide.
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true \
             || { echo "bubblewrap cannot start a sandbox on this runner" >&2; exit 1; }
           echo "bubblewrap started a network-isolated sandbox"
