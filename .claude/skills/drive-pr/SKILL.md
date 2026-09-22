@@ -19,33 +19,35 @@ that pull request's branch is available (this worktree, or run
 
 ### 1. Poll checks until settled — ceiling: 40 polls × 30s
 
-"Settled" is a fact about the exit code, not a guess from reading output:
+"Settled" is a fact read from each check's `bucket`, not a guess from reading
+output, and **not the exit code**. With `--json`, `gh pr checks` exits `0`
+while checks are still pending: exit `8` only happens without `--json`. The
+first real run of this skill (#165) settled on its first poll for exactly
+that reason, with three checks still pending.
 
 ```bash
 for attempt in $(seq 1 40); do
-  out=$(gh pr checks <n> --json bucket,name,link,state 2>&1)
-  code=$?
-  echo "attempt $attempt: gh pr checks exit=$code"
-  # 8 is gh's own "checks pending" exit code. Right after a push, GitHub has
-  # not registered any runs yet and gh exits 1 with "no checks reported" --
-  # that is also not-yet-settled, not a failure.
-  if [ "$code" = "8" ] || printf '%s' "$out" | grep -q 'no checks reported'; then
-    sleep 30; continue
-  fi
+  buckets=$(gh pr checks <n> --json bucket --jq '[.[].bucket] | join(" ")' 2>&1)
+  echo "attempt $attempt: $buckets"
+  # Right after a push GitHub has registered nothing yet: gh says "no checks
+  # reported", or the list is empty. Both mean not yet settled.
+  case " $buckets " in
+    *" pending "*|"  "|*"no checks reported"*) sleep 30; continue;;
+  esac
   break
 done
 ```
 
-- Exit code `8`, or "no checks reported" (nothing registered yet), means
-  pending — the only two states this loop treats as "keep waiting".
-- Any other exit code means settled: `0` is every check passed (or none
-  required), non-zero-non-8 means at least one failed. Either way, stop
-  polling and move to step 2.
+- Any `pending` bucket, an empty list, or "no checks reported" means not
+  settled. These are the only states this loop treats as "keep waiting".
+- Otherwise it is settled: all `pass`/`skipping` means green, and any `fail`
+  or `cancel` means at least one failed. Either way, stop polling and move to
+  step 2.
 - This runs longer than a single command should block for (40 × 30s = 20
   minutes) — launch it with `run_in_background` and wait for it, rather than
   a foreground call that will itself be interrupted.
 
-**Ceiling hit** (still exit `8` after 40 attempts): stop. Do not merge, do
+**Ceiling hit** (still pending after 40 attempts): stop. Do not merge, do
 not start fixing findings against checks that never finished. Go straight to
 step 5.
 
@@ -133,16 +135,23 @@ Then prune locally (the remote branch is deleted automatically —
 `delete_branch_on_merge` is a repository setting, see `CLAUDE.md`):
 
 ```bash
-git worktree remove <path-to-this-worktree>   # if this PR was driven from its own worktree
-git -C <main-checkout> fetch origin --prune
-[ "$(gh pr view <n> --json state --jq .state)" = MERGED ] \
-  && git -C <main-checkout> branch -D <branch-name>
+if [ "$(gh pr view <n> --json state --jq .state)" = MERGED ]; then
+  git worktree remove <path-to-this-worktree>   # if this PR was driven from its own worktree
+  git -C <main-checkout> fetch origin --prune
+  git -C <main-checkout> branch -D <branch-name>
+else
+  echo "PR <n> is not MERGED; leaving the worktree and branch in place" >&2
+fi
 ```
 
-`-D`, not `-d`: a squash merge puts a new commit on `develop`, so git never
-sees the branch as merged and `-d` refuses every time. Forcing it is safe only
-because the guard has just confirmed the PR merged, and GitHub keeps the head
-at `refs/pull/<n>/head`, so nothing is lost.
+Everything destructive sits inside the one guard: nothing is removed until
+GitHub says the merge happened. `-D`, not `-d`: a squash merge puts a new
+commit on `develop`, so git never sees the branch as merged and `-d` refuses
+every time. Forcing it is safe only because the guard has confirmed the PR
+merged, and GitHub keeps the head at `refs/pull/<n>/head`, so nothing is lost.
+On Windows, `git worktree remove` can fail with "Permission denied" while a
+process still holds files in the worktree. Git has already unregistered it by
+then, so delete the leftover directory once that process exits.
 
 ### 5. On hitting a ceiling: stop, comment, report
 
