@@ -195,7 +195,19 @@ class GraphQLRateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         limiter: Limiter = request.app.state.limiter
-        if not limiter.enabled or not is_limited_path(request.url.path):
+        if not is_limited_path(request.url.path):
+            return await call_next(request)
+
+        # The edge rule in firewall.json matches path text, and this app
+        # routes on the *decoded* path. A limited path that arrived
+        # percent-encoded (/%67raphql) is refused outright, so it can never
+        # reach a handler while missing the edge rule, however Vercel's WAF
+        # treats encoding.
+        raw_path = request.scope.get("raw_path")
+        if raw_path is not None and raw_path.decode("latin-1") != request.url.path:
+            return Response(status_code=404)
+
+        if not limiter.enabled:
             return await call_next(request)
 
         error_response, inject_headers = await async_check_limits(
