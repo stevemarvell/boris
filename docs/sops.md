@@ -507,3 +507,107 @@ company SOP 1 keeps. This is discipline, the same category as SOP 4's
 context budget. What it changes is what a review reads for: a pull request
 claiming visual correctness with nothing looked at is the same shape SOP 3
 exists to catch — a control that looks like it ran and did not.
+
+---
+
+## SOP 10: A permission gate is not an execution sandbox
+
+#118 and #150 name the same gap. The auto-mode classifier and the two
+permission files (SOP 7) decide *whether* a command runs. Neither one
+constrains what it can reach once it does — same machine, same filesystem,
+same credentials, same network. #150's nearest concrete case: the two
+review jobs in `.github/workflows/claude-code-review.yml` read a pull
+request's *head*, which `docs/data-governance.md` already treats as
+untrusted, with a Bash tool that can run `gh pr diff` and `gh pr view`.
+
+### What runs sandboxed today
+
+Both review jobs. Each carries a new pair of steps, right after the
+telemetry one:
+
+```yaml
+- name: Install the sandbox's OS dependencies
+  run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+- name: Enable the sandbox for this session's Bash tool
+  run: node scripts/write-ci-sandbox-settings.mjs
+```
+
+Claude Code's own sandbox — the built-in one, not the standalone
+`sandbox-runtime` package #150 also names, which wraps a whole process
+rather than one tool inside a session Claude Code already runs — puts
+`bubblewrap` around every Bash, PowerShell, and Monitor command. The
+GitHub-hosted Ubuntu runner does not carry `bubblewrap` or `socat` by
+default, so the first step installs them; the second writes `sandbox`
+settings into the same out-of-checkout file
+`scripts/write-ci-telemetry-settings.mjs` already writes, for the reason
+that file's own header gives for #60 and #157 record hardening: this job
+checks out a pull request's *head* to review it, and `claude-code-action`
+deletes and restores `.claude` from the *base* branch immediately before
+the CLI starts, so nothing written under the checkout survives to be read.
+`scripts/write-ci-sandbox-settings.mjs` merges a `sandbox` key into that
+same file rather than writing a second one, because nothing here
+establishes that the action's `--settings` flag can be given twice.
+
+The configuration: `enabled: true`, `failIfUnavailable: true`,
+`allowUnsandboxedCommands: false`, `network.strictAllowlist: true`,
+`network.allowedDomains` limited to the GitHub hosts `gh pr diff` and
+`gh pr view` need. `failIfUnavailable` is the choice that matters most —
+the sandbox's own default when a dependency is missing is to warn and run
+unsandboxed, which is exactly the "present, configured, and quietly inert"
+shape SOP 3 exists to catch. Failing the job instead turns a missing
+package into a build failure somebody has to fix, not a review that ran
+open the whole time. `allowUnsandboxedCommands: false` removes the escape
+hatch that lets a blocked command retry outside the sandbox — this job's
+`--allowedTools` already narrows its Bash tool to two read-only `gh`
+commands, so a command the sandbox cannot run is a command this job should
+not run at all, given the two credentials the step holds.
+
+**Evidence goes in the pull request body that adds this SOP**, per SOP 3:
+the log line where the sandbox initialises on the actual CI run, not a
+unit test asserting the settings object has the right shape. A test
+proves `ciSandboxSettings()` returns `{enabled: true, ...}`; only the
+runner proves bubblewrap is there and Claude Code used it.
+
+### What is deliberately not sandboxed
+
+**Local sessions on the maintainer's machine, which is Windows 11,
+native.** Claude Code's sandbox runs on macOS, Linux, and WSL2 only —
+native Windows is unsupported, and the only way to get it here would be
+running the whole session inside a WSL2 distribution, which is a bigger
+change than this issue's scope and not one to make silently as a side
+effect of closing it.
+
+This is the outcome #150 names as legitimate — "a note records why this
+project deliberately runs without one" — for the half of the gap CI
+cannot close. It is bounded the same way #150 itself bounds the rest of
+the gap it names: one person has write access (#103's trigger), the data
+is invented (`docs/data-governance.md`), and the realistic risk on a
+laptop session is a prompt-injected agent rather than a malicious one. CI
+was the sharper case *because* it is the one place here that already
+reads content nobody here wrote — a laptop session reads whatever the
+person at the keyboard points it at, which is a different, and today
+still open, question. **What would void this:** a second person with
+write access, real data, or a laptop session routinely running third-party
+content it fetched at run time — a dependency README, a fetched page — the
+same trigger #150 names for the gap as a whole. Any of the three makes
+running Claude Code inside WSL2 (or accepting the loss of the platforms
+that still lack a sandbox) worth doing rather than deferring.
+
+Nothing here changes `.claude/settings.json`'s own `sandbox` key, which
+would be the way to turn this on for interactive sessions on a supported
+platform. That is a separate decision — whether to require it project-wide
+now that CI proves the mechanism works — and belongs with whoever next
+edits that file, not folded into this one silently.
+
+### What enforces this
+
+**In CI: partially mechanical.** `failIfUnavailable: true` makes a missing
+dependency a job failure rather than a silent fallback — that half is
+real. Nothing here stops a future edit to `claude-code-review.yml` from
+deleting the two sandbox steps entirely; the workflow-validation rule
+`scripts/assert-review-ran.mjs` documents (a pull request changing
+`.github/workflows/` gets no automated review of that change at all) means
+a change removing the sandbox is exactly the kind of change that ships
+without one. **Locally: nothing.** Sandboxing a laptop session, on a
+platform where it is available, is discipline — the same category SOP 1
+places the model-driven loops in.

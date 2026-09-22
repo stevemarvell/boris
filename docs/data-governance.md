@@ -218,6 +218,27 @@ rule deciding which reviews run is not the branch's copy. The
 two credentialed jobs still check out the merge ref, because a reviewer that
 cannot read the change under review is not a reviewer.
 
+### What the sandbox added for #150 changes here, and what it does not
+
+Both credentialed jobs now run their Bash tool — `gh pr diff` and
+`gh pr view`, the only two commands their `--allowedTools` permits —
+inside Claude Code's own sandbox; `docs/sops.md` SOP 10 has the
+configuration. It bounds what those two commands can reach once the
+*session* asks to run them: `bubblewrap` enforces the filesystem and
+network rules at the OS level, on the process, rather than a permission
+rule deciding whether to allow the call.
+
+It does not touch the bound above. The step that runs
+`scripts/write-ci-telemetry-settings.mjs` — the one with the Grafana
+credential live in its environment, from branch code — is a GitHub
+Actions `run:` step: plain Node, executed before `claude-code-action`
+starts a session at all. The sandbox wraps commands the session runs once
+it is running; it has no reach into the workflow step that precedes it.
+So the exposure this section describes is still bound by "one person has
+write access," exactly as before — the sandbox is a second layer around
+what the reviewing session itself can do with its two allowed commands,
+not a boundary around the step that hands it the credential.
+
 ### A third job of the same shape, holding a different thing
 
 `contention` in `.github/workflows/contention.yml` carries no Grafana
