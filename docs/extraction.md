@@ -16,16 +16,17 @@ The reusable part was never mixed in.
 Every file in `scripts/`, every hook in `.claude/hooks/`, and the status line
 were counted for references to this project's domain — the words *family*,
 *person*, *spouse*, *generation*, *cousin*, *sibling*. Across 1,985 lines of
-scripts and 407 lines of hooks and status line, the total is **eight**, and
-every one of them is a comment, a CSS `font-family`, or the word "person" used
-about a human reader:
+scripts and 407 lines of hooks and status line, the total is **eight**, and not
+one of them is domain logic. Each is a comment, a CSS property, or published
+copy, and where a domain word does appear it means something else — a human
+reader, or a sibling pull request:
 
 | File | Hits | What they are |
 | --- | --- | --- |
-| `scripts/write-api-url.mjs` | 3 | a comment naming the deployment hostname |
+| `scripts/write-api-url.mjs` | 3 | comments: the deployment hostname twice, and "a person or an agent" |
 | `scripts/build-docs.mjs` | 3 | a footer link, a blurb, and `font-family` |
-| `scripts/pr-contention.mjs` | 1 | "a person reading the comment" |
-| `scripts/assert-review-ran.mjs` | 1 | "the text a person reading the log sees" |
+| `scripts/pr-contention.mjs` | 1 | a docstring's "each of its open siblings" — sibling pull requests |
+| `scripts/assert-review-ran.mjs` | 1 | a comment's "the text a person reading the pull request will find" |
 | everything else | 0 | — |
 
 So the honest answer to "how do I extract the reusable part" is that for most of
