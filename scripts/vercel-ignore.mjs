@@ -54,7 +54,7 @@ export const PATHSPECS = {
     ':(exclude,glob)**/*.test.tsx',
     // Scripts only CI and local tooling run. The build's own — write-api-url,
     // build-docs and what they import — stay in, as does anything new.
-    ...['assert-review-ran', 'bootstrap', 'lsp', 'paths', 'ports', 'pr-contention', 'review-scope', 'test-census', 'vercel-prune']
+    ...['assert-review-ran', 'bootstrap', 'lsp', 'paths', 'ports', 'pr-contention', 'review-scope', 'test-census', 'triage', 'vercel-prune']
       .map((name) => `:(exclude,glob)scripts/${name}.*`),
     ':(exclude,glob)scripts/write-ci-*',
   ],
