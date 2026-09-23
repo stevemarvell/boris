@@ -123,7 +123,7 @@ Production history is trimmed the same way: every merge makes a production
 deployment and Vercel keeps them all, so each close (and each manual run) also
 runs `vercel-prune.mjs history`. It keeps the deployment each app's alias
 points at, and the newest `KEEP_PRODUCTION` (3) built ones for instant
-rollback; it leaves anything newer than the live one or still building, and
+rollback; it leaves any built deployment newer than the live one and anything still building (cancelled and failed records go whatever their age), and
 deletes nothing if the alias lookup fails. `docs/data-governance.md` has why
 the token is safe to hold.
 

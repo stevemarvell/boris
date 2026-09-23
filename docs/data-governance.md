@@ -265,7 +265,7 @@ own when its pull request closes, and — run by hand — every preview whose
 branch no longer exists. It also trims production history (`history`): Vercel
 keeps a production deployment per merge, forever, and this keeps only the one
 serving each app — found from the app's alias, never inferred — and the newest
-few built ones; anything newer than the live one or still building is left. A Vercel token cannot be narrowed below the team, so
+few built ones; a built deployment newer than the live one, or one still building, is left, and cancelled or failed records, which never served, go. A Vercel token cannot be narrowed below the team, so
 the token could do anything the team can, including delete production.
 
 It is not in the class above, because no branch code runs beside it. The
