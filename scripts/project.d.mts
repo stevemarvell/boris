@@ -4,8 +4,6 @@ export interface App {
   reads: string[];
   ignores?: string[];
   vercelProject?: string;
-  url?: string;
-  commitEndpoint?: string;
 }
 export interface Project {
   name: string;

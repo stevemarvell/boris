@@ -2,14 +2,14 @@
 //
 // Everything under .claude/, scripts/ and .github/ that needs to know what
 // the application is — where its apps live, what toolchain each uses, what a
-// build reads, which Vercel project deploys it and where it answers — asks
+// build reads and which Vercel project deploys it — asks
 // this module, which reads project.json at the repository root. Swapping the
 // family tree for another application means editing apps/ and project.json;
 // nothing here names an app.
 //
 // The manifest is validated on load, so a typo fails the first hook or script
 // that reads it, loudly, rather than turning into a build that silently never
-// happens.
+// happens. A field is added when something reads it, not before (#174's review).
 //
 // CLI, for workflows and shells:
 //
@@ -44,8 +44,9 @@ export function validate(project) {
     if (!TOOLCHAINS.has(app.toolchain)) fail(`${at}.toolchain must be one of ${[...TOOLCHAINS].join(', ')}`);
     if (!Array.isArray(app.reads) || app.reads.length === 0) fail(`${at}.reads must list at least one path`);
     if (app.ignores !== undefined && !Array.isArray(app.ignores)) fail(`${at}.ignores must be a list`);
-    const deployed = ['vercelProject', 'url', 'commitEndpoint'].filter((k) => app[k] !== undefined);
-    if (deployed.length && deployed.length !== 3) fail(`${at} must set vercelProject, url and commitEndpoint together, or none`);
+    if (app.vercelProject !== undefined && (typeof app.vercelProject !== 'string' || !app.vercelProject)) {
+      fail(`${at}.vercelProject must be a non-empty string`);
+    }
   }
   return project;
 }

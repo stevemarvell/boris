@@ -9,16 +9,12 @@
       "path": "apps/api",
       "toolchain": "python",
       "vercelProject": "family-tree-api",
-      "url": "https://family-tree-api-stevemarvell-team.vercel.app",
-      "commitEndpoint": "/health",
       "reads": ["apps/api"]
     },
     "web": {
       "path": "apps/web",
       "toolchain": "node",
       "vercelProject": "family-tree-web",
-      "url": "https://family-tree-web-eta.vercel.app",
-      "commitEndpoint": "/docs/version.json",
       "reads": [
         "apps/web",
         "docs",
@@ -30,12 +26,19 @@
         "scripts/markdown.mjs",
         "scripts/write-api-url.mjs"
       ],
-      "ignores": ["apps/web/e2e", "**/*.test.ts", "**/*.test.tsx"]
+      "ignores": [
+        "apps/web/e2e",
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ]
     },
     "mcp": {
       "path": "apps/mcp",
       "toolchain": "python",
-      "reads": ["apps/mcp", "apps/api"]
+      "reads": [
+        "apps/mcp",
+        "apps/api"
+      ]
     }
   }
 }

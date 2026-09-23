@@ -29,8 +29,6 @@ const minimal = (): Project => ({
       reads: ['apps/ui', 'docs'],
       ignores: ['apps/ui/e2e', '**/*.test.ts'],
       vercelProject: 'thing-ui',
-      url: 'https://thing.example',
-      commitEndpoint: '/version.json',
     },
   },
 });
@@ -80,10 +78,10 @@ describe('validate', () => {
     expect(() => validate(absolute)).toThrow(/apps\.svc\.path/);
   });
 
-  it('refuses a half-declared deployment', () => {
-    const half = minimal();
-    delete half.apps.ui!.url;
-    expect(() => validate(half)).toThrow(/vercelProject, url and commitEndpoint together/);
+  it('refuses an empty Vercel project name', () => {
+    const empty = minimal();
+    empty.apps.ui!.vercelProject = '';
+    expect(() => validate(empty)).toThrow(/apps.ui.vercelProject/);
   });
 
   it('refuses a project with no apps', () => {
@@ -162,7 +160,10 @@ describe('the AI layer names no application', () => {
     const names = [
       project.name,
       project.vercel.team,
-      ...apps(project).flatMap(([, app]) => [app.path, app.vercelProject, app.url].filter(Boolean)),
+      ...apps(project).flatMap(([, app]) => [app.path, app.vercelProject].filter(Boolean)),
+      // No hostname either: deployment URLs are not in the manifest yet, so
+      // this is the generic suffix every one of them shares.
+      'vercel.app',
     ] as string[];
     for (const file of files) {
       const text = readFileSync(join(REPO_ROOT, file), 'utf8');
