@@ -2,6 +2,7 @@ export interface App {
   path: string;
   toolchain: 'python' | 'node';
   reads: string[];
+  verify?: string[];
   ignores?: string[];
   vercelProject?: string;
   url?: string;

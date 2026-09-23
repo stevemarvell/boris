@@ -81,8 +81,8 @@ export function fixCommands(filePath, project = loadProject()) {
  * dependency injection is the straightforward way to observe the exact argv
  * this function passes on without touching that module.
  */
-export function runFixes(filePath, { exec = execFileSync } = {}) {
-  for (const { command, args } of fixCommands(filePath)) {
+export function runFixes(filePath, { exec = execFileSync, project } = {}) {
+  for (const { command, args } of fixCommands(filePath, project)) {
     try {
       // shell is left at its default of false: execFileSync hands `command`
       // straight to the OS with `args` as a literal argv array, so nothing

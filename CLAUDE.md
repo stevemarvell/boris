@@ -1,29 +1,35 @@
 # boris
 
-A family tree application, built as a practice ground for climbing the steps in
+A practice ground for climbing the steps in
 `docs/adoption.md` — a rendering of *Steps of AI Adoption* (Boris Cherny,
 Jul 2026). Each step of the climb is deliberate; do not reach for tooling that
 belongs to a later step.
 
+The repository is two layers (#173). **The AI layer** — `.claude/`,
+`scripts/`, `.github/`, `telemetry/`, and this file — is the loop: verify,
+review, isolate, deploy, smoke, triage. **The application** — `apps/`, today a
+family tree — is what the loop works on. The AI layer learns about the
+application only from `project.json`. The application's own rules, layout,
+deployments and run commands are in **`apps/CLAUDE.md`**; read it before
+working under `apps/`.
+
 `index.html` at the root is the step-0 artifact. It is published at
 `/docs/step-0.html` on the Vercel deployment, along with the rest of the
-documentation — see "Documentation".
+documentation — see `apps/CLAUDE.md`.
 
 ## Layout
 
 | Path | Holds |
 | --- | --- |
-| `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Vercel. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root, so that a Vercel project rooted at `apps/api` bundles both without reaching outside its own root directory (#126). |
-| `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
-| `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
+| `apps/` | The application, with its own `CLAUDE.md`. |
 | `project.json` | The one place the AI layer (`.claude/`, `scripts/`, `.github/`) learns about the apps: paths, toolchains, build inputs, Vercel projects (#173). Read through `scripts/project.mjs`. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run; `extraction.md`, what here is reusable on another project and what is a conclusion that must not be copied. |
-| `manual/web/` | The web app's reference manual. Ships to Vercel with it. |
+| `manual/web/` | The web app's reference manual (see `apps/CLAUDE.md`). |
 
 ## Rules
 
-- **`npm run verify` is the contract.** It runs the AI layer's own tests, ruff,
-  pytest, typecheck, eslint, the web tests, and the build. Never report work as done until it
+- **`npm run verify` is the contract.** It runs the AI layer's own tests, then
+  every app's own `verify` commands from `project.json`. Never report work as done until it
   passes — run it yourself rather than asking someone else to. A `Stop` hook
   runs it automatically when tracked files have changed, so a red loop blocks
   the turn rather than producing a claim.
@@ -50,23 +56,6 @@ documentation — see "Documentation".
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
   reword, summarise, or drop content, and keep every link intact.
-
-- **A person is a name plus relationships, stored minimally.** Each person
-  records only their parents and their spouse. Siblings, grandparents, cousins
-  and children are *derived*, never stored — a file that can contradict itself
-  will eventually contradict itself.
-
-- **The deployed data is invented, and public on purpose.** The API is
-  unauthenticated and the tree is one anonymous POST away, which is fine
-  because `data/family.json` contains nobody. `docs/data-governance.md` records
-  what is exposed, what bounds it, and the trigger that voids the decision:
-  real data. Read it before adding anything that serves, stores, or exposes
-  data — and before proposing authentication, because CORS has to move in the
-  same change.
-
-- **Merging deploys.** `develop` publishes both Vercel projects — the frontend
-  and its docs, and the API and its manual. The approval path and the release
-  path are the same.
 
 - **Deployment config lives in the repo, not in dashboards.** A setting only
   visible in a web console is invisible to everyone working here.
@@ -112,31 +101,11 @@ documentation — see "Documentation".
   something bounds it — the issue says what, and what would void it.
   `docs/sops.md` SOP 5.
 
-## Deployments
+## Deployments and documentation
 
-| What | Where | Built from |
-| --- | --- | --- |
-| API | <https://family-tree-api-stevemarvell-team.vercel.app> | Vercel project `family-tree-api`, root directory `apps/api` |
-| Web | Vercel project `family-tree-web` | root directory `apps/web`, deploys from `develop` |
-| Docs | `/docs/` on the Vercel deployment | `apps/web/scripts/build-docs.mjs`, run by the web `prebuild` |
-| API manual | `/` on the Vercel API | `apps/api/manual/`, bundled into the deployment |
-
-Both deployments are Vercel end to end. GitHub Pages is not an option here —
-paid-plan-only on a private repository.
-
-Several settings here are load-bearing, non-obvious, and were each learned by
-something breaking quietly — how the API's `[tool.vercel] entrypoint`
-resolves, how `API_ENVIRONMENT`, `API_RATE_LIMIT` and `VITE_API_URL` resolve,
-and how preview environments live and die. **Read the `deployment` skill
-before changing anything that deploys.** It is application knowledge, so it
-lives with the apps, in `apps/.claude/skills/`, not in the AI layer (#173).
-
-## Documentation
-
-`/docs/` on Vercel carries the project documentation; the API serves its own
-manual at its root. Adding a page touches six files and missing one means a
-page that builds locally and 404s live — **read the `docs-site` skill**
-(`apps/.claude/skills/docs-site`).
+What deploys where, and how the published docs are built, is application
+knowledge: `apps/CLAUDE.md`, and the `deployment` and `docs-site` skills in
+`apps/.claude/skills/`. The AI layer's view of it is `project.json`.
 
 ## Running it
 
@@ -149,33 +118,18 @@ what CI runs. But if you change a dependency, do the lock step with
 `npx npm@11 install`.
 
 ```bash
-npm install && npm run dev            # web app on http://localhost:5173
-cd apps/api && API_ENVIRONMENT=development uv run uvicorn api.main:app --reload   # API on :8000
-```
-
-`API_ENVIRONMENT=development` opts back into the GraphQL IDE, introspection and
-the manual's query console, all three off by default; omit it and the API
-behaves exactly as in production. The `deployment` skill has the rest.
-
-```bash
-npm run verify        # everything, about a minute
-npm run verify:harness  # the AI layer's own tests, scripts/test (#173)
-npm run verify:api    # ruff + pytest
-npm run verify:web    # typecheck + eslint + vitest + build
-npm run verify:e2e    # playwright against the built bundle and a real uvicorn
+npm run verify                     # everything, about a minute
+npm run verify:harness             # the AI layer's own tests, scripts/test
+npm run verify:apps                # every app's own checks, from project.json
+node scripts/verify-apps.mjs web   # one app's: typecheck, eslint, vitest, build, e2e
 ```
 
 CI runs `verify` on every pull request and on pushes to `develop`, and the
 branch ruleset requires it to pass before a merge. A red loop cannot land.
 
-The e2e suite runs against the **built bundle** via `vite preview` and a **real
-uvicorn**, never the dev server and never a mocked `fetch`. That is deliberate:
-every failure this project has had — Railpack ignoring `railway.json`, Vercel
-building the wrong directory, the Dockerfile not copying `data/`, CORS refusing
-`127.0.0.1` — was configuration that unit tests structurally cannot reach.
-
-A `smoke` workflow runs after each merge to `develop` and checks the deployed
-API and web app, allowing for a Vercel cold start. Claude Code Review comments
+A `smoke` workflow runs after each merge to `develop`: for each deployed app
+in `project.json`, it waits for the deployment to be this commit, then runs
+that app's own checks (`scripts/smoke.mjs`). Claude Code Review comments
 on every pull request; it is advisory, and `verify` is the only required check.
 
 ## Worktrees

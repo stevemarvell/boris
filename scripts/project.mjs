@@ -62,6 +62,9 @@ export function validate(project) {
     if (!TOOLCHAINS.has(app.toolchain)) fail(`${at}.toolchain must be one of ${[...TOOLCHAINS].join(', ')}`);
     if (!Array.isArray(app.reads) || app.reads.length === 0) fail(`${at}.reads must list at least one path`);
     if (app.ignores !== undefined && !Array.isArray(app.ignores)) fail(`${at}.ignores must be a list`);
+    if (app.verify !== undefined && !(Array.isArray(app.verify) && app.verify.every((c) => typeof c === 'string' && c.trim()))) {
+      fail(`${at}.verify must be a list of commands`);
+    }
     if (app.vercelProject !== undefined && (typeof app.vercelProject !== 'string' || !app.vercelProject)) {
       fail(`${at}.vercelProject must be a non-empty string`);
     }

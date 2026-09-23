@@ -21,4 +21,5 @@ export declare function prune(options: {
   rule: Rule;
   dryRun?: boolean;
   log?: (line: string) => void;
+  projects?: string[];
 }): Promise<{ project: string; id: string; branch: string }[]>;

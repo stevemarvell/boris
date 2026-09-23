@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { canonical } from '../paths.mjs';
+import { apps, loadProject } from '../project.mjs';
 import {
   ACKNOWLEDGEMENT,
   census,
@@ -294,13 +295,14 @@ describe('the premise: this repository can actually be counted', () => {
     .filter(Boolean);
   const testFiles = everything.filter(isTestFile);
 
-  it('finds every suite, including the ones not in apps/web', () => {
+  it("finds every suite: the AI layer's own, and one in every declared app", () => {
     expect(testFiles.length).toBeGreaterThan(10);
     expect(testFiles).toContain('scripts/test/test-census.test.ts');
-    expect(testFiles.some((path) => path.startsWith('apps/web/src/'))).toBe(true);
-    expect(testFiles.some((path) => path.startsWith('apps/api/tests/'))).toBe(true);
-    expect(testFiles.some((path) => path.startsWith('apps/mcp/tests/'))).toBe(true);
-    expect(testFiles.some((path) => path.endsWith('.spec.ts'))).toBe(true);
+    // Every app project.json declares, not a list of the ones anyone thinks
+    // of first — the list this replaced named three directories (#173).
+    for (const [name, app] of apps(loadProject())) {
+      expect(testFiles.some((path) => path.startsWith(`${app.path}/`)), name).toBe(true);
+    }
   });
 
   it('leaves behind no file that looks like a test', () => {
@@ -340,13 +342,14 @@ describe('the premise: this repository can actually be counted', () => {
     // are still counted, and a file flagged on both sides stays in the
     // comparison), and the alternative — a detector that parses instead of
     // matching — is not worth what it would cost here.
-    expect(tables).toEqual([
-      'apps/api/tests/test_firewall.py',
-      'apps/api/tests/test_limits.py',
-      'apps/mcp/tests/test_queries.py',
-      'apps/mcp/tests/test_relationships.py',
-      'apps/mcp/tests/test_server.py',
-      'scripts/test/test-census.test.ts',
-    ]);
+    // Outside the application, the list is exact. Inside it, which files are
+    // table-driven is the application's business (#173: the AI layer's tests
+    // name no app), so each has only to sit inside a declared app; the
+    // census names every one of them in its summary on the pull request, which
+    // is where a new one is seen.
+    const appPaths = apps(loadProject()).map(([, app]) => `${app.path}/`);
+    const inApps = tables.filter((path) => appPaths.some((prefix) => path.startsWith(prefix)));
+    expect(tables.filter((path) => !inApps.includes(path))).toEqual(['scripts/test/test-census.test.ts']);
+    expect(inApps.length).toBeGreaterThan(0);
   });
 });

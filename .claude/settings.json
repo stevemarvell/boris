@@ -16,8 +16,8 @@
     "allow": [
       "Bash(npm run verify)",
       "Bash(npm run verify:harness)",
-      "Bash(npm run verify:api)",
-      "Bash(npm run verify:web)",
+      "Bash(npm run verify:apps)",
+      "Bash(node scripts/verify-apps.mjs*)",
       "Bash(npm run typecheck)",
       "Bash(npm run lint)",
       "Bash(npm run build)",
@@ -42,7 +42,6 @@
       "Bash(curl -s localhost:*)",
       "Bash(curl -s http://localhost:*)",
       "Bash(curl -s http://127.0.0.1:*)",
-      "Bash(npm run verify:e2e)",
       "Bash(git ls-tree *)",
       "mcp__claude-in-chrome__get_page_text",
       "mcp__claude-in-chrome__find",

@@ -22,15 +22,12 @@ playwright-report/
 design/*.html
 !design/*.dc.html
 
-# Local secrets — telemetry/.env holds the Grafana admin password. The
-# committed apps/web/.env.production is a public URL and is deliberately not
-# matched by this.
+# Local secrets — telemetry/.env holds the Grafana admin password. An app's
+# committed .env.production (a public URL) is deliberately not matched by this.
+# Each app's own build output is ignored by that app's .gitignore (#173).
 .env
 
 # Written by scripts/write-ci-telemetry-settings.mjs on a runner, and by
 # anyone overriding project settings locally. Never committed.
 .claude/settings.local.json
 
-# Built by apps/web/scripts/build-docs.mjs on every web build. Vite copies it into the
-# bundle; it is output, not content.
-apps/web/public/

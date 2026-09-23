@@ -4,6 +4,35 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { decide, forkPoint, type Git } from '../vercel-ignore.mjs';
+import type { Project } from '../project.mjs';
+
+// The layout these tests build in a temporary repository, declared the way
+// project.json declares it. A fixture, not the live manifest: this tests the
+// ignore step's decisions, whatever the application is (#173's proof found
+// these tests had been asserting the family tree's layout instead).
+const FIXTURE: Project = {
+  name: 'thing',
+  vercel: { team: 't' },
+  apps: {
+    api: {
+      path: 'apps/api',
+      toolchain: 'python',
+      vercelProject: 'thing-api',
+      url: 'https://api.example',
+      commitEndpoint: '/health',
+      reads: ['apps/api'],
+    },
+    web: {
+      path: 'apps/web',
+      toolchain: 'node',
+      vercelProject: 'thing-web',
+      url: 'https://web.example',
+      commitEndpoint: '/version.json',
+      reads: ['apps/web', 'docs', 'manual/web', 'index.html', 'package.json', 'package-lock.json', 'scripts/markdown.mjs'],
+      ignores: ['apps/web/e2e', '**/*.test.ts', '**/*.test.tsx'],
+    },
+  },
+};
 
 // A git stand-in: answers by the first argument, and records every call.
 function fakeGit(answers: Record<string, { status: number; stdout?: string }>) {
@@ -19,46 +48,46 @@ function fakeGit(answers: Record<string, { status: number; stdout?: string }>) {
 describe('decide', () => {
   it('skips when the diff since the previous deployment is empty', () => {
     const { git } = fakeGit({ diff: { status: 0 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(false);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(false);
   });
 
   it('builds when the diff since the previous deployment is not empty', () => {
     const { git } = fakeGit({ diff: { status: 1 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
   });
 
   it('builds when git diff errors rather than answering', () => {
     const { git } = fakeGit({ diff: { status: 128 } });
-    expect(decide('web', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
+    expect(decide('web', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
   });
 
   it('builds an unknown project without touching git', () => {
     const { git, calls } = fakeGit({});
-    expect(decide('not-in-project-json', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
+    expect(decide('not-in-project-json', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
     expect(calls).toEqual([]);
   });
 
   it('fetches the previous commit when the shallow clone lacks it', () => {
     const { git, calls } = fakeGit({ 'cat-file': { status: 1 }, diff: { status: 0 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(false);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(false);
     expect(calls).toContainEqual(['fetch', '--no-tags', '--depth=1', 'origin', 'abc']);
   });
 
   it('builds when the previous commit cannot be fetched', () => {
     const { git } = fakeGit({ 'cat-file': { status: 1 }, fetch: { status: 128 } });
-    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
+    expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git, FIXTURE).build).toBe(true);
   });
 
   it("compares a branch's first push with where it left develop", () => {
     const log = 'dev123\tpar1\tnoreply@github.com\tAdd a thing (#42)\n';
     const { git, calls } = fakeGit({ log: { status: 0, stdout: log }, diff: { status: 0 } });
-    expect(decide('web', {}, git).build).toBe(false);
+    expect(decide('web', {}, git, FIXTURE).build).toBe(false);
     expect(calls.find((c) => c[0] === 'diff')?.slice(0, 4)).toEqual(['diff', '--quiet', 'dev123', 'HEAD']);
   });
 
   it("builds a branch's first push when no fork point is in the clone", () => {
     const { git } = fakeGit({ log: { status: 0, stdout: 'abc\tpar\tme@example.com\tWork\n' } });
-    expect(decide('web', {}, git).build).toBe(true);
+    expect(decide('web', {}, git, FIXTURE).build).toBe(true);
   });
 });
 
@@ -112,7 +141,7 @@ describe('pathspecs', () => {
     write(path, 'changed');
     commit();
     const env = { VERCEL_GIT_PREVIOUS_SHA: base };
-    return { api: decide('api', env, git).build, web: decide('web', env, git).build };
+    return { api: decide('api', env, git, FIXTURE).build, web: decide('web', env, git, FIXTURE).build };
   };
 
   beforeEach(() => {

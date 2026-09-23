@@ -68,7 +68,7 @@ describe('listDeployments', () => {
       urls.push(url);
       return pages[urls.length - 1]!;
     };
-    const result = await listDeployments(fetchJson, 'family-tree-web', 'x');
+    const result = await listDeployments(fetchJson, 'thing-front', 'x');
     expect(result.map((d) => d.uid)).toEqual(['a', 'b']);
     expect(urls[0]).toContain('branch=x');
     expect(urls[1]).toContain('until=111');
@@ -80,7 +80,7 @@ describe('listDeployments', () => {
       calls++;
       return { deployments: [], pagination: { next: calls } };
     };
-    await expect(listDeployments(fetchJson, 'family-tree-api')).rejects.toThrow(/more than 20 pages/);
+    await expect(listDeployments(fetchJson, 'thing-back')).rejects.toThrow(/more than 20 pages/);
     expect(calls).toBe(MAX_PAGES);
   });
 });
@@ -107,8 +107,11 @@ describe('main', () => {
 });
 
 describe('prune', () => {
+  // Fixture projects, not project.json's: this tests the pruning, whatever the
+  // application is (#173).
+  const projects = ['thing-front', 'thing-back'];
   const fetchJson: FetchJson = async (url) => ({
-    deployments: url.includes('family-tree-web')
+    deployments: url.includes('thing-front')
       ? [preview('w1', 'gone'), preview('w2', 'live'), { id: 'w3', target: null, meta: { githubCommitRef: 'gone' } }]
       : [preview('a1', 'gone'), { uid: 'a2', target: 'production', meta: { githubCommitRef: 'develop' } }],
     pagination: { next: null },
@@ -121,13 +124,13 @@ describe('prune', () => {
       remove: async (id) => removed.push(id),
       rule: { live: new Set(['live']) },
       log: () => {},
+      projects,
     });
-    // Project order is project.json's, so compare as sets.
-    expect([...removed].sort()).toEqual(['a1', 'w1', 'w3']);
-    expect(deleted.map((d) => `${d.project}:${d.id}`).sort()).toEqual([
-      'family-tree-api:a1',
-      'family-tree-web:w1',
-      'family-tree-web:w3',
+    expect(removed).toEqual(['w1', 'w3', 'a1']);
+    expect(deleted.map((d) => `${d.project}:${d.id}`)).toEqual([
+      'thing-front:w1',
+      'thing-front:w3',
+      'thing-back:a1',
     ]);
   });
 
@@ -140,9 +143,10 @@ describe('prune', () => {
       rule: { live: new Set(['live']) },
       dryRun: true,
       log: (line) => lines.push(line),
+      projects,
     });
     expect(removed).toEqual([]);
     expect(deleted).toHaveLength(3);
-    expect(lines).toContain('would delete family-tree-web w1 (gone)');
+    expect(lines[0]).toBe('would delete thing-front w1 (gone)');
   });
 });

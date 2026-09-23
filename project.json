@@ -8,16 +8,29 @@
     "api": {
       "path": "apps/api",
       "toolchain": "python",
+      "verify": [
+        "uv run ruff check .",
+        "uv run pytest -q"
+      ],
       "vercelProject": "family-tree-api",
       "url": "https://family-tree-api-stevemarvell-team.vercel.app",
       "commitEndpoint": "/health",
       "smoke": "apps/api/smoke.sh",
       "reads": ["apps/api"],
-      "ignores": ["apps/api/smoke.sh"]
+      "ignores": [
+        "apps/api/smoke.sh"
+      ]
     },
     "web": {
       "path": "apps/web",
       "toolchain": "node",
+      "verify": [
+        "npm run typecheck",
+        "npm run lint",
+        "npm run test",
+        "npm run build",
+        "npm run e2e"
+      ],
       "vercelProject": "family-tree-web",
       "url": "https://family-tree-web-eta.vercel.app",
       "commitEndpoint": "/docs/version.json",
@@ -41,6 +54,10 @@
     "mcp": {
       "path": "apps/mcp",
       "toolchain": "python",
+      "verify": [
+        "uv run --frozen ruff check .",
+        "uv run --frozen pytest -q"
+      ],
       "reads": [
         "apps/mcp",
         "apps/api"

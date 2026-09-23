@@ -72,9 +72,10 @@ export async function listDeployments(fetchJson, project, branch) {
 }
 
 /** Delete what `rule` selects across both projects. Returns what it did. */
-export async function prune({ fetchJson, remove, rule, dryRun = false, log = console.log }) {
+/** `projects` defaults to project.json's deployed apps; tests pass their own (#173). */
+export async function prune({ fetchJson, remove, rule, dryRun = false, log = console.log, projects = PROJECTS }) {
   const deleted = [];
-  for (const project of PROJECTS) {
+  for (const project of projects) {
     const deployments = await listDeployments(fetchJson, project, rule.branch);
     for (const d of select(deployments, rule)) {
       const id = d.uid ?? d.id;

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +14,17 @@ type Manifest = {
 const read = (dir: string): Manifest => JSON.parse(readFileSync(join(ROOT, dir, 'package.json'), 'utf8')) as Manifest;
 const declared = (m: Manifest) => ({ ...m.dependencies, ...m.devDependencies });
 
+// The workspace directories an entry names. "apps/*" is a glob since #173
+// (so the root names no app); npm takes the directories under it that hold a
+// package.json, and so does this.
+const expand = (entry: string): string[] => {
+  if (!entry.endsWith('/*')) return [entry];
+  const parent = entry.slice(0, -2);
+  return readdirSync(join(ROOT, parent), { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(join(ROOT, parent, d.name, 'package.json')))
+    .map((d) => `${parent}/${d.name}`);
+};
+
 // The root declares the AI layer's own test tools (#173) at the same versions
 // a workspace may also use, so npm installs one copy. Nothing else keeps the
 // two declarations equal: bump one and npm quietly installs two, and
@@ -26,7 +37,9 @@ describe('shared tool versions', () => {
     const rootDeps = declared(root);
     expect(root.workspaces?.length ?? 0).toBeGreaterThan(0);
     const mismatches: string[] = [];
-    for (const workspace of root.workspaces ?? []) {
+    const workspaces = (root.workspaces ?? []).flatMap(expand);
+    expect(workspaces.length).toBeGreaterThan(0);
+    for (const workspace of workspaces) {
       for (const [name, version] of Object.entries(declared(read(workspace)))) {
         if (name in rootDeps && rootDeps[name] !== version) {
           mismatches.push(`${name}: root ${rootDeps[name]}, ${workspace} ${version}`);

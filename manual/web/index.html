@@ -1087,14 +1087,15 @@ uv run uvicorn api.main:app --reload    # the API on :8000</code></pre>
               <td>Everything below, in order. This is the contract.</td>
             </tr>
             <tr>
-              <td><code>npm run verify:web</code></td>
+              <td><code>node scripts/verify-apps.mjs web</code></td>
               <td>
                 <code>tsc --noEmit</code>, ESLint, Vitest, then
-                <code>vite build</code>
+                <code>vite build</code>, then Playwright &mdash; the web
+                app&rsquo;s <code>verify</code> list in <code>project.json</code>
               </td>
             </tr>
             <tr>
-              <td><code>npm run verify:e2e</code></td>
+              <td><code>npm run e2e</code> (in <code>apps/web</code>)</td>
               <td>
                 Playwright against the built bundle and a real uvicorn, on ports
                 derived from the worktree name

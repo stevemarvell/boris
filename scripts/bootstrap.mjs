@@ -4,7 +4,7 @@
 import { execSync } from 'node:child_process';
 import { missingPackages } from './lsp.mjs';
 import { apps, loadProject } from './project.mjs';
-import { ports } from './ports.mjs';
+import { BAND, BASE_PORT, portOffset } from './ports.mjs';
 
 const run = (command) => {
   process.stdout.write(`$ ${command}\n`);
@@ -21,8 +21,12 @@ run('npx playwright install chromium');
 const packages = missingPackages();
 if (packages.length) run(`npm install -g ${packages.join(' ')}`);
 
-const { api, web } = ports();
+// Which servers an app's e2e suite starts is the app's business (its own
+// ports() call), so this reports only the rule and this worktree's offset,
+// not a list of names it would have to guess (#180's review).
+const offset = portOffset();
 process.stdout.write(
-  `\nThis worktree uses E2E ports api=${api} web=${web}.\n` +
-    `They are derived from the directory name, so parallel worktrees do not collide.\n`,
+  `\nThis worktree's E2E port offset is ${offset}: the nth server an e2e config names gets ` +
+    `${BASE_PORT} + ${BAND}×(n-1) + ${offset}, so the first is ${BASE_PORT + offset}.\n` +
+    `Derived from the directory name, so parallel worktrees do not collide.\n`,
 );
