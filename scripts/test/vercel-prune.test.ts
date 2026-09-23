@@ -3,12 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  KEEP_PRODUCTION,
   MAX_PAGES,
   isPreview,
   listDeployments,
   main,
   prune,
+  pruneHistory,
   select,
+  selectHistory,
   type Deployment,
   type FetchJson,
 } from '../vercel-prune.mjs';
@@ -148,5 +151,94 @@ describe('prune', () => {
     expect(removed).toEqual([]);
     expect(deleted).toHaveLength(3);
     expect(lines[0]).toBe('would delete thing-front w1 (gone)');
+  });
+});
+
+// Production history: one deployment per merge, kept forever on this plan.
+const prod = (id: string, created: number, state = 'READY'): Deployment => ({
+  uid: id,
+  target: 'production',
+  state,
+  created,
+  meta: { githubCommitRef: 'develop', githubCommitSha: `sha${id}` },
+});
+const ids = (ds: Deployment[]) => ds.map((d) => d.uid).sort();
+
+describe('selectHistory', () => {
+  // Newest first by created: p9 is live.
+  const history = [
+    prod('p9', 900),
+    prod('c8', 800, 'CANCELED'),
+    prod('p7', 700),
+    prod('p6', 600),
+    prod('e5', 500, 'ERROR'),
+    prod('p4', 400),
+    prod('p3', 300),
+    prod('p2', 200),
+  ];
+
+  it('keeps the live deployment and the newest built ones, and removes the rest', () => {
+    // Kept: p9 (live), p7, p6 — three built. Gone: older built, and every
+    // cancelled or failed record, which never served anything.
+    expect(ids(selectHistory(history, { liveId: 'p9', keep: 3 }))).toEqual(['c8', 'e5', 'p2', 'p3', 'p4']);
+  });
+
+  it('keeps three built deployments by default', () => {
+    expect(KEEP_PRODUCTION).toBe(3);
+    expect(selectHistory(history, { liveId: 'p9' })).toHaveLength(5);
+  });
+
+  it('never removes anything newer than the live deployment: history ahead of a rollback', () => {
+    // Rolled back to p6: p9, c8 and p7 are newer than what is serving.
+    const doomed = ids(selectHistory(history, { liveId: 'p6', keep: 1 }));
+    for (const newer of ['p9', 'c8', 'p7']) expect(doomed).not.toContain(newer);
+    expect(doomed).not.toContain('p6');
+  });
+
+  it('never removes a build still in flight', () => {
+    const building = [prod('p9', 900), prod('b1', 100, 'BUILDING'), prod('q1', 50, 'QUEUED')];
+    expect(selectHistory(building, { liveId: 'p9', keep: 1 })).toEqual([]);
+  });
+
+  it('never touches a preview, whatever the list contains', () => {
+    const mixed = [prod('p9', 900), { ...prod('x1', 10), target: null }];
+    expect(ids(selectHistory(mixed, { liveId: 'p9', keep: 1 }))).toEqual([]);
+  });
+
+  it('deletes nothing when it cannot see the live deployment', () => {
+    expect(() => selectHistory(history, { liveId: undefined })).toThrow(/no live deployment/);
+    expect(() => selectHistory(history, { liveId: 'nope' })).toThrow(/not among the production deployments/);
+    expect(() => selectHistory(history, { liveId: 'p9', keep: 0 })).toThrow(/keep/);
+  });
+});
+
+describe('pruneHistory', () => {
+  const targets = [{ project: 'thing-front', host: 'front.example.app' }];
+  const answers = (liveId: string | undefined): FetchJson => async (url) => {
+    if (url.includes('/v4/aliases/')) return { deployments: [], deploymentId: liveId };
+    return { deployments: [prod('p3', 300), prod('p2', 200), prod('p1', 100, 'CANCELED')], pagination: { next: null } };
+  };
+
+  it("finds the live deployment from the app's alias and asks only for production", async () => {
+    const urls: string[] = [];
+    const fetchJson: FetchJson = async (url) => {
+      urls.push(url);
+      return answers('p3')(url);
+    };
+    const removed: string[] = [];
+    await pruneHistory({ fetchJson, remove: async (id) => removed.push(id), targets, keep: 1, log: () => {} });
+    expect(urls[0]).toContain('/v4/aliases/front.example.app');
+    expect(urls[1]).toContain('target=production');
+    expect(removed.sort()).toEqual(['p1', 'p2']);
+  });
+
+  it('deletes nothing on a dry run, and nothing at all when the alias names no deployment', async () => {
+    const removed: string[] = [];
+    const dry = await pruneHistory({ fetchJson: answers('p3'), remove: async (id) => removed.push(id), targets, keep: 1, dryRun: true, log: () => {} });
+    expect(dry).toHaveLength(2);
+    await expect(
+      pruneHistory({ fetchJson: answers(undefined), remove: async (id) => removed.push(id), targets, keep: 1, log: () => {} }),
+    ).rejects.toThrow(/no live deployment/);
+    expect(removed).toEqual([]);
   });
 });

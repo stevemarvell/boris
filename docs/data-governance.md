@@ -262,7 +262,10 @@ a job missing from the inventory is a job nobody remembers to fix.
 `.github/workflows/preview-prune.yml` holds `VERCEL_TOKEN`, scoped to the
 `stevemarvell-team` Vercel team, and deletes preview deployments: a branch's
 own when its pull request closes, and — run by hand — every preview whose
-branch no longer exists. A Vercel token cannot be narrowed below the team, so
+branch no longer exists. It also trims production history (`history`): Vercel
+keeps a production deployment per merge, forever, and this keeps only the one
+serving each app — found from the app's alias, never inferred — and the newest
+few built ones; anything newer than the live one or still building is left. A Vercel token cannot be narrowed below the team, so
 the token could do anything the team can, including delete production.
 
 It is not in the class above, because no branch code runs beside it. The
@@ -271,11 +274,15 @@ checkout is `develop`, explicitly; and the pull request's branch name is the
 only thing read from it, passed through `env:` as data. Fork pull requests are
 skipped outright. So a second person with write access does not change this
 job — their branch cannot rewrite it or run in it. What bounds it instead is
-`scripts/vercel-prune.mjs` itself, reviewed on its way into `develop`: it
-refuses production deployments and anything built from `develop` per
-deployment, whatever the query returned, and refuses an empty live-branch list
-rather than read it as "every preview is stale".
+`scripts/vercel-prune.mjs` itself, reviewed on its way into `develop`: the
+preview modes refuse production deployments and anything built from `develop`
+per deployment, whatever the query returned, and refuse an empty live-branch
+list rather than read it as "every preview is stale"; the `history` mode never
+deletes the deployment an app's alias points at, and deletes nothing if it
+cannot find it.
 
+Old production deployments are recoverable the same way: each is a build of
+a commit on `develop`, which is never rewritten, so any of them can be rebuilt.
 What the close-time run deletes is recoverable: a preview is a build of a
 commit, and GitHub keeps every pull request's head at `refs/pull/<n>/head`, so
 that preview can be rebuilt. That is why it runs unattended. The backlog run

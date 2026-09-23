@@ -116,9 +116,16 @@ when a pull request closes, it deletes that branch's previews in both
 projects, using `VERCEL_TOKEN` (a team-scoped token, a repository secret,
 expiring 2026-09-23 + one year). Run it by hand (`gh workflow run
 preview-prune -f dry_run=false`) to delete every preview whose branch no longer
-exists; the default `dry_run=true` only lists them. `scripts/vercel-prune.mjs`
-never deletes a production deployment or a `develop` build, whatever it is
-asked. `docs/data-governance.md` has why the token is safe to hold.
+exists; the default `dry_run=true` only lists them. Its preview modes never
+delete a production deployment or a `develop` build, whatever they are asked.
+
+Production history is trimmed the same way: every merge makes a production
+deployment and Vercel keeps them all, so each close (and each manual run) also
+runs `vercel-prune.mjs history`. It keeps the deployment each app's alias
+points at, and the newest `KEEP_PRODUCTION` (3) built ones for instant
+rollback; it leaves anything newer than the live one or still building, and
+deletes nothing if the alias lookup fails. `docs/data-governance.md` has why
+the token is safe to hold.
 
 This is not an exposure. `docs/data-governance.md` records that previews are
 open deliberately, because a reviewing agent has to be able to load one, and a
