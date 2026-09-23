@@ -14,14 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # No checkout, and no permissions. This job curls the deployed API and web
-    # app; it never speaks to the GitHub API, so a token buys it nothing.
-    permissions: {}
+    # Read-only. The job curls the deployed API and web app; the checkout is
+    # only so it can ask git whether the API should have rebuilt at all (see
+    # "Wait for the API to report this commit").
+    permissions:
+      contents: read
 
     env:
       API: https://family-tree-api-stevemarvell-team.vercel.app
       WEB: https://family-tree-web-eta.vercel.app
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Wait for the API to report the loaded tree
         run: |
           # The API is a Vercel serverless function, so the first request
@@ -69,26 +76,35 @@ jobs:
           # passed, because each asks whether the deployed API is correct and
           # none asked whether it is *this* one.
           #
-          # #126 retired that gate along with Railway rather than translate
-          # it: Vercel has no per-project watch-pattern opt-in, and confirmed
-          # live (family-tree-api's own deployment history), it rebuilds on
-          # *every* push to a watched branch regardless of which paths
-          # changed. So the wait below is unconditional now — there is no
-          # "should this have rebuilt" question left to ask, only "has it
-          # finished yet".
+          # The API now has the same kind of gate again: apps/api/vercel.json
+          # runs scripts/vercel-ignore.mjs, which skips the build when nothing
+          # the API reads changed. So "this commit" means "a build whose
+          # apps/api is identical to this commit's", asked of git with the
+          # script's own pathspecs so the two cannot disagree about what the
+          # API reads. A skipped build passes at once; a build that should
+          # have happened still has to show up.
           #
           # /health reports VERCEL_GIT_COMMIT_SHA, which Vercel exposes to the
           # function at runtime. Matching it against the commit this run is
           # for makes a deploy that silently did not happen a red check.
-          echo "waiting for $GITHUB_SHA"
+          # Read into a variable first: a failure inside `< <(…)` does not trip
+          # `set -e`, and an empty list would turn the diff below into a
+          # whole-repository one — the gate changing its meaning, silently.
+          listed=$(node scripts/vercel-ignore.mjs paths api)
+          mapfile -t pathspecs <<< "$listed"
+          [ -n "$listed" ] || { echo "vercel-ignore.mjs listed no API pathspecs" >&2; exit 1; }
+          echo "waiting for $GITHUB_SHA, or a build with the same ${pathspecs[*]}"
           for attempt in $(seq 1 40); do
             body=$(curl -fsS --max-time 30 "$API/health" || true)
             deployed=$(printf '%s' "$body" | python3 -c \
               'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
             echo "attempt $attempt: deployed=${deployed:-<none>}"
-            case "$deployed" in
-              "$GITHUB_SHA") echo "the deployed build is this commit"; exit 0;;
-            esac
+            if [ "$deployed" = "$GITHUB_SHA" ]; then
+              echo "the deployed build is this commit"; exit 0
+            fi
+            if [ -n "$deployed" ] && git diff --quiet "$deployed" "$GITHUB_SHA" -- "${pathspecs[@]}" 2>/dev/null; then
+              echo "the deployed build ($deployed) has this commit's API; its build was skipped"; exit 0
+            fi
             sleep 15
           done
           echo "the API never reported $GITHUB_SHA; it is serving an older build" >&2
@@ -208,6 +224,34 @@ jobs:
             sleep 15
           done
           echo "the web deployment never served the docs" >&2
+          exit 1
+
+      - name: Wait for the web app to report this commit
+        run: |
+          # The web counterpart of the API's commit gate. The web build can be
+          # skipped too (apps/web/vercel.json), and a path wrongly left out of
+          # vercel-ignore.mjs's web list would skip a build that should have
+          # run — with every check above still passing against the old bundle.
+          # /docs/version.json carries the commit its build was of
+          # (scripts/build-docs.mjs); accept this commit, or an older one
+          # whose web inputs are identical.
+          listed=$(node scripts/vercel-ignore.mjs paths web)
+          mapfile -t pathspecs <<< "$listed"
+          [ -n "$listed" ] || { echo "vercel-ignore.mjs listed no web pathspecs" >&2; exit 1; }
+          for attempt in $(seq 1 40); do
+            body=$(curl -fsS --max-time 30 "$WEB/docs/version.json" || true)
+            deployed=$(printf '%s' "$body" | python3 -c \
+              'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
+            echo "attempt $attempt: deployed=${deployed:-<none>}"
+            if [ "$deployed" = "$GITHUB_SHA" ]; then
+              echo "the deployed web build is this commit"; exit 0
+            fi
+            if [ -n "$deployed" ] && git diff --quiet "$deployed" "$GITHUB_SHA" -- "${pathspecs[@]}" 2>/dev/null; then
+              echo "the deployed web build ($deployed) has this commit's inputs; its build was skipped"; exit 0
+            fi
+            sleep 15
+          done
+          echo "the web app never reported $GITHUB_SHA; it is serving an older build" >&2
           exit 1
 
       - name: Check CORS from the deployed origin

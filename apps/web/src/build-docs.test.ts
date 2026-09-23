@@ -79,6 +79,16 @@ describe('buildDocs', () => {
     expect(read('extraction.html')).toContain('<del>carved</del>');
   });
 
+  it("publishes the build's commit for smoke's web freshness gate", () => {
+    build({ VERCEL_GIT_COMMIT_SHA: 'abc123' });
+    expect(JSON.parse(read('version.json'))).toEqual({ commit: 'abc123' });
+  });
+
+  it('publishes an empty commit outside Vercel rather than a stale one', () => {
+    build({});
+    expect(JSON.parse(read('version.json'))).toEqual({ commit: '' });
+  });
+
   it('titles each page from its own first heading', () => {
     build();
     expect(read('adoption.html')).toContain('<title>Stages</title>');

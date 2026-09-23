@@ -18,25 +18,36 @@ Four settings are load-bearing and non-obvious:
   repository but then reads `apps/api/.python-version` and
   `apps/api/uv.lock`, and creates the virtualenv at
   `apps/api/.vercel/python/.venv` — all relative to that root, not the
-  repository root. There is no `vercel.json` anywhere in this repository;
-  Vercel's own Python-framework detection plus `apps/api/pyproject.toml`'s
-  `[tool.vercel]` table is the whole of the config.
+  repository root. Vercel's own Python-framework detection plus
+  `apps/api/pyproject.toml`'s `[tool.vercel]` table is the whole of the build
+  config; `apps/api/vercel.json` carries only the `ignoreCommand` below.
 - That `[tool.vercel]` table sets `entrypoint = "src.api.main:app"` — read
   relative to `apps/api/` (the Root Directory), not the repository root, which
   is why the path has the extra `src.` segment: the ASGI app object is at
   `apps/api/src/api/main.py`. Vercel checks the path exists at build time; it
   does not import the module to resolve it, so a mismatch fails the build with
   a clear message.
-- Vercel rebuilds the API project on **every** push to a branch it is watching
-  — production on every push to `develop`, a preview on every other branch —
-  regardless of which paths changed. There is no per-project watch-pattern
-  opt-in the way Railway's `railway.json` had; a pull request that touches
-  only `docs/` still triggers a fresh (identical) API build. That makes the
-  API side of `smoke.yml`'s old "should this have rebuilt" gate meaningless —
-  the answer is always yes — so it no longer asks the question.
-- Vercel's Root Directory for the *web* project is `apps/web`, unchanged by
-  any of this. That still means a `vercel.json` at the repository root is
-  never read — Vercel looks for it inside each project's own root directory.
+- Left alone, Vercel builds both projects on **every** push to every branch —
+  production on `develop`, a preview everywhere else — whatever the push
+  touched: 100 deployments in 30 hours, most of them identical. Each project's
+  `vercel.json` sets an `ignoreCommand` running `scripts/vercel-ignore.mjs`,
+  which diffs `VERCEL_GIT_PREVIOUS_SHA` (the last *successful* deployment, so
+  never a skipped one) against `HEAD` over the paths that project reads, and
+  skips when nothing changed. A branch's first push has no previous SHA, and
+  Vercel's clone cannot fetch `develop` (no credentials — measured on #168),
+  so it compares with the nearest squash-merge ancestor instead (`forkPoint`). Exit 0 means *skip*; every failure path
+  exits 1 and builds. The path lists are in the script, and a new top-level
+  directory rebuilds the web app until it is listed.
+- `smoke.yml`'s commit gate (#50) accepts a deployed API whose `apps/api` is
+  identical to the merged commit's, asking git with the script's own
+  pathspecs (`node scripts/vercel-ignore.mjs paths api`), so a skipped build
+  is not a stale one and the two cannot disagree about what the API reads.
+  The web app has the same gate: `scripts/build-docs.mjs` publishes the
+  build's `VERCEL_GIT_COMMIT_SHA` at `/docs/version.json`, and smoke diffs it
+  over the web pathspecs.
+- Vercel's Root Directory for the *web* project is `apps/web`. A `vercel.json`
+  at the repository root is never read — Vercel looks for it inside each
+  project's own root directory, which is why there are two.
 
 - The API's `API_ENVIRONMENT` **Vercel project environment variable** gates
   the GraphQL IDE, introspection, and the API manual's query console (see
@@ -78,9 +89,10 @@ own paired API preview automatically, and where to find one on purpose.
 
 ## Preview environments
 
-Every pull request gets a Vercel preview of the web app. The API project also
-deploys a preview for that branch (Vercel builds every branch it is watching),
-but nothing wires the two together — see above. Find a specific pull
+Every pull request that changes what the web app reads gets a Vercel preview
+of it; one that touches only agent config, CI or tests gets none. The API project also
+deploys a preview for that branch when the branch changes `apps/api` (the
+ignore step skips it otherwise), but nothing wires the two together — see above. Find a specific pull
 request's own API preview at its Vercel branch alias,
 `family-tree-api-git-<branch>-stevemarvell-team.vercel.app` (slugified:
 lowercase, non-alphanumeric runs collapsed to one hyphen), or via the Vercel
