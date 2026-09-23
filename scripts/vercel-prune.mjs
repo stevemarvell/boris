@@ -134,15 +134,28 @@ export async function prune({ fetchJson, remove, rule, dryRun = false, log = con
   return deleted;
 }
 
-/** Delete production history across every deployed app. Returns what it did. */
+/**
+ * Delete production history across every deployed app. Returns what it did.
+ *
+ * Two phases: every app's live deployment and deletion list are worked out
+ * first, and nothing is deleted unless all of them were. One app's failed
+ * alias lookup therefore stops the whole run before any app loses anything —
+ * the "deletes nothing" guarantee holds for the run, not only per app (#183's
+ * review found the one-loop version deleted the first app's history and then
+ * failed on the second).
+ */
 export async function pruneHistory({ fetchJson, remove, dryRun = false, log = console.log, targets = TARGETS, keep = KEEP_PRODUCTION }) {
-  const deleted = [];
+  const plans = [];
   for (const { project, host } of targets) {
     const alias = await fetchJson(`${API}/v4/aliases/${encodeURIComponent(host)}?slug=${TEAM}`);
     const liveId = alias?.deploymentId;
     const production = await listDeployments(fetchJson, project, undefined, 'production');
     const doomed = selectHistory(production, { liveId, keep });
     log(`${project}: live ${liveId} on ${host}; ${production.length} production, ${doomed.length} to remove`);
+    plans.push({ project, doomed });
+  }
+  const deleted = [];
+  for (const { project, doomed } of plans) {
     for (const d of doomed) {
       log(`${dryRun ? 'would delete' : 'deleting'} ${project} ${idOf(d)} (${stateOf(d)}, ${d.meta?.githubCommitSha?.slice(0, 7) ?? '?'})`);
       if (!dryRun) await remove(idOf(d));

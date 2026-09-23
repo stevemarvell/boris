@@ -232,6 +232,25 @@ describe('pruneHistory', () => {
     expect(removed.sort()).toEqual(['p1', 'p2']);
   });
 
+  it('deletes nothing from any app when one app of several cannot find its live deployment', async () => {
+    // #183's review: the first app's history must not go if the second's
+    // alias lookup then fails.
+    const two = [
+      { project: 'thing-back', host: 'back.example.app' },
+      { project: 'thing-front', host: 'front.example.app' },
+    ];
+    const fetchJson: FetchJson = async (url) => {
+      if (url.includes('/v4/aliases/back.example.app')) return { deployments: [], deploymentId: 'p3' };
+      if (url.includes('/v4/aliases/')) return { deployments: [] }; // no deploymentId
+      return { deployments: [prod('p3', 300), prod('p2', 200), prod('p1', 100, 'CANCELED')], pagination: { next: null } };
+    };
+    const removed: string[] = [];
+    await expect(
+      pruneHistory({ fetchJson, remove: async (id) => removed.push(id), targets: two, keep: 1, log: () => {} }),
+    ).rejects.toThrow(/no live deployment/);
+    expect(removed).toEqual([]);
+  });
+
   it('deletes nothing on a dry run, and nothing at all when the alias names no deployment', async () => {
     const removed: string[] = [];
     const dry = await pruneHistory({ fetchJson: answers('p3'), remove: async (id) => removed.push(id), targets, keep: 1, dryRun: true, log: () => {} });
