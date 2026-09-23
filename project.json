@@ -22,9 +22,7 @@
         "index.html",
         "package.json",
         "package-lock.json",
-        "scripts/build-docs.mjs",
-        "scripts/markdown.mjs",
-        "scripts/write-api-url.mjs"
+        "scripts/markdown.mjs"
       ],
       "ignores": [
         "apps/web/e2e",

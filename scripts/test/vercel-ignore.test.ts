@@ -158,7 +158,7 @@ describe('pathspecs', () => {
   });
 
   it("builds the web app for the scripts its prebuild runs", () => {
-    expect(touching('scripts/build-docs.mjs')).toEqual({ api: false, web: true });
+    expect(touching('apps/web/scripts/build-docs.mjs')).toEqual({ api: false, web: true });
     expect(touching('scripts/markdown.mjs')).toEqual({ api: false, web: true });
   });
 

@@ -40,11 +40,12 @@
 // "successfully" into something other than what was intended -- control
 // characters are therefore checked for directly, before anything is handed
 // to `new URL()`.
-import { rmSync, writeFileSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const WEB_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), 'apps', 'web');
+// apps/web/scripts/ -> apps/web (#173 moved this file here from scripts/).
+export const WEB_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /**
  * Throws with a build-failing, human-readable message unless `url` is an
@@ -82,7 +83,7 @@ export function assertValidApiUrl(url, context) {
 /**
  * Decides which API URL this build belongs to, without touching the disk.
  *
- * Split out from writeApiUrl so that scripts/build-docs.mjs can ask the same
+ * Split out from writeApiUrl so that build-docs.mjs can ask the same
  * question -- the docs index links to the API's own manual, and it should
  * name the same API the bundle itself will call. One rule, two callers.
  *

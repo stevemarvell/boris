@@ -5,7 +5,7 @@ import {
   renderInline,
   renderMarkdown,
   slug,
-} from '../../../scripts/markdown.mjs';
+} from '../markdown.mjs';
 
 describe('escapeHtml', () => {
   it('escapes the characters that would end a text node or an attribute', () => {

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { apiBaseUrl, buildDocs, indexPage, MARKDOWN_PAGES } from '../../../scripts/build-docs.mjs';
+import { apiBaseUrl, buildDocs, indexPage, MARKDOWN_PAGES } from '../scripts/build-docs.mjs';
 
 // A stand-in repository, so a test never depends on what docs/ happens to say
 // today — only on what the build does with it.

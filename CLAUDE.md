@@ -118,7 +118,7 @@ documentation — see "Documentation".
 | --- | --- | --- |
 | API | <https://family-tree-api-stevemarvell-team.vercel.app> | Vercel project `family-tree-api`, root directory `apps/api` |
 | Web | Vercel project `family-tree-web` | root directory `apps/web`, deploys from `develop` |
-| Docs | `/docs/` on the Vercel deployment | `scripts/build-docs.mjs`, run by the web `prebuild` |
+| Docs | `/docs/` on the Vercel deployment | `apps/web/scripts/build-docs.mjs`, run by the web `prebuild` |
 | API manual | `/` on the Vercel API | `apps/api/manual/`, bundled into the deployment |
 
 Both deployments are Vercel end to end. GitHub Pages is not an option here —
@@ -128,13 +128,15 @@ Several settings here are load-bearing, non-obvious, and were each learned by
 something breaking quietly — how the API's `[tool.vercel] entrypoint`
 resolves, how `API_ENVIRONMENT`, `API_RATE_LIMIT` and `VITE_API_URL` resolve,
 and how preview environments live and die. **Read the `deployment` skill
-before changing anything that deploys.**
+before changing anything that deploys.** It is application knowledge, so it
+lives with the apps, in `apps/.claude/skills/`, not in the AI layer (#173).
 
 ## Documentation
 
 `/docs/` on Vercel carries the project documentation; the API serves its own
 manual at its root. Adding a page touches six files and missing one means a
-page that builds locally and 404s live — **read the `docs-site` skill**.
+page that builds locally and 404s live — **read the `docs-site` skill**
+(`apps/.claude/skills/docs-site`).
 
 ## Running it
 

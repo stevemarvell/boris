@@ -1,6 +1,6 @@
 ---
 name: docs-site
-description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, what the API serves at its own root, and the files that must change together to add or remove a page. Read before editing docs/, scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page lists in smoke.yml.
+description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, what the API serves at its own root, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page lists in smoke.yml.
 ---
 
 # The documentation site
@@ -16,7 +16,7 @@ cannot reach.
 
 | URL | Source | Carried by |
 | --- | --- | --- |
-| `/docs/` | `scripts/build-docs.mjs` | Vercel |
+| `/docs/` | `apps/web/scripts/build-docs.mjs` | Vercel |
 | `/docs/adoption.html` | `docs/adoption.md` | Vercel |
 | `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
 | `/docs/sops.html` | `docs/sops.md` | Vercel |
@@ -24,7 +24,7 @@ cannot reach.
 | `/docs/step-0.html` | `index.html` | Vercel |
 | `/` on the API | `manual/api/` | the API image |
 
-The web app's `prebuild` runs `scripts/build-docs.mjs`, which renders the
+The web app's `prebuild` runs `apps/web/scripts/build-docs.mjs`, which renders the
 Markdown with `scripts/markdown.mjs` and writes `apps/web/public/docs/`. That
 directory is generated, gitignored, and deleted on every run — edit the
 sources, never the output.
@@ -45,7 +45,7 @@ there instead.
 
 ## Adding or removing a page, the full list
 
-1. `scripts/build-docs.mjs` — the `MARKDOWN_PAGES` entry
+1. `apps/web/scripts/build-docs.mjs` — the `MARKDOWN_PAGES` entry
 2. `apps/web/src/build-docs.test.ts` — the stand-in repository and its assertions
 3. `apps/web/e2e/docs.spec.ts` — the index link list, and a render test
 4. `.github/workflows/smoke.yml` — the deployed path loop
