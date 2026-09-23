@@ -18,8 +18,9 @@ installs both toolchains and the Playwright browser.
 ## Ports
 
 End-to-end ports are derived from the worktree directory name by
-`scripts/ports.mjs`, so two checkouts never fight over a port. Set
-`E2E_API_PORT` and `E2E_WEB_PORT` to override.
+`scripts/ports.mjs`, so two checkouts never fight over a port. The app's e2e
+config names the servers it needs (`ports(['api', 'web'])`), and each gets
+its own band; set `E2E_<NAME>_PORT` (e.g. `E2E_API_PORT`) to override one.
 
 ## Previews
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ports } from '../ports.mjs';
+import { portOffset, ports } from '../ports.mjs';
 
 const WORKTREE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -24,19 +24,19 @@ describe('ports', () => {
     delete env['E2E_WEB_PORT'];
     const fromElsewhere = execFileSync(
       process.execPath,
-      ['--input-type=module', '-e', `import(${JSON.stringify(url)}).then((m) => process.stdout.write(JSON.stringify(m.ports())))`],
+      ['--input-type=module', '-e', `import(${JSON.stringify(url)}).then((m) => process.stdout.write(JSON.stringify(m.ports(['api', 'web']))))`],
       { cwd: tmpdir(), encoding: 'utf8', env, input: '' },
     );
-    expect(JSON.parse(fromElsewhere)).toEqual(ports(WORKTREE_ROOT));
+    expect(JSON.parse(fromElsewhere)).toEqual(ports(['api', 'web'], WORKTREE_ROOT));
   });
 
   it('gives different worktrees different ports', () => {
-    expect(ports('/somewhere/boris')).not.toEqual(ports('/somewhere/boris-other'));
+    expect(ports(['api', 'web'], '/somewhere/boris')).not.toEqual(ports(['api', 'web'], '/somewhere/boris-other'));
   });
 
   it('keeps the two ranges disjoint', () => {
     for (const root of ['/a/one', '/a/two', '/a/three', '/a/four']) {
-      const { api, web } = ports(root);
+      const { api, web } = ports(['api', 'web'], root);
       expect(api).toBeGreaterThanOrEqual(8200);
       expect(api).toBeLessThan(8400);
       expect(web).toBeGreaterThanOrEqual(8600);
@@ -47,10 +47,32 @@ describe('ports', () => {
   it('lets the environment override', () => {
     vi.stubEnv('E2E_API_PORT', '9001');
     vi.stubEnv('E2E_WEB_PORT', '9002');
-    expect(ports()).toEqual({ api: 9001, web: 9002 });
+    expect(ports(['api', 'web'])).toEqual({ api: 9001, web: 9002 });
   });
 
   it('is stable for the same root', () => {
-    expect(ports('/a/one')).toEqual(ports('/a/one'));
+    expect(ports(['api', 'web'], '/a/one')).toEqual(ports(['api', 'web'], '/a/one'));
+  });
+
+  it('gives each named server its own band, in the order named (#173)', () => {
+    const offset = portOffset('/a/one');
+    expect(ports(['first', 'second', 'third'], '/a/one')).toEqual({
+      first: 8200 + offset,
+      second: 8600 + offset,
+      third: 9000 + offset,
+    });
+    // One server alone takes the first band.
+    expect(ports(['only'], '/a/one')).toEqual({ only: 8200 + offset });
+  });
+
+  it("reads each server's override from E2E_<NAME>_PORT", () => {
+    vi.stubEnv('E2E_SECOND_PORT', '9100');
+    const placed = ports(['first', 'second'], '/a/one');
+    expect(placed.second).toBe(9100);
+    expect(placed.first).toBe(8200 + portOffset('/a/one'));
+  });
+
+  it('refuses to place nothing, rather than guessing which servers exist', () => {
+    expect(() => ports([], '/a/one')).toThrow(/names/);
   });
 });

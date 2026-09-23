@@ -145,6 +145,15 @@ describe('validate', () => {
     }
   });
 
+  it('refuses a verify list that is not a list of commands', () => {
+    for (const verify of ['npm test', [], [''], ['  '], [42]]) {
+      const bad = minimal();
+      (bad.apps.svc as { verify: unknown }).verify = verify;
+      if (Array.isArray(verify) && verify.length === 0) continue; // an empty list is allowed: nothing to run
+      expect(() => validate(bad), JSON.stringify(verify)).toThrow(/apps\.svc\.verify/);
+    }
+  });
+
   it('refuses a project with no apps', () => {
     expect(() => validate({ ...minimal(), apps: {} })).toThrow(/at least one app/);
   });
@@ -187,10 +196,15 @@ describe('verifiedPaths', () => {
     expect(new Set(paths).size).toBe(paths.length);
   });
 
-  it('covers where the data lives now, which the old hard-coded list did not', () => {
-    // The stop hook watched `data/` until #173; the tree moved to apps/api/data in #126.
-    const covered = verifiedPaths(loadProject());
-    expect(covered.some((p) => 'apps/api/data/family.json'.startsWith(`${p}/`))).toBe(true);
+  it('covers everything inside every declared app', () => {
+    // The stop hook used to watch a hard-coded `data/`, which had moved inside
+    // an app in #126, so data-only edits stopped triggering it silently. Every
+    // app's whole directory is covered now, whatever the apps are (#173).
+    const project = loadProject();
+    const covered = verifiedPaths(project);
+    for (const [name, app] of apps(project)) {
+      expect(covered.some((p) => `${app.path}/data/anything.json`.startsWith(`${p}/`)), name).toBe(true);
+    }
   });
 });
 

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../.claude/hooks/format-edited.mjs';
 import { ROOT as VERIFY_ROOT } from '../../.claude/hooks/verify-on-stop.mjs';
 import { decide, filterCommand } from '../../.claude/hooks/filter-verbose.mjs';
+import { apps, loadProject, type Project } from '../project.mjs';
 import {
   clearAdvice,
   CLEAR_AT_PERCENT,
@@ -21,6 +22,20 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // break out of a quoted string, the semicolon would end a command, and the
 // space would split an unquoted argument in two.
 const MALICIOUS_FILENAME = 'a`touch pwned`$(touch pwned2);"x\' y.py';
+
+// Two Python apps and a node one, declared the way project.json declares
+// them. The routing is tested against this, not the live manifest, so it
+// holds whatever the application is (#173's proof found these tests had been
+// asserting the family tree's layout).
+const FIXTURE: Project = {
+  name: 'thing',
+  vercel: { team: 't' },
+  apps: {
+    svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] },
+    tool: { path: 'apps/tool', toolchain: 'python', reads: ['apps/tool'] },
+    ui: { path: 'apps/ui', toolchain: 'node', reads: ['apps/ui'] },
+  },
+};
 
 describe('hook roots', () => {
   // A hook fires with whatever working directory the session is in. Both
@@ -46,13 +61,13 @@ describe('hook roots', () => {
 
 describe('fixCommands', () => {
   it('routes Python at ruff, in the Python app that holds the file', () => {
-    const commands = fixCommands('apps/api/src/api/tree.py');
+    const commands = fixCommands('apps/svc/src/thing.py', FIXTURE);
     const [checkCommand, formatCommand] = commands;
     if (!checkCommand || !formatCommand) throw new Error('expected two commands');
     for (const { command, args } of commands) {
       expect(command).toBe('uv');
       expect(args).toContain('--directory');
-      expect(args).toContain('apps/api');
+      expect(args).toContain('apps/svc');
     }
     expect(checkCommand.args).toContain('check');
     expect(formatCommand.args).toContain('format');
@@ -74,10 +89,11 @@ describe('fixCommands', () => {
   });
 
   it('runs ruff from each Python app, and not at all outside one', () => {
-    const mcp = fixCommands('apps/mcp/src/family_mcp/server.py');
-    expect(mcp.every(({ args }) => args[args.indexOf('--directory') + 1] === 'apps/mcp')).toBe(true);
-    expect(mcp).toHaveLength(2);
-    expect(fixCommands('scripts/stray.py')).toEqual([]);
+    const tool = fixCommands('apps/tool/src/tool.py', FIXTURE);
+    expect(tool.every(({ args }) => args[args.indexOf('--directory') + 1] === 'apps/tool')).toBe(true);
+    expect(tool).toHaveLength(2);
+    expect(fixCommands('scripts/stray.py', FIXTURE)).toEqual([]);
+    expect(fixCommands('apps/ui/stray.py', FIXTURE)).toEqual([]);
   });
 
   it('leaves anything else alone', () => {
@@ -87,8 +103,11 @@ describe('fixCommands', () => {
   });
 
   it('carries a path with spaces, quotes, and shell metacharacters through as one untouched argv element', () => {
-    for (const file of ['some dir/file.ts', MALICIOUS_FILENAME]) {
-      for (const { args } of fixCommands(file)) {
+    for (const file of ['some dir/file.ts', `apps/svc/${MALICIOUS_FILENAME}`]) {
+      const commands = fixCommands(file, FIXTURE);
+      // Otherwise the loop below checks nothing.
+      expect(commands.length, file).toBeGreaterThan(0);
+      for (const { args } of commands) {
         // The whole point of an argv array over a shell string: filePath
         // shows up as exactly one element, never split, escaped, or
         // interpolated into a larger string.
@@ -103,8 +122,8 @@ describe('runFixes', () => {
   it('hands the path to exec as a literal argv element, never as part of a larger string', () => {
     const calls: Array<[string, string[], unknown]> = [];
     // Inside a Python app, so the ruff route is actually taken (project.json, #173).
-    const malicious = `apps/api/${MALICIOUS_FILENAME}`;
-    runFixes(malicious, { exec: (command, args, options) => calls.push([command, args, options]) });
+    const malicious = `apps/svc/${MALICIOUS_FILENAME}`;
+    runFixes(malicious, { exec: (command, args, options) => calls.push([command, args, options]), project: FIXTURE });
 
     expect(calls.length).toBeGreaterThan(0);
     for (const [command, args, options] of calls) {
@@ -130,9 +149,11 @@ describe('runFixes', () => {
   it('does not execute shell metacharacters embedded in a crafted .py filename', () => {
     const markerA = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-a`);
     const markerB = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-b`);
-    // Inside a Python app, so ruff really is invoked with it (project.json,
-    // #173). Outside every app the route is empty and this would prove nothing.
-    const malicious = `apps/api/a\`touch ${markerA}\`$(touch ${markerB}).py`;
+    // Inside a real Python app — whichever project.json declares first — so
+    // ruff really is invoked with it (#173). Outside every app the route is
+    // empty and this would prove nothing.
+    const [, pythonApp] = apps(loadProject(), 'python')[0]!;
+    const malicious = `${pythonApp.path}/a\`touch ${markerA}\`$(touch ${markerB}).py`;
     expect(fixCommands(malicious)).toHaveLength(2);
 
     expect(() => runFixes(malicious)).not.toThrow();

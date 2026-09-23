@@ -2,20 +2,17 @@
   "name": "boris",
   "private": true,
   "workspaces": [
-    "apps/web"
+    "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @family-tree/web",
-    "build": "npm run build --workspace @family-tree/web",
-    "typecheck": "npm run typecheck --workspace @family-tree/web",
-    "lint": "npm run lint --workspace @family-tree/web",
-    "test": "npm run test --workspace @family-tree/web",
-    "verify": "npm run verify:harness && npm run verify:api && npm run verify:mcp && npm run verify:web && npm run verify:e2e",
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "verify": "npm run verify:harness && npm run verify:apps",
     "verify:harness": "tsc -p scripts/test && eslint --config scripts/test/eslint.config.mjs scripts/test && vitest run --root scripts/test",
-    "verify:api": "uv run --directory apps/api ruff check . && uv run --directory apps/api pytest -q",
-    "verify:mcp": "uv run --directory apps/mcp --frozen ruff check . && uv run --directory apps/mcp --frozen pytest -q",
-    "verify:web": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "verify:e2e": "npm run e2e --workspace @family-tree/web",
+    "verify:apps": "node scripts/verify-apps.mjs",
     "bootstrap": "node scripts/bootstrap.mjs"
   },
   "devDependencies": {

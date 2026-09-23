@@ -11,5 +11,5 @@ export declare function fixCommands(filePath: string, project?: Project): FixCom
 
 export declare function runFixes(
   filePath: string,
-  options?: { exec?: (command: string, args: string[], options: unknown) => unknown },
+  options?: { exec?: (command: string, args: string[], options: unknown) => unknown; project?: Project },
 ): void;

@@ -12,7 +12,7 @@ import {
 // E2E_API_PORT / E2E_WEB_PORT override. The API's own port and URL come from
 // e2e/api-servers.ts, so a spec can address a server by the same name the
 // config starts it under.
-const { web: WEB_PORT } = ports();
+const { web: WEB_PORT } = ports(['api', 'web']);
 
 export default defineConfig({
   testDir: './e2e',

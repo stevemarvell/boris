@@ -3,7 +3,7 @@
 // checkout will use. node_modules and .venv are per-worktree, not shared.
 import { execSync } from 'node:child_process';
 import { missingPackages } from './lsp.mjs';
-import { apps, loadProject } from './project.mjs';
+import { apps, deployed, loadProject } from './project.mjs';
 import { ports } from './ports.mjs';
 
 const run = (command) => {
@@ -21,8 +21,10 @@ run('npx playwright install chromium');
 const packages = missingPackages();
 if (packages.length) run(`npm install -g ${packages.join(' ')}`);
 
-const { api, web } = ports();
+// One port band per deployed app, in project.json order: the same names and
+// order the app's own e2e config asks ports() for.
+const placed = ports(deployed(loadProject()).map(([name]) => name));
 process.stdout.write(
-  `\nThis worktree uses E2E ports api=${api} web=${web}.\n` +
+  `\nThis worktree uses E2E ports ${Object.entries(placed).map(([name, port]) => `${name}=${port}`).join(' ')}.\n` +
     `They are derived from the directory name, so parallel worktrees do not collide.\n`,
 );

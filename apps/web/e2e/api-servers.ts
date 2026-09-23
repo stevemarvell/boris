@@ -4,7 +4,7 @@
 // Not a *.spec.ts file, so Playwright's default testMatch leaves it alone.
 import { ports } from '../../../scripts/ports.mjs';
 
-const { api: API_PORT } = ports();
+const { api: API_PORT } = ports(['api', 'web']);
 
 export { API_PORT };
 

@@ -5,7 +5,7 @@ name: preview-prune
 # previews, in both projects, when its pull request closes — and, run by hand,
 # every preview whose branch no longer exists (the backlog).
 #
-# It holds VERCEL_TOKEN, a token scoped to the stevemarvell-team Vercel team,
+# It holds VERCEL_TOKEN, a token scoped to the Vercel team project.json names,
 # and is built so that no branch code ever runs beside it:
 #
 # - `pull_request_target`, not `pull_request`: the workflow file is develop's,
