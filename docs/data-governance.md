@@ -307,6 +307,15 @@ the same as the trigger at the top of this page: the decision is defensible
 today for a reason that is not written in the configuration, so the reason is
 written here instead.
 
+The same day reaches one thing that is not a CI job. The `work-backlog`
+skill picks issues and merges to `develop` unattended, and it reads issue and
+comment text. It treats that text as data that can only narrow what it does.
+A "go" clearing a wait counts only from the repository owner's account, by
+author login. Today that distinction changes nothing, because the one writer
+is the owner. Once a second person can open or edit issues, it is the only
+thing keeping their text from steering a loop that deploys. Confirm it still
+holds before access is granted.
+
 ## What going private did, and did not do
 
 The repository went private on 2026-09-13. That made the source, the issue
