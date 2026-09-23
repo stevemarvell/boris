@@ -86,11 +86,28 @@ export function writeCount(path, count) {
   writeFileSync(path, JSON.stringify({ count }), 'utf8');
 }
 
-function readInput() {
+/**
+ * The two fields of Claude Code's Stop-hook payload the ceiling depends on.
+ * `session_id` and `stop_hook_active` are load-bearing names: if either
+ * stopped matching, `continuing` would always be false, every red would start
+ * a new chain, and the hook would block forever — so this is exported and
+ * tested against the payload's real shape rather than left inline in main().
+ */
+export function parseStopInput(raw) {
+  let input;
   try {
-    return JSON.parse(readFileSync(0, 'utf8') || '{}');
+    input = JSON.parse(raw || '{}');
   } catch {
-    return {};
+    input = {};
+  }
+  return { sessionId: input.session_id, continuing: input.stop_hook_active === true };
+}
+
+function readStdin() {
+  try {
+    return readFileSync(0, 'utf8');
+  } catch {
+    return '';
   }
 }
 
@@ -103,8 +120,8 @@ function main() {
   }
   if (changed.length === 0) return 0;
 
-  const input = readInput();
-  const path = statePath(input.session_id);
+  const { sessionId, continuing } = parseStopInput(readStdin());
+  const path = statePath(sessionId);
 
   let failure = null;
   try {
@@ -116,7 +133,7 @@ function main() {
   const { action, count } = decide({
     green: failure === null,
     previous: readCount(path),
-    continuing: input.stop_hook_active === true,
+    continuing,
   });
   try {
     writeCount(path, count);

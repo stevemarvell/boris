@@ -8,6 +8,7 @@ import {
   STATE_DIR,
   ROOT,
   decide,
+  parseStopInput,
   readCount,
   statePath,
   writeCount,
@@ -47,6 +48,45 @@ describe('decide', () => {
   it('starts a fresh chain when the stop did not follow a block', () => {
     // A stale count from an earlier turn must not shorten this one.
     expect(decide({ green: false, previous: 2, continuing: false })).toEqual({ action: 'block', count: 1 });
+  });
+});
+
+describe('parseStopInput', () => {
+  // The shape Claude Code sends a Stop hook on stdin. If these field names
+  // drift, `continuing` goes permanently false and the ceiling never fires.
+  const payload = (stopHookActive: boolean) =>
+    JSON.stringify({
+      session_id: 'abc-123',
+      transcript_path: '/home/u/.claude/projects/p/abc-123.jsonl',
+      cwd: '/repo',
+      hook_event_name: 'Stop',
+      stop_hook_active: stopHookActive,
+    });
+
+  it('reads the session and a continuation from a real Stop payload', () => {
+    expect(parseStopInput(payload(true))).toEqual({ sessionId: 'abc-123', continuing: true });
+  });
+
+  it('reads a first stop as not continuing', () => {
+    expect(parseStopInput(payload(false))).toEqual({ sessionId: 'abc-123', continuing: false });
+  });
+
+  it('drives the ceiling end to end from payloads alone', () => {
+    let previous = 0;
+    const actions: string[] = [];
+    for (const active of [false, true, true]) {
+      const { continuing } = parseStopInput(payload(active));
+      const { action, count } = decide({ green: false, previous, continuing });
+      actions.push(action);
+      previous = count ?? 0;
+    }
+    expect(actions).toEqual(['block', 'block', 'report']);
+  });
+
+  it('treats empty or malformed stdin as a first stop, never as a continuation', () => {
+    expect(parseStopInput('')).toEqual({ sessionId: undefined, continuing: false });
+    expect(parseStopInput('not json')).toEqual({ sessionId: undefined, continuing: false });
+    expect(parseStopInput(JSON.stringify({ stop_hook_active: 'true' })).continuing).toBe(false);
   });
 });
 
