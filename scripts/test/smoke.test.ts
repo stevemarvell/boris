@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { Project } from '../project.mjs';
+import { deployed, loadProject, type Project } from '../project.mjs';
 import { GATE_ATTEMPTS, appUrls, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
@@ -149,5 +152,27 @@ describe('smoke', () => {
     const { fetchJson } = server(answers());
     const result = await smoke({ project: project(), sha: undefined, fetchJson, git: gitSays(0), sleep: noSleep, run: () => 0, log: quiet });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("each app's smoke script", () => {
+  // #178: the checks were written for a step shell of `bash -e`. Under
+  // pipefail, `printf "$page" | grep -q …` fails on a match — grep exits
+  // early and printf dies of SIGPIPE — so every retry read "not yet" until the
+  // ceiling. Linux delivers that SIGPIPE and Git Bash on Windows does not, so
+  // a local run cannot catch it; this does, on every platform.
+  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+  it('runs with the step shell\'s options: set -e, never pipefail', () => {
+    const scripts = deployed(loadProject()).flatMap(([, app]) => (app.smoke ? [app.smoke] : []));
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      const code = readFileSync(join(ROOT, script), 'utf8')
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('#'))
+        .join('\n');
+      expect(code, script).toMatch(/^set -e$/m);
+      expect(code, script).not.toMatch(/pipefail|set -[a-z]*o /);
+    }
   });
 });

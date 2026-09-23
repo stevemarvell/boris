@@ -6,7 +6,12 @@
 #
 # Each check is a subshell function, so an `exit` inside one ends that check
 # only, exactly as it ended its own workflow step before.
-set -eo pipefail
+# `set -e` and nothing more: the options GitHub gave the workflow steps these
+# checks were written for. Not pipefail: `printf "$page" | grep -q …` has
+# grep exit at its first match, printf dies of SIGPIPE writing the rest of a
+# large page, and under pipefail that 141 turns a match into a failure. That
+# is what #178 was, and scripts/test/smoke.test.ts keeps it from coming back.
+set -e
 : "${API:?API is not set}" "${WEB:?WEB is not set}"
 
 loaded_tree() (
