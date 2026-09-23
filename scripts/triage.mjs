@@ -52,8 +52,10 @@ export function openDependencies(issue, openNumbers) {
   return deps.filter((n) => openNumbers.has(n));
 }
 
+// Own properties only: a label named `constructor` or `toString` would
+// otherwise read Object.prototype's, rank as NaN, and break the sort.
 function rankOf(labels) {
-  return Math.min(UNRANKED, ...labels.map((l) => RANK[l] ?? UNRANKED));
+  return Math.min(UNRANKED, ...labels.map((l) => (Object.hasOwn(RANK, l) ? RANK[l] : UNRANKED)));
 }
 
 /**

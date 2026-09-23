@@ -64,6 +64,15 @@ describe('triage', () => {
     expect(skip[0]!.reason).toBe('depends on open #11');
   });
 
+  it('ranks a label named like an Object.prototype property as unranked, not NaN', () => {
+    const { work } = triage(
+      [issue(1, ['constructor']), issue(2, ['medium']), issue(3, ['toString', 'high'])],
+      [],
+    );
+    expect(work.map((w) => w.number)).toEqual([3, 2, 1]);
+    expect(work.map((w) => w.rank)).toEqual(['high', 'medium', 'unranked']);
+  });
+
   it('works nothing when everything is skipped, rather than failing', () => {
     expect(triage([issue(1, ['human'])], []).work).toEqual([]);
     expect(triage([], []).work).toEqual([]);
