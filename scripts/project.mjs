@@ -2,7 +2,8 @@
 //
 // Everything under .claude/, scripts/ and .github/ that needs to know what
 // the application is — where its apps live, what toolchain each uses, what a
-// build reads and which Vercel project deploys it — asks
+// build reads, which Vercel project deploys it, where it answers and how to
+// smoke-test it — asks
 // this module, which reads project.json at the repository root. Swapping the
 // family tree for another application means editing apps/ and project.json;
 // nothing here names an app.
@@ -46,6 +47,20 @@ export function validate(project) {
     if (app.ignores !== undefined && !Array.isArray(app.ignores)) fail(`${at}.ignores must be a list`);
     if (app.vercelProject !== undefined && (typeof app.vercelProject !== 'string' || !app.vercelProject)) {
       fail(`${at}.vercelProject must be a non-empty string`);
+    }
+    // A deployed app must say where it answers and which endpoint reports the
+    // commit it was built from: smoke's freshness gate (#50) is what tells a
+    // deployment that happened from one that silently did not.
+    if (app.vercelProject !== undefined) {
+      if (typeof app.url !== 'string' || !/^https:\/\/[^/]+$/.test(app.url)) fail(`${at}.url must be an https origin with no path`);
+      if (typeof app.commitEndpoint !== 'string' || !app.commitEndpoint.startsWith('/')) {
+        fail(`${at}.commitEndpoint must be a path starting with /`);
+      }
+    } else if (app.url !== undefined || app.commitEndpoint !== undefined) {
+      fail(`${at} sets url or commitEndpoint without a vercelProject`);
+    }
+    if (app.smoke !== undefined && (typeof app.smoke !== 'string' || !app.smoke.startsWith(`${app.path}/`))) {
+      fail(`${at}.smoke must be a script inside ${app.path}`);
     }
   }
   return project;

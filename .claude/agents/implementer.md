@@ -46,12 +46,10 @@ less than they claimed to, each with a green test suite at the time. SOP 3 in
 
 So: **a passing test is not evidence that a control works.** If your change
 adds or alters anything that is supposed to *prevent* something, exercise it
-where it runs. The web app's production API is
-`https://family-tree-api-stevemarvell-team.vercel.app`; a change to
-`apps/api` itself has its own Vercel preview too, at that pull request's
-branch alias (`family-tree-api-git-<branch>-stevemarvell-team.vercel.app` —
-see the `deployment` skill) — find or confirm the exact URL rather than
-guessing the slug. Put the real output in the pull request body.
+where it runs. Each deployed app's production URL is its `url` in
+`project.json`; a change to an app has its own Vercel preview too, at that
+pull request's branch alias (the `deployment` skill has the shape) — find or
+confirm the exact URL rather than guessing the slug. Put the real output in the pull request body.
 
 Be careful that your check actually observes the thing. `TestClient` is one
 process with one client key. `curl` has no CORS. A test that calls the code

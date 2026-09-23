@@ -37,13 +37,14 @@ Reaching a ceiling is not a failure to hide. It is the procedure working.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Polling a deployment in `smoke` | 30 attempts × 15s, 40 for the commit gate | `.github/workflows/smoke.yml`, per loop |
+| Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling `gh pr checks` in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Issues worked in one `work-backlog` run | 3, re-triaged after each merge | `scripts/triage.mjs`, `MAX_ISSUES_PER_RUN` |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/vercel-prune.mjs`, `MAX_PAGES` |
 
-`smoke.yml` is the model the rest of this follows. Every one of its waits is a
+Smoke is the model the rest of this follows. Every wait in an app's smoke
+script is a
 `for attempt in $(seq 1 30)` with an explicit `sleep`, an echo per attempt, and
 a distinct message on exhaustion. The ceiling is visible in the file, the
 progress is visible in the log, and running out is a specific failure rather
@@ -59,7 +60,7 @@ and inert, and inventing a config key nobody consumes is precisely that shape.
 
 Three loops *are* mechanically bounded:
 
-- `smoke.yml`'s waits, by the `seq` bounds above.
+- Smoke's waits, by `GATE_ATTEMPTS` and the `seq` bounds above.
 - The rate limiter, at 120 requests per minute — see `docs/data-governance.md`.
 - The fix-and-retry loop the stop hook drives (#80).
   `.claude/hooks/verify-on-stop.mjs` blocks the end of a turn while `verify`

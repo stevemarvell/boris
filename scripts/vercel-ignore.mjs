@@ -20,7 +20,8 @@
 // first push has none; that compares against where it left develop instead
 // (`forkPoint`).
 //
-// smoke.yml asks the same question after a merge (`paths api`), so a skipped
+// scripts/smoke.mjs asks the same question after a merge, with the same
+// pathspecs (project.mjs's buildPathspecs), so a skipped
 // API build is not mistaken for a stale one.
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
@@ -88,15 +89,7 @@ function runGit(args) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const [command, project] = process.argv.slice(2);
-  if (command === 'paths') {
-    // For smoke.yml: the pathspecs, one per line.
-    const pathspecs = buildPathspecs(loadProject(), project);
-    if (!pathspecs) process.exit(2);
-    process.stdout.write(pathspecs.join('\n') + '\n');
-  } else {
-    const { build, reason } = decide(command, process.env, runGit);
-    console.log(`vercel-ignore: ${build ? 'building' : 'skipping'} — ${reason}`);
-    process.exit(build ? 1 : 0);
-  }
+  const { build, reason } = decide(process.argv[2], process.env, runGit);
+  console.log(`vercel-ignore: ${build ? 'building' : 'skipping'} — ${reason}`);
+  process.exit(build ? 1 : 0);
 }

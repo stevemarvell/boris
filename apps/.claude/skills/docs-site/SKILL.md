@@ -1,6 +1,6 @@
 ---
 name: docs-site
-description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, what the API serves at its own root, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page lists in smoke.yml.
+description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, what the API serves at its own root, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page list in apps/web/smoke.sh.
 ---
 
 # The documentation site
@@ -48,7 +48,7 @@ there instead.
 1. `apps/web/scripts/build-docs.mjs` — the `MARKDOWN_PAGES` entry
 2. `apps/web/src/build-docs.test.ts` — the stand-in repository and its assertions
 3. `apps/web/e2e/docs.spec.ts` — the index link list, and a render test
-4. `.github/workflows/smoke.yml` — the deployed path loop
+4. `apps/web/smoke.sh` — the deployed path loop
 5. `CLAUDE.md` — the Layout row, if the source file is new
 6. the Markdown source itself
 

@@ -39,13 +39,14 @@ Four settings are load-bearing and non-obvious:
   exits 1 and builds. What each build reads is declared in `project.json`
   (`reads`/`ignores` per app, #173). The lists say what a build reads, so an
   undeclared read skips a build it needed; smoke's freshness gates catch that.
-- `smoke.yml`'s commit gate (#50) accepts a deployed API whose `apps/api` is
-  identical to the merged commit's, asking git with the script's own
-  pathspecs (`node scripts/vercel-ignore.mjs paths api`), so a skipped build
-  is not a stale one and the two cannot disagree about what the API reads.
-  The web app has the same gate: `apps/web/scripts/build-docs.mjs` publishes the
-  build's `VERCEL_GIT_COMMIT_SHA` at `/docs/version.json`, and smoke diffs it
-  over the web pathspecs.
+- Smoke's freshness gate (#50, `scripts/smoke.mjs`) accepts a deployed app
+  reporting the merged commit, or an older one whose build inputs are
+  identical, asked of git with the ignore step's own pathspecs — so a skipped
+  build is not a stale one and the two cannot disagree. Each app's
+  `commitEndpoint` in `project.json` reports `VERCEL_GIT_COMMIT_SHA`: the
+  API's `/health`, and the web app's `/docs/version.json`, written by
+  `apps/web/scripts/build-docs.mjs`. Each app's own checks are its `smoke`
+  script (`apps/api/smoke.sh`, `apps/web/smoke.sh`).
 - Vercel's Root Directory for the *web* project is `apps/web`. A `vercel.json`
   at the repository root is never read — Vercel looks for it inside each
   project's own root directory, which is why there are two.

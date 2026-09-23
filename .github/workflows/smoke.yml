@@ -1,8 +1,14 @@
 name: smoke
 
-# Runs after a merge reaches develop, once Vercel has had time to redeploy
-# both projects. Catches the class of failure that unit and e2e tests cannot:
-# the deployed build's configuration.
+# Runs after a merge reaches develop, once Vercel has had time to redeploy.
+# Catches the class of failure that unit and e2e tests cannot: the deployed
+# build's configuration.
+#
+# Nothing here names the application (#173). scripts/smoke.mjs reads
+# project.json and, for each deployed app in turn, waits for the freshness
+# gate — the deployment is this commit, or one whose inputs match — and then
+# runs the checks that app owns (its `smoke` script, e.g. apps/api/smoke.sh).
+# Why the gate exists, and why each app's checks retry, is written there.
 on:
   push:
     branches: [develop]
@@ -12,282 +18,18 @@ jobs:
   smoke:
     name: smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
-    # Read-only. The job curls the deployed API and web app; the checkout is
-    # only so it can ask git whether the API should have rebuilt at all (see
-    # "Wait for the API to report this commit").
+    # Read-only. The job curls the deployments; the checkout is so the gate
+    # can ask git whether an older deployment's inputs match this commit.
     permissions:
       contents: read
 
-    env:
-      API: https://family-tree-api-stevemarvell-team.vercel.app
-      WEB: https://family-tree-web-eta.vercel.app
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Wait for the API to report the loaded tree
-        run: |
-          # The API is a Vercel serverless function, so the first request
-          # after an idle period is a cold start.
-          for attempt in $(seq 1 30); do
-            body=$(curl -fsS --max-time 30 "$API/health" || true)
-            echo "attempt $attempt: $body"
-            case "$body" in *'"people":44'*) echo "API ok"; exit 0;; esac
-            sleep 15
-          done
-          echo "API never reported 44 people" >&2
-          exit 1
-
-      - name: Check GraphQL returns four generations
-        run: |
-          counts=$(curl -fsS --max-time 30 -X POST "$API/graphql" \
-            -H 'content-type: application/json' \
-            -d '{"query":"{ generations { depth people { id } } }"}' \
-            | python3 -c 'import json,sys; g=json.load(sys.stdin)["data"]["generations"]; print(len(g), sum(len(x["people"]) for x in g))')
-          echo "generations people = $counts"
-          [ "$counts" = "4 44" ] || { echo "expected '4 44'" >&2; exit 1; }
-
-      - name: Wait for the web app to serve the current bundle
-        run: |
-          for attempt in $(seq 1 30); do
-            page=$(curl -fsS --max-time 30 "$WEB" || true)
-            bundle=$(printf '%s' "$page" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
-            echo "attempt $attempt: bundle=$bundle"
-            if [ -n "$bundle" ] && curl -fsS --max-time 30 "$WEB$bundle" | grep -q 'generations'; then
-              echo "web ok"; exit 0
-            fi
-            sleep 15
-          done
-          echo "web never served a bundle querying generations" >&2
-          exit 1
-
-      - name: Wait for the API to report this commit
-        run: |
-          # The one check that tells a *current* deployment from a stale one.
-          #
-          # Issue #50 is why this exists: on Railway, railway.json's
-          # watchPatterns decided whether the API rebuilt at all, and a commit
-          # touching only data/ or only manual/api/ once fell outside that
-          # list and silently deployed nothing. Every other check below still
-          # passed, because each asks whether the deployed API is correct and
-          # none asked whether it is *this* one.
-          #
-          # The API now has the same kind of gate again: apps/api/vercel.json
-          # runs scripts/vercel-ignore.mjs, which skips the build when nothing
-          # the API reads changed. So "this commit" means "a build whose
-          # apps/api is identical to this commit's", asked of git with the
-          # script's own pathspecs so the two cannot disagree about what the
-          # API reads. A skipped build passes at once; a build that should
-          # have happened still has to show up.
-          #
-          # /health reports VERCEL_GIT_COMMIT_SHA, which Vercel exposes to the
-          # function at runtime. Matching it against the commit this run is
-          # for makes a deploy that silently did not happen a red check.
-          # Read into a variable first: a failure inside `< <(…)` does not trip
-          # `set -e`, and an empty list would turn the diff below into a
-          # whole-repository one — the gate changing its meaning, silently.
-          listed=$(node scripts/vercel-ignore.mjs paths api)
-          mapfile -t pathspecs <<< "$listed"
-          [ -n "$listed" ] || { echo "vercel-ignore.mjs listed no API pathspecs" >&2; exit 1; }
-          echo "waiting for $GITHUB_SHA, or a build with the same ${pathspecs[*]}"
-          for attempt in $(seq 1 40); do
-            body=$(curl -fsS --max-time 30 "$API/health" || true)
-            deployed=$(printf '%s' "$body" | python3 -c \
-              'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
-            echo "attempt $attempt: deployed=${deployed:-<none>}"
-            if [ "$deployed" = "$GITHUB_SHA" ]; then
-              echo "the deployed build is this commit"; exit 0
-            fi
-            if [ -n "$deployed" ] && git diff --quiet "$deployed" "$GITHUB_SHA" -- "${pathspecs[@]}" 2>/dev/null; then
-              echo "the deployed build ($deployed) has this commit's API; its build was skipped"; exit 0
-            fi
-            sleep 15
-          done
-          echo "the API never reported $GITHUB_SHA; it is serving an older build" >&2
-          exit 1
-
-      - name: Wait for the API to serve its own manual
-        run: |
-          # The manual is bundled into the API deployment. If a build change drops
-          # it, nothing else notices: the API keeps answering GraphQL and the
-          # documentation quietly 404s.
-          #
-          # This retries, and has to. The health check above is satisfied by
-          # the *previous* deployment, so it is not the wait it looks like —
-          # nothing before this point proves the new build is live. The first
-          # run of this step failed for exactly that reason, 10 seconds after
-          # a merge, against an API that was still the old build.
-          #
-          # Which is why the assertion is the wait. Anything a new build
-          # changes has to be a reason to go round again, never a reason to
-          # fail: "Family Tree API" matches the old manual exactly as well as
-          # the new one, so on its own it cannot tell a live deployment from a
-          # stale one. Only once the page is in the state this build put it in
-          # do the remaining checks — the ones a correct build cannot fail —
-          # become hard failures. A check added here belongs inside the retry,
-          # not after it.
-          for attempt in $(seq 1 30); do
-            page=$(curl -fsS --max-time 30 "$API/" || true)
-
-            if ! printf '%s' "$page" | grep -q 'Family Tree API'; then
-              echo "attempt $attempt: the API root is not serving the manual yet"
-              sleep 15
-              continue
-            fi
-
-            # Production serves the manual, not its query console: the console
-            # is gated on API_ENVIRONMENT, which is unset on the Vercel project and so
-            # reads "production". The endpoint string is the console's fetch
-            # target and appears nowhere else in the page — which is also what
-            # makes it the signal for "this is the new build", since the build
-            # before it genuinely does carry a console.
-            if printf '%s' "$page" | grep -q "var ENDPOINT = '/graphql'"; then
-              echo "attempt $attempt: the manual still carries its console; waiting for the new build"
-              sleep 15
-              continue
-            fi
-
-            echo "attempt $attempt: manual served, console gated"
-
-            # The new build is live, so nothing below is timing-dependent.
-            printf '%s' "$page" | grep -q 'without its query console' \
-              || { echo "the manual does not explain the missing console" >&2; exit 1; }
-            curl -fsS --max-time 30 -o /dev/null "$API/app-generations.jpg" \
-              || { echo "the manual's screenshots did not ship with it" >&2; exit 1; }
-            exit 0
-          done
-          echo "the API never served a manual with its console gated" >&2
-          exit 1
-
-      - name: Wait for the API to withhold its OpenAPI schema
-        run: |
-          # FastAPI serves /docs, /redoc and /openapi.json by default, so they
-          # were live and unauthenticated on this host: Swagger UI is an
-          # interactive console with a "Try it out" button, and openapi.json
-          # publishes the parameters and response schemas of every route. They
-          # are now gated on API_ENVIRONMENT, the same mechanism as the
-          # GraphiQL IDE, introspection and the manual's console, which is
-          # unset on the Vercel project and so reads "production".
-          #
-          # The assertion is the wait, for the reason the manual step above
-          # records: this is something a new build changes, so a non-404 has to
-          # mean "go round again", never "fail". The commit-wait step earlier
-          # is unconditional now, but its own retry loop only proves the new
-          # build is live *at that point* -- nothing carries that guarantee
-          # forward to here, so this step still has to earn it independently.
-          # A cold start or a proxy error answers with neither 404 nor a
-          # served page, and is retried for the same reason.
-          for attempt in $(seq 1 30); do
-            open_paths=''
-            for path in /docs /redoc /openapi.json; do
-              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API$path" || echo 000)
-              [ "$code" = 404 ] || open_paths="$open_paths $path=$code"
-            done
-            if [ -z "$open_paths" ]; then
-              echo "attempt $attempt: /docs, /redoc and /openapi.json all 404"
-              exit 0
-            fi
-            echo "attempt $attempt: schema surface still answering:$open_paths"
-            sleep 15
-          done
-          echo "the API never stopped serving /docs, /redoc and /openapi.json" >&2
-          exit 1
-
-      - name: Wait for the web deployment to serve the docs
-        run: |
-          # These pages are built by a prebuild step, so a broken build shows up
-          # as missing documentation rather than as a failed deploy. Retried for
-          # the same reason as the manual: the bundle check above passes against
-          # the deployment this one is replacing.
-          for attempt in $(seq 1 30); do
-            missing=''
-            for path in /docs/ /docs/adoption.html /docs/data-governance.html \
-                        /docs/sops.html /docs/extraction.html /docs/step-0.html \
-                        /docs/manual/web/; do
-              curl -fsS --max-time 30 -o /dev/null "$WEB$path" || missing="$missing $path"
-            done
-            if [ -z "$missing" ]; then
-              echo "attempt $attempt: every doc page served"
-              curl -fsS --max-time 30 "$WEB/docs/adoption.html" \
-                | grep -q 'Steps of AI Adoption' \
-                || { echo "adoption.html did not render its heading" >&2; exit 1; }
-              curl -fsS --max-time 30 "$WEB/docs/data-governance.html" \
-                | grep -q 'Data governance' \
-                || { echo "data-governance.html did not render its heading" >&2; exit 1; }
-              exit 0
-            fi
-            echo "attempt $attempt: missing$missing"
-            sleep 15
-          done
-          echo "the web deployment never served the docs" >&2
-          exit 1
-
-      - name: Wait for the web app to report this commit
-        run: |
-          # The web counterpart of the API's commit gate. The web build can be
-          # skipped too (apps/web/vercel.json), and a path wrongly left out of
-          # vercel-ignore.mjs's web list would skip a build that should have
-          # run — with every check above still passing against the old bundle.
-          # /docs/version.json carries the commit its build was of
-          # (apps/web/scripts/build-docs.mjs); accept this commit, or an older one
-          # whose web inputs are identical.
-          listed=$(node scripts/vercel-ignore.mjs paths web)
-          mapfile -t pathspecs <<< "$listed"
-          [ -n "$listed" ] || { echo "vercel-ignore.mjs listed no web pathspecs" >&2; exit 1; }
-          for attempt in $(seq 1 40); do
-            body=$(curl -fsS --max-time 30 "$WEB/docs/version.json" || true)
-            deployed=$(printf '%s' "$body" | python3 -c \
-              'import json,sys; print((json.load(sys.stdin) or {}).get("commit") or "")' 2>/dev/null || true)
-            echo "attempt $attempt: deployed=${deployed:-<none>}"
-            if [ "$deployed" = "$GITHUB_SHA" ]; then
-              echo "the deployed web build is this commit"; exit 0
-            fi
-            if [ -n "$deployed" ] && git diff --quiet "$deployed" "$GITHUB_SHA" -- "${pathspecs[@]}" 2>/dev/null; then
-              echo "the deployed web build ($deployed) has this commit's inputs; its build was skipped"; exit 0
-            fi
-            sleep 15
-          done
-          echo "the web app never reported $GITHUB_SHA; it is serving an older build" >&2
-          exit 1
-
-      - name: Check CORS from the deployed origin
-        run: |
-          allowed=$(curl -fsS -o /dev/null -w '%{http_code}' -X OPTIONS "$API/graphql" \
-            -H "Origin: $WEB" \
-            -H 'Access-Control-Request-Method: POST' \
-            -H 'Access-Control-Request-Headers: content-type' \
-            -D /tmp/h && grep -i '^access-control-allow-origin' /tmp/h)
-          echo "$allowed"
-          printf '%s' "$allowed" | grep -qi "$WEB" || { echo "CORS does not allow the web origin" >&2; exit 1; }
-
-      # Last on purpose: this burst spends the runner's whole rate-limit budget
-      # for a minute, and any /graphql step after it would be refused.
-      - name: Check a concurrent burst is refused at the edge
-        run: |
-          # The in-process limiter counts per Vercel instance, and a burst is
-          # answered by several (#128). The ceiling that holds is the WAF rule
-          # in apps/api/firewall.json, counted at Vercel's edge. A refusal from
-          # the edge never reaches the function, so it carries none of
-          # slowapi's X-RateLimit-* headers -- that is how the two are told
-          # apart. 300 requests against 120/60s: even a burst straddling a
-          # fixed-window boundary (at most 240 allowed) must see edge refusals.
-          mkdir -p /tmp/burst
-          seq 1 300 | xargs -P 50 -I{} sh -c 'curl -s -o /dev/null -D /tmp/burst/{} --max-time 30 \
-            -X POST "$API/graphql" -H "content-type: application/json" \
-            -d "{\"query\":\"{ status }\"}" || true'
-          ok=0; app429=0; edge429=0; other=0
-          for f in /tmp/burst/*; do
-            code=$(head -1 "$f" | awk '{print $2}')
-            case "$code" in
-              200) ok=$((ok+1));;
-              429) if grep -qi '^x-ratelimit-limit' "$f"; then app429=$((app429+1)); else edge429=$((edge429+1)); fi;;
-              *) other=$((other+1));;
-            esac
-          done
-          echo "200=$ok app-429=$app429 edge-429=$edge429 other=$other"
-          [ "$edge429" -gt 0 ] || { echo "no request was refused at the edge: the WAF rule is not in force" >&2; exit 1; }
-          [ "$ok" -le 240 ] || { echo "$ok requests allowed against 120/60s: the limit is not holding" >&2; exit 1; }
+      - name: Gate and check every deployed app
+        run: node scripts/smoke.mjs
