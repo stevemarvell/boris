@@ -118,10 +118,31 @@ describe('validate', () => {
     expect(() => validate(stray)).toThrow(/without a vercelProject/);
   });
 
-  it("keeps an app's smoke script inside that app", () => {
-    const outside = minimal();
-    outside.apps.ui!.smoke = 'scripts/evil.sh';
-    expect(() => validate(outside)).toThrow(/apps\.ui\.smoke/);
+  it("keeps an app's smoke script inside that app, however the path is spelled", () => {
+    for (const smoke of [
+      'scripts/evil.sh',
+      'apps/ui/../../etc/passwd',
+      'apps/ui/../other/smoke.sh',
+      'apps/ui/./smoke.sh',
+      'apps/ui',
+      '/apps/ui/smoke.sh',
+      'apps/uix/smoke.sh',
+    ]) {
+      const outside = minimal();
+      outside.apps.ui!.smoke = smoke;
+      expect(() => validate(outside), smoke).toThrow(/apps\.ui\.smoke/);
+    }
+    const nested = minimal();
+    nested.apps.ui!.smoke = 'apps/ui/checks/smoke.sh';
+    expect(() => validate(nested)).not.toThrow();
+  });
+
+  it('refuses an app path that climbs out of the repository', () => {
+    for (const path of ['../elsewhere', 'apps/../..', 'apps/./svc']) {
+      const climbing = minimal();
+      climbing.apps.svc!.path = path;
+      expect(() => validate(climbing), path).toThrow(/apps\.svc\.path/);
+    }
   });
 
   it('refuses a project with no apps', () => {
