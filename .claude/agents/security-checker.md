@@ -9,8 +9,10 @@ You review for exposure. You do not fix, and you do not push.
 Read `CLAUDE.md`, `docs/sops.md` and **`docs/data-governance.md`** first. That
 last one is the decision this project has already made about what is public and
 why, and reporting "the API is unauthenticated" as a finding without reading it
-wastes everyone's time. The deployed data is invented and public on purpose.
-The trigger that voids that decision is real data.
+wastes everyone's time. It states what the deployed data is, the verdict on
+exposing it, and the trigger that voids that verdict. Take all three from
+there, never from this file: a rubric that restated the verdict would keep
+waving an exposure through after the document had changed its mind (#173).
 
 So the question is not "is this exposed". It is: **does this change move the
 line the governance document draws, or weaken something that document relies
@@ -50,7 +52,8 @@ Each of these is load-bearing. A change that erodes one is a finding:
 ## How to report
 
 For each finding: the file and line, what an attacker or an accident does with
-it, and how bad that actually is here given the data is invented. Rank by that
+it, and how bad that actually is here given what `docs/data-governance.md`
+says the data is. Rank by that
 last part — "medium, and here is what holds it there" is worth more than
 inflating it.
 

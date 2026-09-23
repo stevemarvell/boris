@@ -29,11 +29,24 @@ const minimal = (): Project => ({
       reads: ['apps/ui', 'docs'],
       ignores: ['apps/ui/e2e', '**/*.test.ts'],
       vercelProject: 'thing-ui',
+      url: 'https://thing.example',
+      commitEndpoint: '/version.json',
+      smoke: 'apps/ui/smoke.sh',
     },
   },
 });
 
 describe('the committed project.json', () => {
+  it("names smoke scripts that exist, and keeps them out of their app's build inputs", () => {
+    const project = loadProject();
+    for (const [name, app] of deployed(project)) {
+      if (!app.smoke) continue;
+      expect(readFileSync(join(REPO_ROOT, app.smoke), 'utf8'), app.smoke).toMatch(/^#!\/usr\/bin\/env bash/);
+      // A change to the checks is not a change to the build.
+      expect(buildPathspecs(project, name), name).toContain(`:(exclude)${app.smoke}`);
+    }
+  });
+
   it('is valid, and every declared app directory exists', () => {
     const project = loadProject();
     for (const [, app] of apps(project)) {
@@ -82,6 +95,54 @@ describe('validate', () => {
     const empty = minimal();
     empty.apps.ui!.vercelProject = '';
     expect(() => validate(empty)).toThrow(/apps.ui.vercelProject/);
+  });
+
+  it('requires a deployed app to say where it answers and how it reports its commit', () => {
+    const noUrl = minimal();
+    delete noUrl.apps.ui!.url;
+    expect(() => validate(noUrl)).toThrow(/apps\.ui\.url/);
+    const withPath = minimal();
+    withPath.apps.ui!.url = 'https://thing.example/app';
+    expect(() => validate(withPath)).toThrow(/https origin with no path/);
+    const plain = minimal();
+    plain.apps.ui!.url = 'http://thing.example';
+    expect(() => validate(plain)).toThrow(/apps\.ui\.url/);
+    const relative = minimal();
+    relative.apps.ui!.commitEndpoint = 'version.json';
+    expect(() => validate(relative)).toThrow(/apps\.ui\.commitEndpoint/);
+  });
+
+  it('refuses deployment fields on an app that is not deployed', () => {
+    const stray = minimal();
+    stray.apps.svc!.url = 'https://svc.example';
+    expect(() => validate(stray)).toThrow(/without a vercelProject/);
+  });
+
+  it("keeps an app's smoke script inside that app, however the path is spelled", () => {
+    for (const smoke of [
+      'scripts/evil.sh',
+      'apps/ui/../../etc/passwd',
+      'apps/ui/../other/smoke.sh',
+      'apps/ui/./smoke.sh',
+      'apps/ui',
+      '/apps/ui/smoke.sh',
+      'apps/uix/smoke.sh',
+    ]) {
+      const outside = minimal();
+      outside.apps.ui!.smoke = smoke;
+      expect(() => validate(outside), smoke).toThrow(/apps\.ui\.smoke/);
+    }
+    const nested = minimal();
+    nested.apps.ui!.smoke = 'apps/ui/checks/smoke.sh';
+    expect(() => validate(nested)).not.toThrow();
+  });
+
+  it('refuses an app path that climbs out of the repository', () => {
+    for (const path of ['../elsewhere', 'apps/../..', 'apps/./svc']) {
+      const climbing = minimal();
+      climbing.apps.svc!.path = path;
+      expect(() => validate(climbing), path).toThrow(/apps\.svc\.path/);
+    }
   });
 
   it('refuses a project with no apps', () => {
@@ -151,6 +212,8 @@ describe('the AI layer names no application', () => {
       'scripts/vercel-ignore.mjs',
       'scripts/vercel-prune.mjs',
       'scripts/bootstrap.mjs',
+      'scripts/smoke.mjs',
+      '.github/workflows/smoke.yml',
       '.claude/hooks/verify-on-stop.mjs',
       '.claude/hooks/format-edited.mjs',
       '.github/workflows/verify.yml',
@@ -160,9 +223,7 @@ describe('the AI layer names no application', () => {
     const names = [
       project.name,
       project.vercel.team,
-      ...apps(project).flatMap(([, app]) => [app.path, app.vercelProject].filter(Boolean)),
-      // No hostname either: deployment URLs are not in the manifest yet, so
-      // this is the generic suffix every one of them shares.
+      ...apps(project).flatMap(([, app]) => [app.path, app.vercelProject, app.url].filter(Boolean)),
       'vercel.app',
     ] as string[];
     for (const file of files) {

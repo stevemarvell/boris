@@ -2,7 +2,8 @@
 //
 // Everything under .claude/, scripts/ and .github/ that needs to know what
 // the application is — where its apps live, what toolchain each uses, what a
-// build reads and which Vercel project deploys it — asks
+// build reads, which Vercel project deploys it, where it answers and how to
+// smoke-test it — asks
 // this module, which reads project.json at the repository root. Swapping the
 // family tree for another application means editing apps/ and project.json;
 // nothing here names an app.
@@ -15,7 +16,7 @@
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -27,6 +28,23 @@ export const MANIFEST = join(ROOT, 'project.json');
 export const HARNESS_CODE = ['scripts', '.claude/hooks', '.claude/statusline.mjs', 'project.json'];
 
 const TOOLCHAINS = new Set(['python', 'node']);
+
+/**
+ * Whether `child` is strictly inside `parent`, both repository-relative. A
+ * string prefix is not enough — `apps/api/../../etc/x` starts with
+ * `apps/api/` (#177's review) — so both are normalised and `child` must be
+ * spelled in normal form, with no `..` left once it is.
+ */
+export function inside(parent, child) {
+  if (typeof child !== 'string' || posix.isAbsolute(child) || posix.normalize(child) !== child) return false;
+  const rel = posix.relative(posix.normalize(parent), child);
+  return rel !== '' && !rel.startsWith('..') && !posix.isAbsolute(rel);
+}
+
+/** A repository-relative path in normal form that does not climb out of the repository. */
+function isContainedPath(path) {
+  return typeof path === 'string' && path !== '' && inside('.', path);
+}
 
 /** Throws, naming the field, unless `project` has the shape project.json documents. */
 export function validate(project) {
@@ -40,12 +58,26 @@ export function validate(project) {
   if (apps.length === 0) fail('"apps" must declare at least one app');
   for (const [name, app] of apps) {
     const at = `apps.${name}`;
-    if (typeof app.path !== 'string' || !app.path || app.path.startsWith('/')) fail(`${at}.path must be a relative path`);
+    if (!isContainedPath(app.path)) fail(`${at}.path must be a relative path inside the repository`);
     if (!TOOLCHAINS.has(app.toolchain)) fail(`${at}.toolchain must be one of ${[...TOOLCHAINS].join(', ')}`);
     if (!Array.isArray(app.reads) || app.reads.length === 0) fail(`${at}.reads must list at least one path`);
     if (app.ignores !== undefined && !Array.isArray(app.ignores)) fail(`${at}.ignores must be a list`);
     if (app.vercelProject !== undefined && (typeof app.vercelProject !== 'string' || !app.vercelProject)) {
       fail(`${at}.vercelProject must be a non-empty string`);
+    }
+    // A deployed app must say where it answers and which endpoint reports the
+    // commit it was built from: smoke's freshness gate (#50) is what tells a
+    // deployment that happened from one that silently did not.
+    if (app.vercelProject !== undefined) {
+      if (typeof app.url !== 'string' || !/^https:\/\/[^/]+$/.test(app.url)) fail(`${at}.url must be an https origin with no path`);
+      if (typeof app.commitEndpoint !== 'string' || !app.commitEndpoint.startsWith('/')) {
+        fail(`${at}.commitEndpoint must be a path starting with /`);
+      }
+    } else if (app.url !== undefined || app.commitEndpoint !== undefined) {
+      fail(`${at} sets url or commitEndpoint without a vercelProject`);
+    }
+    if (app.smoke !== undefined && !inside(app.path, app.smoke)) {
+      fail(`${at}.smoke must be a script inside ${app.path}`);
     }
   }
   return project;
