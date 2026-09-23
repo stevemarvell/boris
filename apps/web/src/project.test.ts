@@ -8,6 +8,7 @@ import {
   appFor,
   apps,
   buildPathspecs,
+  cli,
   deployed,
   loadProject,
   validate,
@@ -45,9 +46,20 @@ describe('the committed project.json', () => {
 
   it('deploys exactly the projects that have vercel.json ignore steps', () => {
     const project = loadProject();
+    // Every deployed app has a vercel.json running the ignore step under its name…
     for (const [name, app] of deployed(project)) {
       const vercelJson = readFileSync(join(REPO_ROOT, app.path, 'vercel.json'), 'utf8');
       expect(vercelJson).toContain(`vercel-ignore.mjs ${name}`);
+    }
+    // …and every tracked vercel.json belongs to a deployed app of that name.
+    const tracked = execFileSync('git', ['ls-files', '--', '*vercel.json'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+    const deployedPaths = new Map(deployed(project).map(([name, app]) => [`${app.path}/vercel.json`, name]));
+    expect(tracked.sort()).toEqual([...deployedPaths.keys()].sort());
+    for (const file of tracked) {
+      const { ignoreCommand } = JSON.parse(readFileSync(join(REPO_ROOT, file), 'utf8')) as { ignoreCommand: string };
+      expect(ignoreCommand.endsWith(` ${deployedPaths.get(file)}`), file).toBe(true);
     }
   });
 });
@@ -120,6 +132,18 @@ describe('verifiedPaths', () => {
     // The stop hook watched `data/` until #173; the tree moved to apps/api/data in #126.
     const covered = verifiedPaths(loadProject());
     expect(covered.some((p) => 'apps/api/data/family.json'.startsWith(`${p}/`))).toBe(true);
+  });
+});
+
+describe('cli', () => {
+  it('lists app paths, optionally for one toolchain', () => {
+    expect(cli(['apps'], minimal())).toEqual(['apps/svc', 'apps/ui']);
+    expect(cli(['apps', 'python'], minimal())).toEqual(['apps/svc']);
+    expect(cli(['apps', 'node'], minimal())).toEqual(['apps/ui']);
+  });
+
+  it('refuses a subcommand it does not have', () => {
+    expect(() => cli(['get', 'ui', 'url'], minimal())).toThrow(/usage/);
   });
 });
 

@@ -14,8 +14,6 @@
 // CLI, for workflows and shells:
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
-//     node scripts/project.mjs pathspecs <app>    # what a build of <app> reads
-//     node scripts/project.mjs get <app> <field>  # one field, e.g. url
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,20 +103,10 @@ export function verifiedPaths(project) {
   return [...paths];
 }
 
-function cli([command, ...args]) {
-  const project = loadProject();
+/** The CLI's answer as lines. Only subcommands something calls are here. */
+export function cli([command, ...args], project = loadProject()) {
   if (command === 'apps') return apps(project, args[0]).map(([, app]) => app.path);
-  if (command === 'pathspecs') {
-    const specs = buildPathspecs(project, args[0]);
-    if (!specs) throw new Error(`no app named "${args[0]}"`);
-    return specs;
-  }
-  if (command === 'get') {
-    const value = project.apps[args[0]]?.[args[1]];
-    if (value === undefined) throw new Error(`apps.${args[0]}.${args[1]} is not set`);
-    return [String(value)];
-  }
-  throw new Error('usage: project.mjs apps [toolchain] | pathspecs <app> | get <app> <field>');
+  throw new Error('usage: project.mjs apps [toolchain]');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

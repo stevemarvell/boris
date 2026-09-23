@@ -22,3 +22,4 @@ export declare function deployed(project: Project): [string, App][];
 export declare function appFor(project: Project, relativePath: string): [string, App] | null;
 export declare function buildPathspecs(project: Project, name: string): string[] | null;
 export declare function verifiedPaths(project: Project): string[];
+export declare function cli(argv: string[], project?: Project): string[];
