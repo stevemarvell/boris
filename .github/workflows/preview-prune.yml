@@ -3,7 +3,10 @@ name: preview-prune
 # Vercel never deletes a preview deployment: it outlives the merge and the
 # branch, and Deployment Retention is not on this plan. This deletes a branch's
 # previews, in both projects, when its pull request closes — and, run by hand,
-# every preview whose branch no longer exists (the backlog).
+# every preview whose branch no longer exists (the backlog). Both also trim
+# production history, which Vercel keeps one per merge, forever: everything but
+# the deployment serving each app and the newest few built ones
+# (scripts/vercel-prune.mjs `history`, KEEP_PRODUCTION).
 #
 # It holds VERCEL_TOKEN, a token scoped to the Vercel team project.json names,
 # and is built so that no branch code ever runs beside it:
@@ -54,6 +57,14 @@ jobs:
           BRANCH: ${{ github.event.pull_request.head.ref }}
         run: node scripts/vercel-prune.mjs branch "$BRANCH"
 
+      # Every merge adds a production deployment; trimming on each close keeps
+      # the count bounded without a schedule.
+      - name: Trim production history
+        if: github.event_name == 'pull_request_target'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node scripts/vercel-prune.mjs history
+
       - name: Delete previews of branches that no longer exist
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -68,3 +79,4 @@ jobs:
           flag=''
           [ "$DRY_RUN" = true ] && flag=--dry-run
           node scripts/vercel-prune.mjs stale "$RUNNER_TEMP/live-branches.txt" $flag
+          node scripts/vercel-prune.mjs history $flag
