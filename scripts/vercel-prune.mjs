@@ -17,10 +17,13 @@
 // or anything built from `develop`. Those are checked per deployment, not
 // trusted to the query, so a filter Vercel ignores cannot widen the delete.
 //
-// A preview is rebuildable from its commit — GitHub keeps every pull request's
-// head at refs/pull/<n>/head — so deleting one loses nothing that cannot be
-// had back. That is what makes this safe to run unattended (`docs/sops.md`
-// SOP 6: recoverability, not scope).
+// A closed pull request's preview is rebuildable from its commit — GitHub
+// keeps every pull request's head at refs/pull/<n>/head — so `branch` loses
+// nothing that cannot be had back, which is what makes it safe to run
+// unattended (`docs/sops.md` SOP 6: recoverability, not scope). `stale` has no
+// such guarantee: a branch pushed and deleted without a pull request leaves a
+// commit nothing keeps. So `stale` is only ever started by hand, and the
+// workflow defaults it to --dry-run.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 

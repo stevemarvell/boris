@@ -276,9 +276,13 @@ refuses production deployments and anything built from `develop` per
 deployment, whatever the query returned, and refuses an empty live-branch list
 rather than read it as "every preview is stale".
 
-What it deletes is recoverable. A preview is a build of a commit, and GitHub
-keeps every pull request's head at `refs/pull/<n>/head`, so any deleted
-preview can be rebuilt.
+What the close-time run deletes is recoverable: a preview is a build of a
+commit, and GitHub keeps every pull request's head at `refs/pull/<n>/head`, so
+that preview can be rebuilt. That is why it runs unattended. The backlog run
+is not covered by the same argument — it deletes the preview of any branch
+that no longer exists, including one pushed and deleted without a pull request
+ever being opened, whose commit nothing keeps. So that run is started by a
+person and defaults to a dry run that lists what it would delete.
 
 The token expires a year after 2026-09-23. On that day the job fails loudly
 and nothing else is affected: deploys go through Vercel's Git integration, not
