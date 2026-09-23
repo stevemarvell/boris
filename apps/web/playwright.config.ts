@@ -1,18 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
-import { ports } from '../../scripts/ports.mjs';
 import {
   API_PORT,
   API_URL,
   LIMITED_API_PORT,
   LIMITED_API_URL,
   LIMITED_RATE_LIMIT,
+  WEB_PORT,
 } from './e2e/api-servers';
 
-// Derived from the worktree directory so parallel agents do not collide.
-// E2E_API_PORT / E2E_WEB_PORT override. The API's own port and URL come from
-// e2e/api-servers.ts, so a spec can address a server by the same name the
-// config starts it under.
-const { web: WEB_PORT } = ports(['api', 'web']);
+// Every port comes from e2e/api-servers.ts, derived from the worktree
+// directory so parallel agents do not collide (E2E_API_PORT / E2E_WEB_PORT
+// override). One list of servers, read here and by the specs alike.
 
 export default defineConfig({
   testDir: './e2e',

@@ -4,7 +4,18 @@
 // Not a *.spec.ts file, so Playwright's default testMatch leaves it alone.
 import { ports } from '../../../scripts/ports.mjs';
 
-const { api: API_PORT } = ports(['api', 'web']);
+/**
+ * The servers the e2e suite starts, in the order ports() places them. The one
+ * list both this file and playwright.config.ts read, so the two cannot put a
+ * server in different bands (#180's review): reorder or extend it here only.
+ */
+export const E2E_SERVERS = ['api', 'web'] as const;
+
+const PORTS = ports(E2E_SERVERS);
+const API_PORT = PORTS.api;
+
+/** The web app's `vite preview` port. */
+export const WEB_PORT = PORTS.web;
 
 export { API_PORT };
 
