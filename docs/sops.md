@@ -34,7 +34,7 @@ Reaching a ceiling is not a failure to hide. It is the procedure working.
 
 | Loop | Ceiling | Where it is declared |
 | --- | --- | --- |
-| `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md` |
+| `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
 | Polling a deployment in `smoke` | 30 attempts × 15s, 40 for the commit gate | `.github/workflows/smoke.yml`, per loop |
@@ -56,17 +56,18 @@ than writing a `max_iterations` key into frontmatter that no harness reads —
 this repository's recurring failure is a control that is present, plausible,
 and inert, and inventing a config key nobody consumes is precisely that shape.
 
-Two loops *are* mechanically bounded:
+Three loops *are* mechanically bounded:
 
 - `smoke.yml`'s waits, by the `seq` bounds above.
 - The rate limiter, at 120 requests per minute — see `docs/data-governance.md`.
-
-One more could be, and is the obvious next step: `.claude/hooks/verify-on-stop.mjs`
-blocks the end of a turn while `verify` is red by exiting 2, which is what
-creates the fix-and-retry loop in the first place. It has no notion of how many
-times it has already done so. A counter there, refusing to block after the
-third consecutive time and reporting instead, would make SOP 1 real for the
-loop that matters most. Tracked as issue #80.
+- The fix-and-retry loop the stop hook drives (#80).
+  `.claude/hooks/verify-on-stop.mjs` blocks the end of a turn while `verify`
+  is red, which is what creates that loop. It now counts consecutive blocks,
+  per session, in a file outside the checkout. At the third red in a row it
+  stops blocking, ends the turn, and reports the failure to the person. A green
+  run, or a new turn from the person, resets the count. The ceiling is
+  `MAX_CONSECUTIVE_BLOCKS`, and a test holds it to the three attempts
+  `.claude/commands/ship.md` declares.
 
 ---
 
