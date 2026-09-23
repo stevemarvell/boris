@@ -233,7 +233,7 @@ jobs:
           # vercel-ignore.mjs's web list would skip a build that should have
           # run — with every check above still passing against the old bundle.
           # /docs/version.json carries the commit its build was of
-          # (scripts/build-docs.mjs); accept this commit, or an older one
+          # (apps/web/scripts/build-docs.mjs); accept this commit, or an older one
           # whose web inputs are identical.
           listed=$(node scripts/vercel-ignore.mjs paths web)
           mapfile -t pathspecs <<< "$listed"

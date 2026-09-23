@@ -43,7 +43,7 @@ Four settings are load-bearing and non-obvious:
   identical to the merged commit's, asking git with the script's own
   pathspecs (`node scripts/vercel-ignore.mjs paths api`), so a skipped build
   is not a stale one and the two cannot disagree about what the API reads.
-  The web app has the same gate: `scripts/build-docs.mjs` publishes the
+  The web app has the same gate: `apps/web/scripts/build-docs.mjs` publishes the
   build's `VERCEL_GIT_COMMIT_SHA` at `/docs/version.json`, and smoke diffs it
   over the web pathspecs.
 - Vercel's Root Directory for the *web* project is `apps/web`. A `vercel.json`
@@ -81,7 +81,7 @@ Four settings are load-bearing and non-obvious:
 `VITE_API_URL` is read at build time by the *web* project. The two Vercel
 projects are independent, and nothing syncs one project's URL into the
 other's build — Railway's Vercel integration did that for `API_URL`, and
-retired with it. `scripts/write-api-url.mjs` now has two cases: an explicit
+retired with it. `apps/web/scripts/write-api-url.mjs` now has two cases: an explicit
 `VITE_API_URL` (the e2e suite sets one) wins; otherwise the committed
 `apps/web/.env.production` stands as the fallback — for every build,
 production and every pull-request preview alike. See that script's own

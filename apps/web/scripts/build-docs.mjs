@@ -17,10 +17,12 @@ import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { escapeHtml, firstHeading, renderMarkdown } from './markdown.mjs';
+import { escapeHtml, firstHeading, renderMarkdown } from '../../../scripts/markdown.mjs';
 import { chooseApiUrl } from './write-api-url.mjs';
 
-export const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+// apps/web/scripts/ -> the repository root, three levels up (#173 moved this
+// file here from scripts/, where it was two).
+export const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 export const DOCS_DIR = join(REPO_ROOT, 'apps', 'web', 'public', 'docs');
 
 /** Where the API — and so its manual — lives for the build being made. */

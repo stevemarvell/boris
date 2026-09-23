@@ -895,7 +895,7 @@ export async function fetchGenerations(): Promise&lt;Generation[]&gt;</code></pr
 
       <p>
         The web package's <code>prebuild</code> script runs
-        <code>node ../../scripts/write-api-url.mjs</code> before every
+        <code>node scripts/write-api-url.mjs</code> before every
         <code>vite build</code>. That script deletes
         <code>apps/web/.env.production.local</code> first — the file is
         gitignored and survives between builds, and Vite loads it ahead of
@@ -1107,7 +1107,7 @@ uv run uvicorn api.main:app --reload    # the API on :8000</code></pre>
       <footer>
         <p>
           Written from the source in <code>apps/web/src/</code> and
-          <code>scripts/write-api-url.mjs</code>. Screenshots captured from the
+          <code>apps/web/scripts/write-api-url.mjs</code>. Screenshots captured from the
           deployed app at 390px wide. Part of the
           <a href="https://github.com/stevemarvell/boris">boris</a> repository.
         </p>
