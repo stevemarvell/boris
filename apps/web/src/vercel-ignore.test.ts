@@ -152,6 +152,7 @@ describe('pathspecs', () => {
     expect(touching('apps/web/e2e/docs.spec.ts')).toEqual({ api: false, web: false });
     expect(touching('scripts/pr-contention.mjs')).toEqual({ api: false, web: false });
     expect(touching('scripts/paths.mjs')).toEqual({ api: false, web: false });
+    expect(touching('scripts/vercel-prune.mjs')).toEqual({ api: false, web: false });
     expect(touching('scripts/write-ci-sandbox-settings.mjs')).toEqual({ api: false, web: false });
   });
 

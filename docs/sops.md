@@ -40,6 +40,7 @@ Reaching a ceiling is not a failure to hide. It is the procedure working.
 | Polling a deployment in `smoke` | 30 attempts × 15s, 40 for the commit gate | `.github/workflows/smoke.yml`, per loop |
 | Polling `gh pr checks` in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
+| Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/vercel-prune.mjs`, `MAX_PAGES` |
 
 `smoke.yml` is the model the rest of this follows. Every one of its waits is a
 `for attempt in $(seq 1 30)` with an explicit `sleep`, an echo per attempt, and

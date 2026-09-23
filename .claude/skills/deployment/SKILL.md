@@ -108,11 +108,15 @@ merged, one from a merge four minutes earlier. (Railway, while it hosted the
 API, *did* remove its own PR environments on close — the one piece of
 automatic cleanup this project had, and it went when Railway did.)
 
-Nothing collects Vercel previews on this plan. Deployment Retention is a Pro
-feature and the team is on Hobby, so the options are `vercel remove` or the
-dashboard, both by hand. What *is* automated is the cause of new branches
-piling up — `delete_branch_on_merge` is set on the repository — not the
-previews themselves.
+Vercel collects nothing on this plan (Deployment Retention is a Pro feature
+and the team is on Hobby), so `.github/workflows/preview-prune.yml` does it:
+when a pull request closes, it deletes that branch's previews in both
+projects, using `VERCEL_TOKEN` (a team-scoped token, a repository secret,
+expiring 2026-09-23 + one year). Run it by hand (`gh workflow run
+preview-prune -f dry_run=false`) to delete every preview whose branch no longer
+exists; the default `dry_run=true` only lists them. `scripts/vercel-prune.mjs`
+never deletes a production deployment or a `develop` build, whatever it is
+asked. `docs/data-governance.md` has why the token is safe to hold.
 
 This is not an exposure. `docs/data-governance.md` records that previews are
 open deliberately, because a reviewing agent has to be able to load one, and a

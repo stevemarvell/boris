@@ -28,5 +28,6 @@ A branch gets a Vercel preview of the web app and, separately, one of the API
 `deployment` skill has the ignore step) — but a web build never reads its own
 branch's API preview: `VITE_API_URL` always resolves to the one production
 API, so a branch with no pull request open is no different from one with one.
-Vercel tears down neither kind of preview, so a stuck one has to be removed by
-hand — the `deployment` skill has the lifecycle, and why.
+Vercel tears down neither kind of preview; the `preview-prune` workflow
+deletes a branch's previews when its pull request closes — the `deployment`
+skill has the lifecycle, and why.

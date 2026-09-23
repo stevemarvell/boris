@@ -1,0 +1,70 @@
+name: preview-prune
+
+# Vercel never deletes a preview deployment: it outlives the merge and the
+# branch, and Deployment Retention is not on this plan. This deletes a branch's
+# previews, in both projects, when its pull request closes — and, run by hand,
+# every preview whose branch no longer exists (the backlog).
+#
+# It holds VERCEL_TOKEN, a token scoped to the stevemarvell-team Vercel team,
+# and is built so that no branch code ever runs beside it:
+#
+# - `pull_request_target`, not `pull_request`: the workflow file is develop's,
+#   not the pull request's, so a branch cannot rewrite what runs here.
+# - The checkout is develop, explicitly. Nothing from the pull request is
+#   checked out or executed; its branch name is the only thing read from it,
+#   passed as data through `env:` and URL-encoded by the script.
+# - Same-repository pull requests only. A fork's branch name is not ours to
+#   act on.
+#
+# docs/data-governance.md records this job among what CI holds, and why it
+# sits outside the "branch code with a credential" class the others are in.
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List the stale previews without deleting them
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: prune
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          persist-credentials: false
+
+      - name: Delete the closed branch's previews
+        if: github.event_name == 'pull_request_target'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: node scripts/vercel-prune.mjs branch "$BRANCH"
+
+      - name: Delete previews of branches that no longer exist
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          # The branches that still exist are the ones to keep. The script
+          # refuses an empty list rather than read it as "delete everything".
+          gh api "repos/$GITHUB_REPOSITORY/branches" --paginate --jq '.[].name' > "$RUNNER_TEMP/live-branches.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/live-branches.txt") live branches"
+          flag=''
+          [ "$DRY_RUN" = true ] && flag=--dry-run
+          node scripts/vercel-prune.mjs stale "$RUNNER_TEMP/live-branches.txt" $flag
