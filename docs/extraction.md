@@ -91,7 +91,7 @@ trust, automated review, worktree isolation, auto mode.
 
 - `.claude/hooks/verify-on-stop.mjs` — the Stop hook that blocks a turn while
   `verify` is red. This is what converts "the contract" from a convention into a
-  control. One constant to change: the `WATCHED` regex.
+  control. What it watches now comes from `project.json` (#173).
 - `.claude/hooks/filter-verbose.mjs` — shrinks CI logs before they enter the
   conversation, at zero token cost. The command list is a narrow allow-list to
   extend, not domain logic.

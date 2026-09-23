@@ -16,6 +16,7 @@ documentation — see "Documentation".
 | `apps/api/` | FastAPI + Strawberry GraphQL service. Deploys to Vercel. `data/` (the family tree) and `manual/` (its reference manual) live inside it, not at the repository root, so that a Vercel project rooted at `apps/api` bundles both without reaching outside its own root directory (#126). |
 | `apps/mcp/` | MCP server over the family tree. Reuses `api.tree.FamilyTree`; not deployed. |
 | `apps/web/` | Ionic React app on Vite. Deploys to Vercel. |
+| `project.json` | The one place the AI layer (`.claude/`, `scripts/`, `.github/`) learns about the apps: paths, toolchains, build inputs, Vercel projects, URLs (#173). Read through `scripts/project.mjs`. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run; `extraction.md`, what here is reusable on another project and what is a conclusion that must not be copied. |
 | `manual/web/` | The web app's reference manual. Ships to Vercel with it. |
 

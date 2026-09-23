@@ -35,13 +35,17 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-          cache-dependency-glob: apps/api/uv.lock
+          cache-dependency-glob: 'apps/*/uv.lock'
 
       - run: npm ci
 
       # Fails the build rather than resolving new versions silently, so CI
       # tests the same dependency set as a local run.
-      - run: uv sync --directory apps/api --frozen
+      # Every Python app project.json declares (#173). Assigned first rather
+      # than piped, so a failing lookup stops the step under `bash -e`.
+      - run: |
+          apps=$(node scripts/project.mjs apps python)
+          for app in $apps; do uv sync --directory "$app" --frozen; done
 
       - run: npx playwright install --with-deps chromium
 
@@ -51,5 +55,5 @@ jobs:
         if: failure()
         with:
           name: playwright-report
-          path: apps/web/playwright-report/
+          path: 'apps/*/playwright-report/'
           retention-days: 7

@@ -36,8 +36,9 @@ Four settings are load-bearing and non-obvious:
   skips when nothing changed. A branch's first push has no previous SHA, and
   Vercel's clone cannot fetch `develop` (no credentials — measured on #168),
   so it compares with the nearest squash-merge ancestor instead (`forkPoint`). Exit 0 means *skip*; every failure path
-  exits 1 and builds. The path lists are in the script, and a new top-level
-  directory rebuilds the web app until it is listed.
+  exits 1 and builds. What each build reads is declared in `project.json`
+  (`reads`/`ignores` per app, #173). The lists say what a build reads, so an
+  undeclared read skips a build it needed; smoke's freshness gates catch that.
 - `smoke.yml`'s commit gate (#50) accepts a deployed API whose `apps/api` is
   identical to the merged commit's, asking git with the script's own
   pathspecs (`node scripts/vercel-ignore.mjs paths api`), so a skipped build
