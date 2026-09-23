@@ -187,9 +187,12 @@ for attempt in $(seq 1 30); do
   # One call per attempt, filtered by gh's own --jq rather than a jq binary:
   # jq is not installed on every machine this runs on, and without it every
   # poll fails and the loop runs to its ceiling reporting nothing.
+  # An unfinished run's conclusion is "", not null, and `//` only replaces
+  # null: the empty field vanished and `read` shifted the run id into
+  # $conclusion. Every field is non-empty, so `read` always splits in three.
   run=$(gh run list --workflow smoke --branch develop --commit "$sha" -L 1 \
           --json databaseId,status,conclusion \
-          --jq '.[0] // {} | "\(.status // "not-registered") \(.conclusion // "-") \(.databaseId // "-")"')
+          --jq '.[0] // {} | "\(.status // "not-registered") \(.conclusion | if . == null or . == "" then "-" else . end) \(.databaseId // "-")"')
   read -r status conclusion id <<< "$run"
   echo "attempt $attempt: status=$status conclusion=$conclusion run=$id"
   [ "$status" = "completed" ] && break
