@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decide, forkPoint, type Git } from '../../../scripts/vercel-ignore.mjs';
+import { decide, forkPoint, type Git } from '../vercel-ignore.mjs';
 
 // A git stand-in: answers by the first argument, and records every call.
 function fakeGit(answers: Record<string, { status: number; stdout?: string }>) {

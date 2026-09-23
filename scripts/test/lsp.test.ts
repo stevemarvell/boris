@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANGUAGE_SERVERS, missingPackages, onPath } from '../../../scripts/lsp.mjs';
+import { LANGUAGE_SERVERS, missingPackages, onPath } from '../lsp.mjs';
 
 describe('missingPackages', () => {
   it('installs nothing when every language server is already on PATH', () => {

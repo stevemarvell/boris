@@ -7,9 +7,9 @@ import {
   ciTelemetryEnv,
   defaultSettingsPath,
   writeCiTelemetrySettings,
-} from '../../../scripts/write-ci-telemetry-settings.mjs';
+} from '../write-ci-telemetry-settings.mjs';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** True when `path` is the repository working tree itself, or anything inside it. */
 const insideCheckout = (path: string) => {

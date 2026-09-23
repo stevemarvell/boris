@@ -1,19 +1,20 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../../.claude/hooks/format-edited.mjs';
-import { ROOT as VERIFY_ROOT } from '../../../.claude/hooks/verify-on-stop.mjs';
-import { decide, filterCommand } from '../../../.claude/hooks/filter-verbose.mjs';
+import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../.claude/hooks/format-edited.mjs';
+import { ROOT as VERIFY_ROOT } from '../../.claude/hooks/verify-on-stop.mjs';
+import { decide, filterCommand } from '../../.claude/hooks/filter-verbose.mjs';
 import {
   clearAdvice,
   CLEAR_AT_PERCENT,
   COLD_CACHE_CLEAR_AT_PERCENT,
   render,
-} from '../../../.claude/statusline.mjs';
+} from '../../.claude/statusline.mjs';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 // A filename carrying every shell metacharacter this hook must never act on:
 // backticks and $(...) run command substitution under sh, a bare quote would
@@ -24,11 +25,22 @@ const MALICIOUS_FILENAME = 'a`touch pwned`$(touch pwned2);"x\' y.py';
 describe('hook roots', () => {
   // A hook fires with whatever working directory the session is in. Both
   // scripts used relative paths and failed with "Cannot find module" from any
-  // subdirectory; vitest runs with cwd = apps/web, which is such a directory.
+  // subdirectory.
   it('resolve the repository root independently of the working directory', () => {
     expect(VERIFY_ROOT).toBe(REPO_ROOT);
     expect(FORMAT_ROOT).toBe(REPO_ROOT);
-    expect(process.cwd()).not.toBe(REPO_ROOT);
+    // This suite runs from the repository root since #173 moved it out of
+    // apps/web, so the in-process check above no longer proves anything
+    // about cwd. Import each hook fresh in a process started somewhere else.
+    for (const hook of ['verify-on-stop.mjs', 'format-edited.mjs']) {
+      const url = pathToFileURL(join(REPO_ROOT, '.claude', 'hooks', hook)).href;
+      const root = execFileSync(process.execPath, ['--input-type=module', '-e', `import(${JSON.stringify(url)}).then((m) => process.stdout.write(m.ROOT))`], {
+        cwd: tmpdir(),
+        encoding: 'utf8',
+        input: '',
+      });
+      expect(root, hook).toBe(REPO_ROOT);
+    }
   });
 });
 
@@ -118,7 +130,10 @@ describe('runFixes', () => {
   it('does not execute shell metacharacters embedded in a crafted .py filename', () => {
     const markerA = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-a`);
     const markerB = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-b`);
-    const malicious = `a\`touch ${markerA}\`$(touch ${markerB}).py`;
+    // Inside a Python app, so ruff really is invoked with it (project.json,
+    // #173). Outside every app the route is empty and this would prove nothing.
+    const malicious = `apps/api/a\`touch ${markerA}\`$(touch ${markerB}).py`;
+    expect(fixCommands(malicious)).toHaveLength(2);
 
     expect(() => runFixes(malicious)).not.toThrow();
 

@@ -22,8 +22,8 @@ documentation — see "Documentation".
 
 ## Rules
 
-- **`npm run verify` is the contract.** It runs ruff, pytest, typecheck,
-  eslint, the web tests, and the build. Never report work as done until it
+- **`npm run verify` is the contract.** It runs the AI layer's own tests, ruff,
+  pytest, typecheck, eslint, the web tests, and the build. Never report work as done until it
   passes — run it yourself rather than asking someone else to. A `Stop` hook
   runs it automatically when tracked files have changed, so a red loop blocks
   the turn rather than producing a claim.
@@ -157,6 +157,7 @@ behaves exactly as in production. The `deployment` skill has the rest.
 
 ```bash
 npm run verify        # everything, about a minute
+npm run verify:harness  # the AI layer's own tests, scripts/test (#173)
 npm run verify:api    # ruff + pytest
 npm run verify:web    # typecheck + eslint + vitest + build
 npm run verify:e2e    # playwright against the built bundle and a real uvicorn
