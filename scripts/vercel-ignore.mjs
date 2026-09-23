@@ -25,45 +25,20 @@
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildPathspecs, loadProject } from './project.mjs';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// What each build reads, as git pathspecs from the repository root.
-//
-// The API's Root Directory is apps/api and it bundles data/ and manual/ from
-// inside it (#126), so nothing outside that directory reaches its build.
-//
-// The web build reaches all over the repository — docs/, manual/web/,
-// index.html, scripts/, the root lockfile — so it is listed by what it does
-// *not* read. A new top-level directory therefore rebuilds the web app until
-// somebody adds it here: the safe direction to be wrong in.
-export const PATHSPECS = {
-  api: ['apps/api', 'scripts/vercel-ignore.mjs'],
-  web: [
-    '.',
-    ':(exclude)apps/api',
-    ':(exclude)apps/mcp',
-    ':(exclude).claude',
-    ':(exclude).github',
-    ':(exclude)design',
-    ':(exclude)telemetry',
-    ':(exclude)CLAUDE.md',
-    // Tests are checked by `verify`, not shipped in the bundle.
-    ':(exclude)apps/web/e2e',
-    ':(exclude,glob)**/*.test.ts',
-    ':(exclude,glob)**/*.test.tsx',
-    // Scripts only CI and local tooling run. The build's own — write-api-url,
-    // build-docs and what they import — stay in, as does anything new.
-    ...['assert-review-ran', 'bootstrap', 'lsp', 'paths', 'ports', 'pr-contention', 'review-scope', 'test-census', 'triage', 'vercel-prune']
-      .map((name) => `:(exclude,glob)scripts/${name}.*`),
-    ':(exclude,glob)scripts/write-ci-*',
-  ],
-};
+// What each build reads comes from project.json (#173): an app's `reads`
+// and `ignores`, plus the manifest and this script, which can change any
+// decision. See scripts/project.mjs's buildPathspecs. The list is what a build
+// reads, not what it does not, so a path no app declares rebuilds nothing;
+// smoke.yml's two freshness gates are what catch a read left undeclared.
 
 // Decide whether to build. `git` runs a git command in the repository root and
 // returns { status, stdout }. Returns { build, reason }.
-export function decide(project, env, git) {
-  const pathspecs = PATHSPECS[project];
+export function decide(project, env, git, manifest = loadProject()) {
+  const pathspecs = buildPathspecs(manifest, project);
   if (!pathspecs) return { build: true, reason: `unknown project "${project}"` };
 
   let base = env.VERCEL_GIT_PREVIOUS_SHA;
@@ -116,7 +91,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [command, project] = process.argv.slice(2);
   if (command === 'paths') {
     // For smoke.yml: the pathspecs, one per line.
-    const pathspecs = PATHSPECS[project];
+    const pathspecs = buildPathspecs(loadProject(), project);
     if (!pathspecs) process.exit(2);
     process.stdout.write(pathspecs.join('\n') + '\n');
   } else {

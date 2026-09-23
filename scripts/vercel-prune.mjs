@@ -26,9 +26,13 @@
 // workflow defaults it to --dry-run.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { deployed, loadProject } from './project.mjs';
 
-export const TEAM = 'stevemarvell-team';
-export const PROJECTS = ['family-tree-web', 'family-tree-api'];
+// Which team and projects, from project.json (#173): every app that names a
+// vercelProject.
+const PROJECT = loadProject();
+export const TEAM = PROJECT.vercel.team;
+export const PROJECTS = deployed(PROJECT).map(([, app]) => app.vercelProject);
 export const PRODUCTION_BRANCH = 'develop';
 // 100 deployments a page; 20 pages is 2,000 per project, twenty times the
 // whole backlog this was written to clear. Hitting it is reported, not retried.

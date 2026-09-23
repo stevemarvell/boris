@@ -1,3 +1,5 @@
+import type { Project } from '../../scripts/project.mjs';
+
 export declare const ROOT: string;
 
 export interface FixCommand {
@@ -5,7 +7,7 @@ export interface FixCommand {
   args: string[];
 }
 
-export declare function fixCommands(filePath: string): FixCommand[];
+export declare function fixCommands(filePath: string, project?: Project): FixCommand[];
 
 export declare function runFixes(
   filePath: string,

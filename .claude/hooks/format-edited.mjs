@@ -23,8 +23,9 @@
 // everywhere and never needs one.
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { appFor, loadProject } from '../../scripts/project.mjs';
 
 export const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -52,11 +53,17 @@ function resolveEslintBin() {
  * entry is an argv descriptor — never a shell string — so a caller can only
  * ever pass `filePath` through as one argument.
  */
-export function fixCommands(filePath) {
+export function fixCommands(filePath, project = loadProject()) {
   if (/\.py$/.test(filePath)) {
+    // Ruff runs in the Python app that holds the file, with that app's own
+    // config (project.json, #173). A Python file outside every Python app is
+    // left alone rather than linted against a neighbour's rules.
+    const owner = appFor(project, relative(ROOT, resolve(ROOT, filePath)));
+    if (!owner || owner[1].toolchain !== 'python') return [];
+    const directory = owner[1].path;
     return [
-      { command: 'uv', args: ['run', '--directory', 'apps/api', 'ruff', 'check', '--fix', filePath] },
-      { command: 'uv', args: ['run', '--directory', 'apps/api', 'ruff', 'format', filePath] },
+      { command: 'uv', args: ['run', '--directory', directory, 'ruff', 'check', '--fix', filePath] },
+      { command: 'uv', args: ['run', '--directory', directory, 'ruff', 'format', filePath] },
     ];
   }
   if (/\.(ts|tsx|js|jsx|mjs)$/.test(filePath)) {

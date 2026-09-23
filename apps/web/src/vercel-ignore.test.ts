@@ -34,7 +34,7 @@ describe('decide', () => {
 
   it('builds an unknown project without touching git', () => {
     const { git, calls } = fakeGit({});
-    expect(decide('mcp', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
+    expect(decide('not-in-project-json', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, git).build).toBe(true);
     expect(calls).toEqual([]);
   });
 
@@ -162,7 +162,14 @@ describe('pathspecs', () => {
     expect(touching('scripts/markdown.mjs')).toEqual({ api: false, web: true });
   });
 
-  it('builds the web app for a top-level path it has never heard of', () => {
-    expect(touching('brand-new/x')).toEqual({ api: false, web: true });
+  it('builds nothing for a path no app declares it reads (#173)', () => {
+    // The manifest lists what a build reads, not what it does not. A read left
+    // undeclared is caught after merge by smoke.yml's freshness gates.
+    expect(touching('brand-new/x')).toEqual({ api: false, web: false });
+  });
+
+  it('rebuilds both when the manifest, or the code that reads it, changes', () => {
+    expect(touching('project.json')).toEqual({ api: true, web: true });
+    expect(touching('scripts/project.mjs')).toEqual({ api: true, web: true });
   });
 });

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Prepare a fresh worktree: install both toolchains and report the ports this
+// Prepare a fresh worktree: install every app's toolchain and report the ports this
 // checkout will use. node_modules and .venv are per-worktree, not shared.
 import { execSync } from 'node:child_process';
 import { missingPackages } from './lsp.mjs';
+import { apps, loadProject } from './project.mjs';
 import { ports } from './ports.mjs';
 
 const run = (command) => {
@@ -11,7 +12,8 @@ const run = (command) => {
 };
 
 run('npm ci');
-run('uv sync --directory apps/api --frozen');
+// Every Python app in project.json (#173); node apps are npm workspaces.
+for (const [, app] of apps(loadProject(), 'python')) run(`uv sync --directory ${app.path} --frozen`);
 run('npx playwright install chromium');
 
 // Language servers for the LSP plugins in .claude/settings.json -- global,

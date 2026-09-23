@@ -122,8 +122,13 @@ describe('prune', () => {
       rule: { live: new Set(['live']) },
       log: () => {},
     });
-    expect(removed).toEqual(['w1', 'w3', 'a1']);
-    expect(deleted.map((d) => d.project)).toEqual(['family-tree-web', 'family-tree-web', 'family-tree-api']);
+    // Project order is project.json's, so compare as sets.
+    expect([...removed].sort()).toEqual(['a1', 'w1', 'w3']);
+    expect(deleted.map((d) => `${d.project}:${d.id}`).sort()).toEqual([
+      'family-tree-api:a1',
+      'family-tree-web:w1',
+      'family-tree-web:w3',
+    ]);
   });
 
   it('deletes nothing on a dry run, but reports what it would', async () => {
@@ -138,6 +143,6 @@ describe('prune', () => {
     });
     expect(removed).toEqual([]);
     expect(deleted).toHaveLength(3);
-    expect(lines[0]).toMatch(/^would delete family-tree-web w1/);
+    expect(lines).toContain('would delete family-tree-web w1 (gone)');
   });
 });

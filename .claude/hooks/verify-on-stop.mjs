@@ -23,11 +23,12 @@
 // directory the session happens to be in, and a relative path fails outright
 // from a subdirectory. Commands go through a shell because npm is a .cmd shim
 // on Windows and execFile cannot launch those.
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadProject, verifiedPaths } from '../../scripts/project.mjs';
 
 export const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -36,16 +37,18 @@ export const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export const STATE_DIR = join(tmpdir(), 'claude-verify-on-stop');
 
-const WATCHED = /^(apps\/|data\/|package\.json|package-lock\.json)/;
-
 const run = (command) =>
   execSync(command, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
-export function changedFiles() {
-  return run('git status --porcelain')
+// What `verify` covers comes from project.json (#173): every app's directory
+// and build inputs, and the AI layer's own code. It used to be a regex naming
+// `data/`, which moved into apps/api in #126, so a data-only edit had stopped
+// triggering this hook without anything saying so. git does the matching.
+export function changedFiles(paths = verifiedPaths(loadProject())) {
+  return execFileSync('git', ['status', '--porcelain', '--', ...paths], { cwd: ROOT, encoding: 'utf8' })
     .split('\n')
     .map((line) => line.slice(3).trim())
-    .filter((path) => path && WATCHED.test(path));
+    .filter(Boolean);
 }
 
 /**

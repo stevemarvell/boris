@@ -33,7 +33,7 @@ describe('hook roots', () => {
 });
 
 describe('fixCommands', () => {
-  it('routes Python at ruff, pinned to the api project', () => {
+  it('routes Python at ruff, in the Python app that holds the file', () => {
     const commands = fixCommands('apps/api/src/api/tree.py');
     const [checkCommand, formatCommand] = commands;
     if (!checkCommand || !formatCommand) throw new Error('expected two commands');
@@ -61,6 +61,13 @@ describe('fixCommands', () => {
     }
   });
 
+  it('runs ruff from each Python app, and not at all outside one', () => {
+    const mcp = fixCommands('apps/mcp/src/family_mcp/server.py');
+    expect(mcp.every(({ args }) => args[args.indexOf('--directory') + 1] === 'apps/mcp')).toBe(true);
+    expect(mcp).toHaveLength(2);
+    expect(fixCommands('scripts/stray.py')).toEqual([]);
+  });
+
   it('leaves anything else alone', () => {
     for (const file of ['README.md', 'data/family.json', 'styles.css', 'noext']) {
       expect(fixCommands(file)).toEqual([]);
@@ -83,7 +90,9 @@ describe('fixCommands', () => {
 describe('runFixes', () => {
   it('hands the path to exec as a literal argv element, never as part of a larger string', () => {
     const calls: Array<[string, string[], unknown]> = [];
-    runFixes(MALICIOUS_FILENAME, { exec: (command, args, options) => calls.push([command, args, options]) });
+    // Inside a Python app, so the ruff route is actually taken (project.json, #173).
+    const malicious = `apps/api/${MALICIOUS_FILENAME}`;
+    runFixes(malicious, { exec: (command, args, options) => calls.push([command, args, options]) });
 
     expect(calls.length).toBeGreaterThan(0);
     for (const [command, args, options] of calls) {
@@ -91,8 +100,8 @@ describe('runFixes', () => {
       expect(Array.isArray(args)).toBe(true);
       // The malicious string appears as its own array element — never
       // concatenated into a larger string that something else would parse.
-      expect(args).toContain(MALICIOUS_FILENAME);
-      expect(args.some((a) => a !== MALICIOUS_FILENAME && String(a).includes(MALICIOUS_FILENAME))).toBe(
+      expect(args).toContain(malicious);
+      expect(args.some((a) => a !== malicious && String(a).includes(malicious))).toBe(
         false,
       );
       // execFileSync only ever spawns a shell if told to; this hook never

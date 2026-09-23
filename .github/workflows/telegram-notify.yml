@@ -65,7 +65,7 @@ jobs:
 
           # A merge to develop is a deployment, so say so.
           if [ "$PR_BASE" = "develop" ]; then
-            text=$(printf '%s\n\n%s' "$text" "Deploying: family-tree-web, family-tree-api. Smoke runs next.")
+            text=$(printf '%s\n\n%s' "$text" "Deploying. Smoke runs next.")
           fi
 
           # No --fail-with-body: Telegram answers 200 with ok:false for a bad
