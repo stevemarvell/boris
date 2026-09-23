@@ -1,14 +1,15 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { canonical } from '../../../scripts/paths.mjs';
+import { canonical } from '../paths.mjs';
 import {
   ACKNOWLEDGEMENT,
   census,
   censusVerdict,
   countTests,
   isTestFile,
-} from '../../../scripts/test-census.mjs';
+} from '../test-census.mjs';
 
 const ts = (...tests: string[]) =>
   `import { describe, expect, it } from 'vitest';\n\ndescribe('a thing', () => {\n${tests
@@ -280,32 +281,23 @@ describe('the premise: this repository can actually be counted', () => {
   // This walks the real suites, so the first `.each` or `parametrize` anyone
   // adds turns up as a failure pointing at test-census.mjs, rather than as a
   // count that quietly stops matching the runner.
-  const root = resolve(__dirname, '../../..');
-
-  const walk = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      if (entry.name === 'node_modules' || entry.name === '.venv' || entry.name === '__pycache__') {
-        return [];
-      }
-      const full = join(dir, entry.name);
-      return entry.isDirectory() ? walk(full) : [full];
-    });
+  const root = resolve(__dirname, '../..');
 
   // Every suite, not the three anyone thinks of first: apps/mcp has tests too,
-  // and a census that walked a hand-written list of directories would stop
-  // seeing a suite the day one is added — which is this repository's signature
-  // failure wearing a different hat.
-  const testFiles = walk(join(root, 'apps'))
-    .map((path) => relative(root, path).split('\\').join('/'))
-    .filter(isTestFile);
-
-  const everything = walk(join(root, 'apps')).map((path) =>
-    relative(root, path).split('\\').join('/'),
-  );
+  // and the AI layer's own live in scripts/test since #173. A census that
+  // walked a hand-written list of directories would stop seeing a suite the
+  // day one is added (this used to walk apps/ only), which is this
+  // repository's signature failure wearing a different hat. So this asks git
+  // for every tracked file instead.
+  const everything = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean);
+  const testFiles = everything.filter(isTestFile);
 
   it('finds every suite, including the ones not in apps/web', () => {
     expect(testFiles.length).toBeGreaterThan(10);
-    expect(testFiles).toContain('apps/web/src/test-census.test.ts');
+    expect(testFiles).toContain('scripts/test/test-census.test.ts');
+    expect(testFiles.some((path) => path.startsWith('apps/web/src/'))).toBe(true);
     expect(testFiles.some((path) => path.startsWith('apps/api/tests/'))).toBe(true);
     expect(testFiles.some((path) => path.startsWith('apps/mcp/tests/'))).toBe(true);
     expect(testFiles.some((path) => path.endsWith('.spec.ts'))).toBe(true);
@@ -354,7 +346,7 @@ describe('the premise: this repository can actually be counted', () => {
       'apps/mcp/tests/test_queries.py',
       'apps/mcp/tests/test_relationships.py',
       'apps/mcp/tests/test_server.py',
-      'apps/web/src/test-census.test.ts',
+      'scripts/test/test-census.test.ts',
     ]);
   });
 });

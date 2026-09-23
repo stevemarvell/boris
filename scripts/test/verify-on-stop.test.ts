@@ -12,9 +12,9 @@ import {
   readCount,
   statePath,
   writeCount,
-} from '../../../.claude/hooks/verify-on-stop.mjs';
+} from '../../.claude/hooks/verify-on-stop.mjs';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 describe('decide', () => {
   it('allows a green run and clears the count', () => {

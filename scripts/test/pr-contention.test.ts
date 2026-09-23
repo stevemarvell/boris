@@ -10,7 +10,7 @@ import {
   refsToFetch,
   reportingTargets,
   selectPullRequests,
-} from '../../../scripts/pr-contention.mjs';
+} from '../pr-contention.mjs';
 
 // The shape `git merge-tree --write-tree --name-only` writes on a conflict:
 // the merged tree's oid, the conflicted names, a blank line, then prose.

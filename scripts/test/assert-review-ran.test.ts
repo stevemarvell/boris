@@ -7,7 +7,7 @@ import {
   readExecution,
   readFlag,
   reviewVerdict,
-} from '../../../scripts/assert-review-ran.mjs';
+} from '../assert-review-ran.mjs';
 
 const finished = (extra: Record<string, unknown> = {}) => [
   { type: 'system', subtype: 'init' },

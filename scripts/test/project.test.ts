@@ -14,9 +14,9 @@ import {
   validate,
   verifiedPaths,
   type Project,
-} from '../../../scripts/project.mjs';
+} from '../project.mjs';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const minimal = (): Project => ({
   name: 'thing',

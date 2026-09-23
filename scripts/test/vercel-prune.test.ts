@@ -11,7 +11,7 @@ import {
   select,
   type Deployment,
   type FetchJson,
-} from '../../../scripts/vercel-prune.mjs';
+} from '../vercel-prune.mjs';
 
 const preview = (uid: string, ref: string): Deployment => ({ uid, target: null, meta: { githubCommitRef: ref } });
 

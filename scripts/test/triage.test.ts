@@ -5,7 +5,7 @@ import {
   openDependencies,
   render,
   triage,
-} from '../../../scripts/triage.mjs';
+} from '../triage.mjs';
 
 const issue = (number: number, labels: string[], body = '') => ({
   number,

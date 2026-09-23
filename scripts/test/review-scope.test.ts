@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdown } from '../../../scripts/markdown.mjs';
+import { renderMarkdown } from '../markdown.mjs';
 import {
   GOVERNANCE,
   canonical,
   isProse,
   isWorkflow,
   reviewScope,
-} from '../../../scripts/review-scope.mjs';
+} from '../review-scope.mjs';
 
 describe('reviewScope', () => {
   it('runs both reviews when anything but prose changed', () => {
