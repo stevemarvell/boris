@@ -257,6 +257,33 @@ default branch rather than the branch under review. It is listed here because
 the remediation plan below has to be a complete list on the day it is used, and
 a job missing from the inventory is a job nobody remembers to fix.
 
+### A fourth credential, held the other way round
+
+`.github/workflows/preview-prune.yml` holds `VERCEL_TOKEN`, scoped to the
+`stevemarvell-team` Vercel team, and deletes preview deployments: a branch's
+own when its pull request closes, and — run by hand — every preview whose
+branch no longer exists. A Vercel token cannot be narrowed below the team, so
+the token could do anything the team can, including delete production.
+
+It is not in the class above, because no branch code runs beside it. The
+trigger is `pull_request_target`, so the workflow file is `develop`'s; the
+checkout is `develop`, explicitly; and the pull request's branch name is the
+only thing read from it, passed through `env:` as data. Fork pull requests are
+skipped outright. So a second person with write access does not change this
+job — their branch cannot rewrite it or run in it. What bounds it instead is
+`scripts/vercel-prune.mjs` itself, reviewed on its way into `develop`: it
+refuses production deployments and anything built from `develop` per
+deployment, whatever the query returned, and refuses an empty live-branch list
+rather than read it as "every preview is stale".
+
+What it deletes is recoverable. A preview is a build of a commit, and GitHub
+keeps every pull request's head at `refs/pull/<n>/head`, so any deleted
+preview can be rebuilt.
+
+The token expires a year after 2026-09-23. On that day the job fails loudly
+and nothing else is affected: deploys go through Vercel's Git integration, not
+this token.
+
 ### The trigger
 
 **A second person gets write access to this repository.** Not a fork, not an
