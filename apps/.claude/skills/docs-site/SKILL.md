@@ -1,6 +1,6 @@
 ---
 name: docs-site
-description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, what the API serves at its own root, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page list in apps/web/smoke.sh.
+description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page list in apps/web/smoke.sh.
 ---
 
 # The documentation site
@@ -10,8 +10,7 @@ means a page that builds locally and 404s on the deployment.
 
 ## Documentation
 
-Everything GitHub Pages used to publish is now served by the two deployments
-this project already had. Nothing is hosted anywhere a private repository
+Everything GitHub Pages used to publish is now served by the web deployment. Nothing is hosted anywhere a private repository
 cannot reach.
 
 | URL | Source | Carried by |
@@ -22,26 +21,11 @@ cannot reach.
 | `/docs/sops.html` | `docs/sops.md` | Vercel |
 | `/docs/manual/web/` | `manual/web/` | Vercel |
 | `/docs/step-0.html` | `index.html` | Vercel |
-| `/` on the API | `manual/api/` | the API image |
 
 The web app's `prebuild` runs `apps/web/scripts/build-docs.mjs`, which renders the
 Markdown with `scripts/markdown.mjs` and writes `apps/web/public/docs/`. That
 directory is generated, gitignored, and deleted on every run — edit the
 sources, never the output.
-
-The API manual is the one that does **not** go to Vercel. It ships inside the
-API image and is mounted at the service root, so:
-
-- its "try it" console, where `API_ENVIRONMENT=development` enables it, posts
-  to `/graphql` on the origin it was loaded from, which means a pull request
-  environment's manual exercises *that* API rather than production's;
-- it needs no CORS allowance at all, which is why `stevemarvell.github.io` is
-  no longer in `ALLOWED_ORIGIN_REGEX`.
-
-The mount is a catch-all at `/`, registered after `/graphql` and `/health` so
-those still win. A missing manual disables the mount rather than failing
-startup; `smoke` fetches it after every merge, so a build that drops it fails
-there instead.
 
 ## Adding or removing a page, the full list
 

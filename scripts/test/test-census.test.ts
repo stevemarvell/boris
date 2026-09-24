@@ -331,12 +331,12 @@ describe('the premise: this repository can actually be counted', () => {
       (path) => countTests(path, readFileSync(join(root, path), 'utf8')).tabular.length > 0,
     );
 
-    // Five files are table-driven, so a row deleted from inside one of them
-    // is the blind spot this check has. Listing them rather than asserting a
-    // count keeps that visible: a sixth is fine, and has to be a decision
-    // somebody made rather than something that drifted in.
+    // A row deleted from inside a table-driven file is the blind spot this
+    // check has. Listing such files rather than asserting a count keeps that
+    // visible: a new one is fine, and has to be a decision somebody made
+    // rather than something that drifted in.
     //
-    // The sixth entry is this file, which contains no table at all — it
+    // The one AI-layer entry is this file, which contains no table at all — it
     // *discusses* `it.each` in a comment, and the detector reads comments
     // because it reads text. Being flagged costs it nothing (its declarations
     // are still counted, and a file flagged on both sides stays in the
@@ -344,12 +344,12 @@ describe('the premise: this repository can actually be counted', () => {
     // matching — is not worth what it would cost here.
     // Outside the application, the list is exact. Inside it, which files are
     // table-driven is the application's business (#173: the AI layer's tests
-    // name no app), so each has only to sit inside a declared app; the
-    // census names every one of them in its summary on the pull request, which
-    // is where a new one is seen.
+    // name no app), so each has only to sit inside a declared app, and an app
+    // with none is equally fine; the census names every one of them in its
+    // summary on the pull request, which is where a new one is seen. That the
+    // detector sees tables at all is proven by the unit tests above.
     const appPaths = apps(loadProject()).map(([, app]) => `${app.path}/`);
     const inApps = tables.filter((path) => appPaths.some((prefix) => path.startsWith(prefix)));
     expect(tables.filter((path) => !inApps.includes(path))).toEqual(['scripts/test/test-census.test.ts']);
-    expect(inApps.length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,6 @@
 ---
 name: deployment
-description: The non-obvious settings behind this project's two Vercel deployments — how the API's [tool.vercel] entrypoint resolves, what its Root Directory has to be set to, how API_ENVIRONMENT and API_RATE_LIMIT behave, how VITE_API_URL is resolved, and why preview environments do not pair themselves. Read before changing anything that deploys, anything under apps/api, data/, manual/, or any build-time environment variable.
+description: The non-obvious settings behind this project's two Vercel deployments — how the API's [tool.vercel] entrypoint resolves, what its Root Directory has to be set to, how API_ENVIRONMENT behaves, and how preview environments live and die. Read before changing anything that deploys, anything under apps/api, or any build-time environment variable.
 ---
 
 # Deploying this project
@@ -52,42 +52,16 @@ Four settings are load-bearing and non-obvious:
   project's own root directory, which is why there are two.
 
 - The API's `API_ENVIRONMENT` **Vercel project environment variable** gates
-  the GraphQL IDE, introspection, and the API manual's query console (see
-  `apps/api/src/api/main.py`). It defaults to `production` — all three off —
-  so a variable nobody set fails closed rather than open. Local development
-  sets `API_ENVIRONMENT=development` to get them back (see "Running it"
-  below). The same default reaches preview deployments, which therefore serve
-  the manual without its console; set `API_ENVIRONMENT=development` on the
-  Vercel project (scoped to Preview, or to a specific branch) to get it back
-  there, remembering that it opens GraphiQL and introspection too. The manual
-  itself is served whole either way: production drops the console and says so
-  in its place, rather than dropping the documentation with it.
-- The API's `API_RATE_LIMIT` Vercel project environment variable sets the
-  per-caller limit on `/graphql` (see `apps/api/src/api/limits.py`). Like
-  `API_ENVIRONMENT` it defaults to a real value, `120/minute`, so a deployment
-  nobody configured is still limited. Those counters are per *process*, and
-  Vercel answers a burst with several (#128), so the ceiling that holds is the
-  **Vercel WAF rule committed as `apps/api/firewall.json`**. It is not applied
-  by a deploy. After changing the file, apply it by hand with
-  `vercel firewall rules edit "Rate limit the tree" --json "$(node -e
-  'process.stdout.write(JSON.stringify(require("./apps/api/firewall.json").rules[0]))')"
-  --project family-tree-api --scope stevemarvell-team --yes`, then
-  `vercel firewall publish` with the same flags. `API_RATE_LIMIT` does not
-  change it, and `tests/test_firewall.py` goes red if the two disagree. Hobby
-  allows one rate-limit rule per project. The caller is identified by `X-Vercel-Forwarded-For` (falling back to
-  `X-Real-IP`, then `X-Forwarded-For`) — see `client_key`'s docstring in
-  `apps/api/src/api/limits.py` for what was measured and why, since getting
-  this wrong silently defeats the limit.
+  Swagger UI, ReDoc and `/openapi.json` (see `apps/api/src/api/main.py`). It
+  defaults to `production`, which turns all three off, so a variable nobody set
+  fails closed rather than open. Local development sets
+  `API_ENVIRONMENT=development` to get them back.
 
-`VITE_API_URL` is read at build time by the *web* project. The two Vercel
-projects are independent, and nothing syncs one project's URL into the
-other's build — Railway's Vercel integration did that for `API_URL`, and
-retired with it. `apps/web/scripts/write-api-url.mjs` now has two cases: an explicit
-`VITE_API_URL` (the e2e suite sets one) wins; otherwise the committed
-`apps/web/.env.production` stands as the fallback — for every build,
-production and every pull-request preview alike. See that script's own
-comment, and "Preview environments" below, for why a preview does not get its
-own paired API preview automatically, and where to find one on purpose.
+The family tree was stripped in #195, and with it the rate limiter, the API
+manual and `VITE_API_URL`: the web app calls no API. The Vercel WAF rule the
+limiter relied on ("Rate limit the tree" on `family-tree-api`) was applied by
+hand, not by a deploy, so it is still configured on Vercel and now matches only
+paths that 404. Removing it is part of #194, which owns the Vercel projects.
 
 ## Preview environments
 
@@ -98,9 +72,8 @@ ignore step skips it otherwise), but nothing wires the two together — see abov
 request's own API preview at its Vercel branch alias,
 `family-tree-api-git-<branch>-stevemarvell-team.vercel.app` (slugified:
 lowercase, non-alphanumeric runs collapsed to one hyphen), or via the Vercel
-dashboard or `list_deployments` for the `family-tree-api` project — that is
-the right target for verifying a change to `apps/api` itself, rather than the
-production host every *web* preview actually calls.
+dashboard or `list_deployments` for the `family-tree-api` project. That is
+the right target for verifying a change to `apps/api` itself.
 
 **Vercel tears down neither kind of preview.** The preview deployment and its
 branch alias survive the merge *and* the branch deletion — checked
@@ -129,6 +102,6 @@ the token is safe to hold.
 
 This is not an exposure. `docs/data-governance.md` records that previews are
 open deliberately, because a reviewing agent has to be able to load one, and a
-stale preview serves the same invented tree as production. It is worth
+stale preview serves nothing production does not. It is worth
 knowing because "the branch is gone" reads as "the preview is gone", and it is
 not.

@@ -1,12 +1,10 @@
 [project]
 name = "family-tree-api"
 version = "0.1.0"
-description = "GraphQL API over a file-stored family tree."
+description = "The API shell: a health check behind security headers."
 requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.141.1",
-    "slowapi==0.1.10",
-    "strawberry-graphql[fastapi]==0.327.7",
     "uvicorn[standard]==0.53.0",
 ]
 

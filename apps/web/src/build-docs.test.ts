@@ -2,14 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { apiBaseUrl, buildDocs, indexPage, MARKDOWN_PAGES } from '../scripts/build-docs.mjs';
+import { buildDocs, indexPage, MARKDOWN_PAGES } from '../scripts/build-docs.mjs';
 
 // A stand-in repository, so a test never depends on what docs/ happens to say
 // today — only on what the build does with it.
 let root = '';
 let out = '';
-
-const FALLBACK = 'https://family-tree-api-stevemarvell-team.vercel.app';
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'docs-root-'));
@@ -17,7 +15,6 @@ beforeEach(() => {
 
   mkdirSync(join(root, 'docs'), { recursive: true });
   mkdirSync(join(root, 'manual', 'web'), { recursive: true });
-  mkdirSync(join(root, 'apps', 'web'), { recursive: true });
 
   writeFileSync(join(root, 'docs', 'adoption.md'), '# Stages\n\nA **step**.\n\n- [ ] a gap\n');
   writeFileSync(join(root, 'docs', 'data-governance.md'), '# Governance\n\nInvented *data*.\n');
@@ -26,7 +23,6 @@ beforeEach(() => {
   writeFileSync(join(root, 'index.html'), '<h1>Hello, world</h1>\n');
   writeFileSync(join(root, 'manual', 'web', 'index.html'), '<h1>Web manual</h1>\n');
   writeFileSync(join(root, 'manual', 'web', 'shot.jpg'), 'not really a jpeg');
-  writeFileSync(join(root, 'apps', 'web', '.env.production'), `VITE_API_URL=${FALLBACK}\n`);
 });
 
 afterEach(() => {
@@ -36,27 +32,6 @@ afterEach(() => {
 
 const build = (env: Record<string, string | undefined> = {}) => buildDocs({ root, out, env });
 const read = (name: string) => readFileSync(join(out, name), 'utf8');
-
-describe('apiBaseUrl', () => {
-  it('falls back to the committed .env.production', () => {
-    expect(apiBaseUrl({}, root)).toBe(FALLBACK);
-  });
-
-  it('prefers an explicit VITE_API_URL, trailing slash and all', () => {
-    expect(apiBaseUrl({ VITE_API_URL: 'http://127.0.0.1:8254/' }, root)).toBe(
-      'http://127.0.0.1:8254',
-    );
-  });
-
-  it('refuses a malformed explicit URL rather than building a broken link', () => {
-    expect(() => apiBaseUrl({ VITE_API_URL: 'not a url' }, root)).toThrow(/well-formed/);
-  });
-
-  it('says so when the fallback file has no VITE_API_URL', () => {
-    writeFileSync(join(root, 'apps', 'web', '.env.production'), '# nothing here\n');
-    expect(() => apiBaseUrl({}, root)).toThrow(/does not set VITE_API_URL/);
-  });
-});
 
 describe('buildDocs', () => {
   it('renders every Markdown page', () => {
@@ -124,19 +99,6 @@ describe('buildDocs', () => {
     expect(existsSync(join(out, 'manual', 'web', 'shot.jpg'))).toBe(true);
   });
 
-  it('points the index at the API that serves the API manual', () => {
-    const result = build({ VITE_API_URL: 'https://pr-preview.example' });
-    expect(result.apiUrl).toBe('https://pr-preview.example');
-    expect(read('index.html')).toContain('href="https://pr-preview.example/"');
-  });
-
-  it('does not copy the API manual into the Vercel bundle', () => {
-    // It ships in the API image instead, so that it is always the manual for
-    // the deployment the reader is querying.
-    build();
-    expect(existsSync(join(out, 'manual', 'api'))).toBe(false);
-  });
-
   it('clears the output directory, so a removed page cannot linger', () => {
     build();
     writeFileSync(join(out, 'stale.html'), 'from an older build');
@@ -157,18 +119,18 @@ describe('buildDocs', () => {
 });
 
 describe('indexPage', () => {
-  it('lists every document, including the ones it does not host', () => {
-    const html = indexPage('https://api.example', [
+  it('lists every document', () => {
+    const html = indexPage([
       { slug: 'adoption', title: 'Stages', blurb: 'the ladder' },
     ]);
     expect(html).toContain('href="adoption.html"');
     expect(html).toContain('href="manual/web/"');
-    expect(html).toContain('href="https://api.example/"');
+    expect(html).not.toContain('API manual');
     expect(html).toContain('href="step-0.html"');
   });
 
   it('escapes what it puts into the page', () => {
-    const html = indexPage('https://api.example', [
+    const html = indexPage([
       { slug: 'x', title: '<script>', blurb: 'a & b' },
     ]);
     expect(html).toContain('&lt;script&gt;');

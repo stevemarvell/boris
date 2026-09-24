@@ -6,11 +6,6 @@
 // is rendered into apps/web/public/docs, which Vite copies verbatim into the
 // bundle, so it lands at /docs on the Vercel deployment.
 //
-// The API's own manual is *not* here. It ships as part of the API's own
-// Vercel build and is served by the API itself, at the root of its own
-// deployment: it documents that service, and it calls that service from the
-// browser without crossing an origin to do it.
-//
 // The output directory is generated and gitignored. It is deleted and rebuilt
 // on every run, so a page removed from this script cannot linger in a build.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,27 +13,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { escapeHtml, firstHeading, renderMarkdown } from '../../../scripts/markdown.mjs';
-import { chooseApiUrl } from './write-api-url.mjs';
 
 // apps/web/scripts/ -> the repository root, three levels up (#173 moved this
 // file here from scripts/, where it was two).
 export const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 export const DOCS_DIR = join(REPO_ROOT, 'apps', 'web', 'public', 'docs');
-
-/** Where the API — and so its manual — lives for the build being made. */
-export function apiBaseUrl(env = process.env, root = REPO_ROOT) {
-  // The docs link to the API's own manual, and should name the same API the
-  // bundle itself will call -- see write-api-url.mjs for why that is always
-  // production, previews included.
-  const chosen = chooseApiUrl(env);
-  if (chosen.url) return chosen.url.replace(/\/+$/, '');
-
-  // 'fallback' means the committed .env.production is the answer.
-  const committed = readFileSync(join(root, 'apps', 'web', '.env.production'), 'utf8');
-  const match = /^\s*VITE_API_URL\s*=\s*(\S+)\s*$/m.exec(committed);
-  if (!match) throw new Error('apps/web/.env.production does not set VITE_API_URL');
-  return match[1].replace(/\/+$/, '');
-}
 
 /** The Markdown documents, in the order the index lists them. */
 export const MARKDOWN_PAGES = [
@@ -117,7 +96,7 @@ ${STYLE}
 <body>
 <main>
 ${crumbs ? '<nav class="crumbs"><a href="./">boris docs</a></nav>\n' : ''}${body}
-<footer>Part of the <a href="../">family tree</a> deployment. Built from the repository, not from a dashboard.</footer>
+<footer>Part of the <a href="../">boris</a> deployment. Built from the repository, not from a dashboard.</footer>
 </main>
 </body>
 </html>
@@ -125,12 +104,12 @@ ${crumbs ? '<nav class="crumbs"><a href="./">boris docs</a></nav>\n' : ''}${body
 }
 
 /**
- * The landing page at /docs/, including the off-site link to the API manual.
+ * The landing page at /docs/.
  *
  * `rendered` carries each Markdown page's own H1, so the index names a
  * document the way the document names itself.
  */
-export function indexPage(apiUrl, rendered = []) {
+export function indexPage(rendered = []) {
   const cards = [
     ...rendered.map((entry) => ({
       href: `${entry.slug}.html`,
@@ -141,11 +120,6 @@ export function indexPage(apiUrl, rendered = []) {
       href: 'manual/web/',
       title: 'Web app manual',
       blurb: 'What the screen shows, the four states, and the test hooks behind them.',
-    },
-    {
-      href: `${apiUrl}/`,
-      title: 'API manual',
-      blurb: 'Served by the API itself, so it is always the manual for that deployment.',
     },
     {
       href: 'step-0.html',
@@ -175,8 +149,6 @@ ${cards
  * to it — so a test can assert what a build produces without re-reading it.
  */
 export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env } = {}) {
-  const apiUrl = apiBaseUrl(env, root);
-
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
 
@@ -202,7 +174,7 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   cpSync(join(root, 'manual', 'web'), join(out, 'manual', 'web'), { recursive: true });
   written.push('manual/web/index.html');
 
-  writeFileSync(join(out, 'index.html'), indexPage(apiUrl, rendered), 'utf8');
+  writeFileSync(join(out, 'index.html'), indexPage(rendered), 'utf8');
   written.push('index.html');
 
   // The commit this build is of, for smoke.yml's web freshness gate — the web
@@ -214,10 +186,10 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   writeFileSync(join(out, 'version.json'), JSON.stringify({ commit }) + '\n', 'utf8');
   written.push('version.json');
 
-  return { out, apiUrl, written };
+  return { out, written };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { out, apiUrl, written } = buildDocs();
-  console.log(`built ${written.length} doc pages into ${out}; API manual at ${apiUrl}/`);
+  const { out, written } = buildDocs();
+  console.log(`built ${written.length} doc pages into ${out}`);
 }
