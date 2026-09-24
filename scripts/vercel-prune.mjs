@@ -23,8 +23,9 @@
 // Vercel keeps one per merge forever on this plan. It keeps the deployment
 // serving each app's URL (looked up by its alias, never inferred), the newest
 // KEEP_PRODUCTION built ones for instant rollback (the live one normally among
-// them), and anything not finished or
-// newer than the live one — a build in flight, or history ahead of a rollback.
+// them), anything not finished (a build in flight), and any built deployment
+// newer than the live one (history ahead of a rollback). Cancelled and failed
+// records go whatever their age: they never built anything to roll back to.
 // If the live deployment cannot be found, it deletes nothing. Every production
 // deployment is a build of a commit on `develop`, which is never rewritten, so
 // what it removes can be rebuilt; that is what lets it run unattended.
@@ -78,8 +79,8 @@ const stateOf = (d) => d.state ?? d.readyState;
 const createdOf = (d) => d.created ?? d.createdAt ?? 0;
 
 /**
- * The production deployments `history` may delete: finished, older than the
- * live one, and not among the newest `keep` built ones. Throws — deleting
+ * The production deployments `history` may delete: finished, not among the
+ * newest `keep` built ones, and — if built — older than the live one. Throws — deleting
  * nothing — when it cannot see the live deployment in the list.
  */
 export function selectHistory(deployments, { liveId, keep = KEEP_PRODUCTION }) {
@@ -97,7 +98,14 @@ export function selectHistory(deployments, { liveId, keep = KEEP_PRODUCTION }) {
   }
   kept.add(liveId);
   return production.filter(
-    (d) => !kept.has(idOf(d)) && FINISHED.has(stateOf(d)) && createdOf(d) < createdOf(live),
+    // Only a built deployment newer than the live one is protected — it is
+    // history ahead of a rollback, and could be rolled forward to. A cancelled
+    // or failed one never built anything to roll to, whatever its age; the
+    // ignore step leaves one of those per merge that skips an app (#184).
+    (d) =>
+      !kept.has(idOf(d)) &&
+      FINISHED.has(stateOf(d)) &&
+      (stateOf(d) !== 'READY' || createdOf(d) < createdOf(live)),
   );
 }
 

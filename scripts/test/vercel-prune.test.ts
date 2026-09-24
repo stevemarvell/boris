@@ -188,11 +188,24 @@ describe('selectHistory', () => {
     expect(selectHistory(history, { liveId: 'p9' })).toHaveLength(5);
   });
 
-  it('never removes anything newer than the live deployment: history ahead of a rollback', () => {
-    // Rolled back to p6: p9, c8 and p7 are newer than what is serving.
+  it('never removes a built deployment newer than the live one: history ahead of a rollback', () => {
+    // Rolled back to p6: p9 and p7 are built and newer than what is serving.
     const doomed = ids(selectHistory(history, { liveId: 'p6', keep: 1 }));
-    for (const newer of ['p9', 'c8', 'p7']) expect(doomed).not.toContain(newer);
+    for (const newer of ['p9', 'p7']) expect(doomed).not.toContain(newer);
     expect(doomed).not.toContain('p6');
+  });
+
+  it('removes cancelled records newer than the live one, which never built anything (#184)', () => {
+    // What the API looked like after #183: live bf4, then four merges the
+    // ignore step skipped, each leaving a cancelled production record.
+    const skipped = [
+      prod('c4', 1000, 'CANCELED'),
+      prod('c3', 990, 'CANCELED'),
+      prod('e2', 980, 'ERROR'),
+      prod('live', 900),
+      prod('old', 800),
+    ];
+    expect(ids(selectHistory(skipped, { liveId: 'live', keep: 2 }))).toEqual(['c3', 'c4', 'e2']);
   });
 
   it('never removes a build still in flight', () => {
