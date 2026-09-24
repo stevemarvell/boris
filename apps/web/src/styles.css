@@ -1,51 +1,7 @@
 .centred {
   display: grid;
   place-content: center;
+  gap: 0.5rem;
   min-height: 60vh;
   text-align: center;
-}
-
-.relation {
-  display: block;
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-.relation-label {
-  font-weight: 600;
-  opacity: 0.7;
-}
-
-.count {
-  font-weight: 400;
-  opacity: 0.6;
-}
-
-/* The spinner's "still waiting" line, and the gap above the retry button. */
-.hint {
-  margin: 0.9rem 0 0;
-  font-size: 0.82rem;
-}
-
-[data-testid='error'] ion-button {
-  margin-top: 0.4rem;
-}
-
-.match-count {
-  margin: 0.75rem 1rem 0;
-  font-size: 0.82rem;
-}
-
-/* Ionic items pad through custom properties, not the host element's own
-   padding. The default is tight for a card carrying up to four relationship
-   lines, so rows run together when scanning a long generation. */
-[data-testid='person'] {
-  --padding-top: 0.7rem;
-  --padding-bottom: 0.7rem;
-  --padding-start: 1rem;
-  --inner-padding-end: 1rem;
-}
-
-[data-testid='person'] h2 {
-  margin-bottom: 0.3rem;
 }

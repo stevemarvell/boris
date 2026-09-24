@@ -50,18 +50,6 @@
         "**/*.test.ts",
         "**/*.test.tsx"
       ]
-    },
-    "mcp": {
-      "path": "apps/mcp",
-      "toolchain": "python",
-      "verify": [
-        "uv run --frozen ruff check .",
-        "uv run --frozen pytest -q"
-      ],
-      "reads": [
-        "apps/mcp",
-        "apps/api"
-      ]
     }
   }
 }

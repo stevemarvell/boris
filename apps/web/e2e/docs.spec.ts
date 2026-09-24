@@ -16,7 +16,6 @@ test.describe('the docs Vercel serves', () => {
       'Standard operating procedures',
       'Extracting the baseline',
       'Web app manual',
-      'API manual',
     ]) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
@@ -121,42 +120,5 @@ test.describe('the docs Vercel serves', () => {
   test('still publishes the step-0 page as it was', async ({ page }) => {
     await page.goto('/docs/step-0.html');
     await expect(page.getByRole('heading', { name: 'Hello, world' })).toBeVisible();
-  });
-
-  test('links the API manual at the API this build points at', async ({ page }) => {
-    // The e2e suite sets VITE_API_URL, so the docs must follow it there rather
-    // than to production — the same rule the bundle obeys.
-    await page.goto('/docs/');
-    const href = await page.getByRole('link', { name: 'API manual' }).getAttribute('href');
-    expect(href).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
-  });
-});
-
-test.describe('the manual the API serves itself', () => {
-  test('opens at the root of the API, and its console queries that API', async ({ page }) => {
-    // Against the real uvicorn, not the bundle: this is the half of the docs
-    // that ships inside the API image rather than to Vercel.
-    await page.goto('/docs/');
-    const href = await page.getByRole('link', { name: 'API manual' }).getAttribute('href');
-    const response = await page.goto(href ?? '/');
-    expect(response?.status()).toBe(200);
-
-    await expect(page.getByRole('heading', { name: 'Family Tree API' })).toBeVisible();
-    // Same-origin, so the endpoint strip names the API it was loaded from.
-    await expect(page.locator('.endpoint-strip')).toContainText(new URL(href ?? '').origin);
-
-    await page.getByRole('button', { name: 'Liveness' }).click();
-    await page.getByRole('button', { name: 'Run query' }).click();
-    await expect(page.locator('#response')).toContainText('"status": "ok"');
-  });
-
-  test('does not shadow the endpoints it sits beside', async ({ page, request }) => {
-    // The mount at "/" is a catch-all; /health has to keep winning it.
-    await page.goto('/docs/');
-    const href = await page.getByRole('link', { name: 'API manual' }).getAttribute('href');
-    const health = await request.get(new URL('/health', href ?? '').href);
-
-    expect(health.ok()).toBe(true);
-    expect((await health.json())['ok']).toBe(true);
   });
 });

@@ -20,12 +20,12 @@ current_bundle() (
     page=$(curl -fsS --max-time 30 "$WEB" || true)
     bundle=$(printf '%s' "$page" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
     echo "attempt $attempt: bundle=$bundle"
-    if [ -n "$bundle" ] && curl -fsS --max-time 30 "$WEB$bundle" | grep -q 'generations'; then
+    if [ -n "$bundle" ] && curl -fsS --max-time 30 "$WEB$bundle" | grep -q 'No application here yet'; then
       echo "web ok"; exit 0
     fi
     sleep 15
   done
-  echo "web never served a bundle querying generations" >&2
+  echo "web never served the shell's bundle" >&2
   exit 1
 )
 

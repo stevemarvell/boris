@@ -1,12 +1,8 @@
 """Tests for the gate on Swagger UI, ReDoc and the OpenAPI document.
 
-FastAPI serves all three by default, so `/docs`, `/redoc` and `/openapi.json`
-were live and unauthenticated on production -- `/docs` being an interactive
-console with a "Try it out" button, and `/openapi.json` a published schema of
-every route. Three sibling surfaces (introspection, the GraphiQL IDE, the
-manual's query console) were each deliberately closed on API_ENVIRONMENT; this
-one was never decided, because it came from a framework default rather than a
-line anyone wrote. See create_app() in api.main.
+FastAPI serves all three by default. `/docs` is an interactive console and
+`/openapi.json` a published schema of every route, so production withholds
+them. See create_app() in api.main.
 
 The checks go both ways on purpose. Asserting only the 404s would pass just as
 well if the gate turned the schema off everywhere, which would take the
@@ -43,19 +39,13 @@ def test_development_serves_every_schema_surface() -> None:
 
 def test_development_swagger_ui_is_the_interactive_console() -> None:
     """The thing being gated: Swagger UI, not merely a path that answers 200."""
-    body = development.get("/docs").text
-    assert "swagger-ui" in body
+    assert "swagger-ui" in development.get("/docs").text
 
 
-def test_development_publishes_the_rest_routes() -> None:
-    """The document describes the REST view, which is what makes withholding it matter."""
-    schema = development.get("/openapi.json").json()
-    assert schema["info"]["title"] == "family-tree-api"
-    assert "/me" in schema["paths"]
-    assert "/person/{person_id}" in schema["paths"]
+def test_development_publishes_the_health_route() -> None:
+    assert "/health" in development.get("/openapi.json").json()["paths"]
 
 
-def test_production_does_not_shadow_the_manual_or_the_api() -> None:
-    """Gating the schema off must not cost the routes that share the app."""
+def test_production_still_serves_health() -> None:
+    """Gating the schema off must not cost the route that shares the app."""
     assert production.get("/health").status_code == 200
-    assert "Family Tree API" in production.get("/").text
