@@ -5,10 +5,9 @@ description: The non-obvious settings behind this project's two Vercel deploymen
 
 # Deploying this project
 
-Every item here was learned by something breaking quietly, or measured
-against a live deployment rather than assumed. None of it is guessable from
-the code. Railway hosted the API until #126; it is retired, and the API is a
-second, independent Vercel project now.
+Every item here was measured against a live deployment rather than assumed.
+None of it is guessable from the code. The API is a second, independent
+Vercel project.
 
 Four settings are load-bearing and non-obvious:
 
@@ -34,12 +33,12 @@ Four settings are load-bearing and non-obvious:
   which diffs `VERCEL_GIT_PREVIOUS_SHA` (the last *successful* deployment, so
   never a skipped one) against `HEAD` over the paths that project reads, and
   skips when nothing changed. A branch's first push has no previous SHA, and
-  Vercel's clone cannot fetch `develop` (no credentials — measured on #168),
+  Vercel's clone cannot fetch `develop` (no credentials),
   so it compares with the nearest squash-merge ancestor instead (`forkPoint`). Exit 0 means *skip*; every failure path
   exits 1 and builds. What each build reads is declared in `project.json`
-  (`reads`/`ignores` per app, #173). The lists say what a build reads, so an
+  (`reads`/`ignores` per app). The lists say what a build reads, so an
   undeclared read skips a build it needed; smoke's freshness gates catch that.
-- Smoke's freshness gate (#50, `scripts/smoke.mjs`) accepts a deployed app
+- Smoke's freshness gate (`scripts/smoke.mjs`) accepts a deployed app
   reporting the merged commit, or an older one whose build inputs are
   identical, asked of git with the ignore step's own pathspecs — so a skipped
   build is not a stale one and the two cannot disagree. Each app's
@@ -57,11 +56,11 @@ Four settings are load-bearing and non-obvious:
   fails closed rather than open. Local development sets
   `API_ENVIRONMENT=development` to get them back.
 
-The family tree was stripped in #195, and with it the rate limiter, the API
-manual and `VITE_API_URL`: the web app calls no API. The Vercel WAF rule the
-limiter relied on ("Rate limit the tree" on `family-tree-api`) was applied by
-hand, not by a deploy, so it is still configured on Vercel and now matches only
-paths that 404. Removing it is part of #194, which owns the Vercel projects.
+The web app calls no API today, and carries no rate limiter or API manual. A
+Vercel WAF rule from when it did ("Rate limit the tree" on `family-tree-api`)
+was applied by hand, not by a deploy, so it is still configured on Vercel and
+now matches only paths that 404 — remove it when the Vercel projects are next
+cleaned up.
 
 ## Preview environments
 
@@ -76,18 +75,14 @@ dashboard or `list_deployments` for the `family-tree-api` project. That is
 the right target for verifying a change to `apps/api` itself.
 
 **Vercel tears down neither kind of preview.** The preview deployment and its
-branch alias survive the merge *and* the branch deletion — checked
-2026-09-15, before Railway retired: 24 `family-tree-git-<branch>-…vercel.app`
-previews were still serving `200` for branches whose pull requests had all
-merged, one from a merge four minutes earlier. (Railway, while it hosted the
-API, *did* remove its own PR environments on close — the one piece of
-automatic cleanup this project had, and it went when Railway did.)
+branch alias survive the merge *and* the branch deletion; nothing built into
+Vercel cleans them up on its own.
 
 Vercel collects nothing on this plan (Deployment Retention is a Pro feature
 and the team is on Hobby), so `.github/workflows/preview-prune.yml` does it:
 when a pull request closes, it deletes that branch's previews in both
 projects, using `VERCEL_TOKEN` (a team-scoped token, a repository secret,
-expiring 2026-09-23 + one year). Run it by hand (`gh workflow run
+expiring 2027-09-23). Run it by hand (`gh workflow run
 preview-prune -f dry_run=false`) to delete every preview whose branch no longer
 exists; the default `dry_run=true` only lists them. Its preview modes never
 delete a production deployment or a `develop` build, whatever they are asked.

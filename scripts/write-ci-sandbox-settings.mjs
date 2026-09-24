@@ -8,8 +8,8 @@
 // — but these jobs review a pull request's *head*, which is untrusted, and
 // `claude-code-action` deletes and restores `.claude` from the *base* branch
 // immediately before the CLI starts (`restoreConfigFromBase`, the same
-// behaviour write-ci-telemetry-settings.mjs's header describes for issue
-// #60). A `sandbox` key added to the tracked file would still apply — the
+// behaviour write-ci-telemetry-settings.mjs's header describes). A
+// `sandbox` key added to the tracked file would still apply — the
 // restore keeps the base branch's copy — but this project's other
 // concurrent work owns that file, and the pattern below is one CI already
 // carries for exactly this reason: write outside the checkout, load with

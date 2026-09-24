@@ -937,16 +937,10 @@ export async function fetchGenerations(): Promise&lt;Generation[]&gt;</code></pr
       <h3>Why there is no pull-request case</h3>
 
       <p>
-        The API and the web app are two independent Vercel projects (#126).
-        Nothing pairs their preview deployments — no integration syncs one
-        project's URL into the other's build. Earlier, while the API still
-        deployed to Railway, a Railway↔Vercel integration synced the
-        <em>production</em> API's URL into every Vercel build including
-        previews, and this script had a third case that read Vercel's
-        <code>VERCEL_GIT_PULL_REQUEST_ID</code> and derived that pull
-        request's own Railway host, so a preview frontend would not show
-        production's data by accident. Once Railway was retired (#126) that
-        mechanism had nothing to plug into.
+        The API and the web app are two independent Vercel projects. Nothing
+        pairs their preview deployments — no integration syncs one project's
+        URL into the other's build, so a preview frontend and a preview
+        backend from the same pull request are not automatically paired.
       </p>
 
       <p>

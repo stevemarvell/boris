@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # The API's own post-deploy checks, run by scripts/smoke.mjs after the API's
-# commit-freshness gate has passed (#173 moved them here from smoke.yml, so
-# the AI layer's workflow names no application). Every deployed app's URL is
-# in the environment under its project.json name, upper-cased: $API, $WEB.
+# commit-freshness gate has passed. Every deployed app's URL is in the
+# environment under its project.json name, upper-cased: $API, $WEB.
 #
 # Each check is a subshell function, so an `exit` inside one ends that check
-# only, exactly as it ended its own workflow step before.
-# `set -e` and nothing more: the options GitHub gave the workflow steps these
-# checks were written for. Not pipefail: `printf "$page" | grep -q …` has
-# grep exit at its first match, printf dies of SIGPIPE writing the rest of a
-# large page, and under pipefail that 141 turns a match into a failure. That
-# is what #178 was, and scripts/test/smoke.test.ts keeps it from coming back.
+# only, not the whole script.
+# `set -e` and nothing more, deliberately not pipefail: `printf "$page" | grep
+# -q …` has grep exit at its first match, printf dies of SIGPIPE writing the
+# rest of a large page, and under pipefail that 141 turns a match into a
+# failure. scripts/test/smoke.test.ts guards against that regression.
 set -e
 : "${API:?API is not set}"
 

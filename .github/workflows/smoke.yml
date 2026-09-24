@@ -4,7 +4,7 @@ name: smoke
 # Catches the class of failure that unit and e2e tests cannot: the deployed
 # build's configuration.
 #
-# Nothing here names the application (#173). scripts/smoke.mjs reads
+# Nothing here names the application. scripts/smoke.mjs reads
 # project.json and, for each deployed app in turn, waits for the freshness
 # gate — the deployment is this commit, or one whose inputs match — and then
 # runs the checks that app owns (its `smoke` script, e.g. apps/api/smoke.sh).

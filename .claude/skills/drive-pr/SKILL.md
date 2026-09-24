@@ -5,11 +5,11 @@ description: Given an open pull request number, drives it to green and merges it
 
 # Driving a pull request to green
 
-This is issue #149's first row: *"Drive a pull request to green: open → poll
-checks → read both reviews → fix findings → reply → resolve → merge → prune"*
-— done by hand eight times on 2026-09-21/22 alone. This skill is that
-sequence, fixed, with every decision point written as a rule rather than left
-to judgement, and every ceiling from `docs/sops.md` SOP 1 declared up front.
+Driving a pull request to green — open → poll checks → read both reviews →
+fix findings → reply → resolve → merge → prune — is a repeated, mechanical
+sequence. This skill is that sequence, fixed, with every decision point
+written as a rule rather than left to judgement, and every ceiling from
+`docs/sops.md` SOP 1 declared up front.
 
 Takes one argument: the pull request number, `<n>`. Assumes a checkout of
 that pull request's branch is available (this worktree, or run
@@ -21,9 +21,9 @@ that pull request's branch is available (this worktree, or run
 
 "Settled" is a fact read from each check's `bucket`, not a guess from reading
 output, and **not the exit code**. With `--json`, `gh pr checks` exits `0`
-while checks are still pending: exit `8` only happens without `--json`. The
-first real run of this skill (#165) settled on its first poll for exactly
-that reason, with three checks still pending.
+while checks are still pending: exit `8` only happens without `--json`, and
+trusting the exit code alone will settle on a poll with checks still
+pending.
 
 ```bash
 for attempt in $(seq 1 40); do
@@ -209,8 +209,8 @@ done
   is the ceiling: stop and report that `smoke` never finished, without
   guessing at a result it never produced.
 - **On `conclusion != "success"`**, pull the failing step's log tail and open
-  an issue from it — the record this project's `smoke`-after-merge row
-  currently has no mechanism for at all (issue #149's third row):
+  an issue from it — the record this project's `smoke`-after-merge row has no
+  other mechanism for:
 
 Rank the new issue before filing it. It is `medium` unless the log tail shows
 something that contradicts `docs/data-governance.md`'s bounds (real data

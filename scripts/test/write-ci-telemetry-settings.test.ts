@@ -122,15 +122,15 @@ describe('defaultSettingsPath', () => {
     expect(defaultSettingsPath({})).toBe(join(tmpdir(), 'claude-ci-telemetry-settings.json'));
   });
 
-  // The regression #60 is: this file used to be written to
-  // .claude/settings.local.json, and claude-code-action deletes the whole
-  // .claude directory — restoring only paths tracked on the base branch —
-  // immediately before starting the CLI, because a reviewed pull request's
-  // head is untrusted. settings.local.json is gitignored, so it never came
-  // back, and CI fell through to the committed localhost:4317 endpoint for
-  // nine days without one line in any log. Asserting the invariant rather
-  // than the path: anywhere inside the checkout is reachable by that restore,
-  // so anywhere inside the checkout is wrong.
+  // The regression this guards against: writing this file to
+  // .claude/settings.local.json instead, when claude-code-action deletes the
+  // whole .claude directory — restoring only paths tracked on the base
+  // branch — immediately before starting the CLI, because a reviewed pull
+  // request's head is untrusted. settings.local.json is gitignored, so it
+  // never comes back, and CI silently falls through to the committed
+  // localhost:4317 endpoint with no line in any log to say so. Asserting the
+  // invariant rather than the path: anywhere inside the checkout is
+  // reachable by that restore, so anywhere inside the checkout is wrong.
   it('never puts the file inside the checkout, where the action would delete it', () => {
     expect(insideCheckout(defaultSettingsPath({ RUNNER_TEMP: '/home/runner/work/_temp' }))).toBe(
       false,

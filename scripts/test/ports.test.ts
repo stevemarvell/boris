@@ -16,7 +16,7 @@ describe('ports', () => {
     // Playwright resolves its config with cwd = apps/web, the same string in
     // every worktree. A cwd-derived offset gave every checkout identical ports
     // and let two agents silently share one server. This suite runs from the
-    // repository root since #173, so compute the ports in a process started
+    // repository root, so compute the ports in a process started
     // elsewhere, with the E2E overrides cleared.
     const url = pathToFileURL(join(WORKTREE_ROOT, 'scripts', 'ports.mjs')).href;
     const env = { ...process.env };
@@ -54,7 +54,7 @@ describe('ports', () => {
     expect(ports(['api', 'web'], '/a/one')).toEqual(ports(['api', 'web'], '/a/one'));
   });
 
-  it('gives each named server its own band, in the order named (#173)', () => {
+  it('gives each named server its own band, in the order named', () => {
     const offset = portOffset('/a/one');
     expect(ports(['first', 'second', 'third'], '/a/one')).toEqual({
       first: 8200 + offset,

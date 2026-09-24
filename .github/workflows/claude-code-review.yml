@@ -8,21 +8,19 @@ name: Claude Code Review
 # finding that arrives then is an incident report, not a review. So both jobs
 # run on `pull_request` and neither runs on the push to `develop`.
 #
-# WHAT WAS WRONG. Until this file changed there was no security review in the
-# pipeline at all — every security finding in this repository (#47, #48, #49,
-# #52, #53, #54, #55, #56, #86, #89) was found by a person or an ad-hoc
-# session. And the code review that did run was the generic marketplace
-# plugin, which on 2026-09-14 passed two pull requests adding the same MCP
-# server and said nothing about the one omitting `--frozen` from its verify
-# script — the "present but inert" class this repository has shipped four
-# times. A reviewer given .claude/agents/code-checker.md found it and
-# reproduced it. That comparison is .claude/trials/model-tiering.md.
+# WHAT THIS GUARDS AGAINST. Without a dedicated security review, every
+# security finding here is found by a person or an ad-hoc session instead of
+# on every pull request automatically. A generic, unconfigured code review
+# can pass a change that omits a load-bearing flag from its own verify
+# script and say nothing — the "present but inert" class this repository
+# watches for. A reviewer given .claude/agents/code-checker.md catches that;
+# .claude/trials/model-tiering.md has the comparison this repository ran.
 #
-# MODEL. `--model sonnet`, from trial 2 in that file rather than from taste.
-# The same pull request reviewed by Sonnet and by Haiku: Sonnet found two
-# findings and reproduced one by experiment, Haiku found none and said it
-# would merge. Haiku's review reads like diligence and contains nothing.
-# Pinning matters even though Sonnet is today's default — an unpinned default
+# MODEL. `--model sonnet`, from that trial rather than from taste. The same
+# pull request reviewed by Sonnet and by Haiku: Sonnet found real findings
+# and reproduced one by experiment, Haiku found none and said it would
+# merge. Haiku's review reads like diligence and contains nothing. Pinning
+# matters even though Sonnet is the current default — an unpinned default
 # that drifted downwards would empty these reviews without changing a line
 # here, and there is nothing downstream to catch a review that is wrong.
 #
@@ -42,7 +40,7 @@ name: Claude Code Review
 # "Enable the sandbox" step in each job puts Claude Code's own OS-level
 # sandbox around it too, so what those two commands can reach is bounded by
 # bubblewrap rather than by the model choosing not to run anything else.
-# #150, `docs/sops.md` SOP 10.
+# `docs/sops.md` SOP 10.
 
 on:
   pull_request:
@@ -56,9 +54,9 @@ jobs:
   # Which reviews this pull request is worth spending a session on. One job so
   # the rule is computed once and both reviewers read the same answer; the rule
   # itself is scripts/review-scope.mjs, which has tests, because a path filter
-  # that is silently wrong is this repository's signature failure — see issue
-  # #50, where railway.json's watchPatterns (retired along with Railway, #126)
-  # once left a whole class of commit silently undeployed.
+  # that is silently wrong is this repository's signature failure — a build-skip
+  # filter has left a whole class of commit silently undeployed with nothing
+  # to say so.
   scope:
     name: scope
     runs-on: ubuntu-latest
@@ -76,7 +74,7 @@ jobs:
 
     steps:
       # `ref:` is the base commit, not the merge ref every other job here
-      # checks out, and that is the point. #99: a pull request that edits
+      # checks out, and that is the point: a pull request that edits
       # review-scope.mjs to return `{code: false, security: false}` would
       # otherwise skip both of its own reviews and print a log saying so, in a
       # sentence it also wrote. A rule a change can rewrite before being
@@ -129,9 +127,8 @@ jobs:
       id-token: write
       # Written, not read: track_progress posts and updates the comment that
       # carries the verdict. Without it a review with no findings produces no
-      # inline comments and therefore no visible output at all, which is how
-      # the old configuration managed to look like assurance while saying
-      # nothing.
+      # inline comments and therefore no visible output at all, which can
+      # look like assurance while saying nothing.
       pull-requests: write
 
     # Telemetry for the unattended runs. This job fires on every pull request
@@ -146,8 +143,8 @@ jobs:
     # .claude (among other paths) from the base branch immediately before the
     # CLI starts — see scripts/write-ci-telemetry-settings.mjs's header. A
     # settings.local.json written before that restore does not survive it,
-    # which is why issue #60 found every session in the store, CI included,
-    # carrying no environment=ci label at all.
+    # which is why writing to the out-of-checkout file instead is what lets
+    # every CI session actually carry an environment=ci label.
     env:
       GRAFANA_CLOUD_OTLP_ENDPOINT: ${{ secrets.GRAFANA_CLOUD_OTLP_ENDPOINT }}
       GRAFANA_CLOUD_OTLP_AUTH: ${{ secrets.GRAFANA_CLOUD_OTLP_AUTH }}
@@ -166,10 +163,9 @@ jobs:
         run: node scripts/write-ci-telemetry-settings.mjs
 
       # This job reads a pull request's head to review it — see the comment
-      # by the checkout step above the telemetry one — which is #150's
-      # nearest concrete case of the gap it names: a permission gate decides
-      # whether `gh pr diff` runs, but nothing before this stopped it from
-      # reaching anywhere the runner could reach once it did. The two steps
+      # by the checkout step above the telemetry one. A permission gate
+      # decides whether `gh pr diff` runs, but nothing before this stopped it
+      # from reaching anywhere the runner could reach once it did. The two steps
       # below put Claude Code's own OS-level sandbox around this job's Bash
       # tool instead: bubblewrap enforces it, `scripts/write-ci-sandbox-settings.mjs`
       # configures it into the same out-of-checkout file the telemetry step
@@ -237,11 +233,11 @@ jobs:
           # Bash in it is a larger hole than the finding is worth. A reviewer
           # that needs to run something asks for it on the pull request.
           #
-          # Note what is *not* here any more: the marketplace clone. The old
-          # configuration pulled a plugin from a Git URL resolved at run time,
-          # so this credential-bearing job ran third-party code that could
-          # change between two runs of the same commit and could not be
-          # pinned. The rubric replaced it and lives in this repository.
+          # Note what is not here: a plugin pulled from a Git URL resolved at
+          # run time. That would make this credential-bearing job run
+          # third-party code that could change between two runs of the same
+          # commit and could not be pinned. The rubric lives in this
+          # repository instead.
           claude_args: |
             --model sonnet
             --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
@@ -255,7 +251,7 @@ jobs:
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
           # Whether the action's workflow-validation rule can be the reason a
           # session never started. Empty if the scope job died, which the
-          # script reads as "unknown" rather than as "no" — see #100.
+          # script reads as "unknown" rather than as "no".
           WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
         run: node scripts/assert-review-ran.mjs
 
@@ -286,7 +282,7 @@ jobs:
       - name: Point this session's telemetry at Grafana Cloud
         run: node scripts/write-ci-telemetry-settings.mjs
 
-      # See the same two steps in the code-review job above for why: #150,
+      # See the same two steps in the code-review job above for why:
       # docs/sops.md SOP 10.
       - name: Install the sandbox's OS dependencies
         run: |
@@ -323,9 +319,9 @@ jobs:
             It is this repository's security rubric and it supersedes any
             generic checklist you would otherwise reach for. Read `CLAUDE.md`,
             `docs/sops.md` and `docs/data-governance.md` as that file
-            instructs, before forming an opinion — the deployed data is
-            invented and public on purpose, and reporting "the API is
-            unauthenticated" as a finding is noise.
+            instructs, before forming an opinion — the deployed apps serve no
+            data at all today, and reporting "the API is unauthenticated" as
+            a finding with nothing behind it is noise.
 
             Get the diff with `gh pr diff ${{ github.event.pull_request.number }}`.
 

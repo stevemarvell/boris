@@ -62,7 +62,7 @@ under test to compute its own expected value proves nothing.
 - Put `Closes #<n>` in the body if the prompt names an issue. **Never** write a
   closing keyword — close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved
   — before any *other* issue number anywhere in the body. GitHub will close
-  that issue too; it has happened twice here. Refer to other issues bare: `#50`.
+  that issue too. Refer to other issues bare: `#<n>`.
 - **Do not merge.**
 
 ## Your report back

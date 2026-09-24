@@ -1,7 +1,7 @@
 """The API's shell: a health check behind security headers.
 
-The family tree this API served was stripped in #195. The last commit that
-had it is tagged `family-tree-final`.
+A placeholder, serving no application data, kept live until a real
+application replaces it.
 """
 
 import os
@@ -14,8 +14,8 @@ from api.security_headers import install_security_headers
 # closed. API_ENVIRONMENT=development turns on the OpenAPI surface below.
 API_ENVIRONMENT = os.environ.get("API_ENVIRONMENT", "production")
 
-# Reported by /health so smoke can tell a current deployment from a stale one
-# (#50). Vercel sets it at runtime; it is absent locally, where None is right.
+# Reported by /health so smoke can tell a current deployment from a stale one.
+# Vercel sets it at runtime; it is absent locally, where None is right.
 DEPLOYED_COMMIT = os.environ.get("VERCEL_GIT_COMMIT_SHA")
 
 

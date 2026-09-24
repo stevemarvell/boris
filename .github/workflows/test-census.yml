@@ -3,9 +3,8 @@ name: Test census
 # Does this pull request end up with fewer tests than it started with, and if
 # so does it say so?
 #
-# WHY IT IS A SEPARATE WORKFLOW. `verify` is the only required check, and this
-# is not ready to be one — #105 is the open decision about which checks become
-# required, and this follows whatever it decides. Putting the census inside
+# WHY IT IS A SEPARATE WORKFLOW. `verify` is the only required check, and
+# whether this becomes one too is an open decision. Putting the census inside
 # `verify` would make it required by the back door, which is a decision, not a
 # side effect of where a job was pasted.
 #

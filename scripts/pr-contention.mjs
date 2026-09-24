@@ -1,16 +1,12 @@
 // Say when two open pull requests cannot both land — before one of them does.
 //
-// The same-line contention run recorded on #63 pointed two branches at line 46
-// of scripts/review-scope.mjs. While both were open, GitHub reported:
-//
-//     #107  mergeable=MERGEABLE state=UNSTABLE
-//     #108  mergeable=MERGEABLE state=UNSTABLE
-//
-// Both were true, and both were useless. Mergeability is computed against
-// `develop` and never against the other pull request, so two branches that
-// cannot both land look exactly like two that can. Merging #108 flipped #107
-// to CONFLICTING within seconds — with no notification, and nothing in CI
-// re-running. The signal existed only if somebody happened to look at the
+// Two branches can point at the same line of the same file while both are
+// open, and GitHub will report both as `mergeable=MERGEABLE`. Both answers
+// are true, and both are useless: mergeability is computed against `develop`
+// and never against the other pull request, so two branches that cannot both
+// land look exactly like two that can. Merging one flips the other to
+// CONFLICTING within seconds — with no notification, and nothing in CI
+// re-running. The signal exists only if somebody happens to look at the
 // other pull request.
 //
 // This closes that. Every pull request event, and every push to `develop`,
@@ -18,13 +14,12 @@
 // open head, and says what it finds on the pull request itself. Two answers
 // that GitHub does not give:
 //
-//   - before a merge: "this and #108 both change these files and conflict"
-//   - after one: "#108 landed and this no longer merges"
+//   - before a merge: "this and #<n> both change these files and conflict"
+//   - after one: "#<n> landed and this no longer merges"
 //
 // Both sides of a collision are told, not just the pull request whose event
-// fired. Reporting only the trigger left the earlier pull request blind — it
-// gets no event of its own when a rival appears — which #135 recorded from a
-// real two-agent run.
+// fired. Reporting only the trigger leaves the earlier pull request blind —
+// it gets no event of its own when a rival appears.
 //
 // WHY `merge-tree`. `git merge-tree --write-tree` does a real three-way merge
 // against a real merge base and writes only to the object store, so this needs
@@ -33,11 +28,12 @@
 // and a check built on them would be wrong in both directions.
 //
 // WHAT IT CANNOT SEE, and the reason it says so in its own output: a collision
-// with no textual overlap at all. #72 added a field to /health, #77 pinned
-// /health's exact JSON; different files, different agents, clean merge, and the
-// second merge failed the first's new check. Two branches sharing a *contract*
-// is the harder case than two sharing a file, and no merge does arithmetic on
-// it. CI catches those, after the fact, which is why this check reports rather
+// with no textual overlap at all. One branch can add a field to a response,
+// another can pin that response's exact JSON, in different files by different
+// agents; the merge is clean both ways and the second merge breaks the first's
+// new check. Two branches sharing a *contract* is the harder case than two
+// sharing a file, and no merge does arithmetic on it. CI catches those, after
+// the fact, which is why this check reports rather
 // than blocks.
 import { pathToFileURL } from 'node:url';
 import { isTestFile } from './test-census.mjs';
@@ -121,11 +117,11 @@ export async function mergeConflicts(a, b, run) {
  * cannot.
  *
  * A conflict in source has a right answer somewhere in the two sides. A
- * conflict in a *test* file usually does not, and that is the finding from
- * #63 that cost something: both branches added a test at the same anchor, so
- * both sides were additions, and the resolution git offers is a choice between
- * them where the correct answer is the union of them. Taking one side left the
- * behaviour correct, the suite green, and three assertions gone.
+ * conflict in a *test* file usually does not: two branches can each add a
+ * test at the same anchor, so both sides are additions, and the resolution
+ * git offers is a choice between them where the correct answer is the union
+ * of them. Taking one side leaves the behaviour correct, the suite green,
+ * and an assertion gone.
  *
  * `isTestFile` comes from test-census.mjs rather than a second regular
  * expression here, for the reason paths.mjs exists: the moment two files
@@ -155,13 +151,12 @@ export function selectPullRequests(list, max = MAX_PULL_REQUESTS) {
 /**
  * Every pull request this run reports on.
  *
- * **Both sides of a collision, not just the one whose event fired.** The first
- * version reported only on the triggering pull request, which made the
- * pre-merge warning one-sided: a pull request already open when a rival
- * appears gets no event of its own, so it was never told. The two-agent run
- * for #130 is the evidence — #132 got a correct warning naming #131, and #131
- * got nothing, then lost the race it had never been told it was in. The
- * author who most needs the warning was the one not getting it (#135).
+ * **Both sides of a collision, not just the one whose event fired.** Reporting
+ * only on the triggering pull request makes the pre-merge warning one-sided:
+ * a pull request already open when a rival appears gets no event of its
+ * own, so it is never told. The author who most needs the warning is the
+ * one at risk of not getting it — the pull request that is about to lose a
+ * race it was never told it was in.
  *
  * Reporting on every selected pull request costs nothing extra in merges: the
  * pairwise matrix is already computed and already bounded by
@@ -227,9 +222,9 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
 
   // Stated on every verdict, including the clean one. A reader who takes "no
   // contention" as "these can both land" has been told something this check
-  // cannot establish, and #72/#77 is the counter-example on the record.
+  // cannot establish.
   const blindSpot =
-    '\n\nA clean merge is not the same as a compatible change. Two branches can share a contract without sharing a line — #72 added a field to `/health`, #77 pinned its exact JSON, they merged cleanly and the second one still broke the first. Only CI sees that.';
+    '\n\nA clean merge is not the same as a compatible change. Two branches can share a contract without sharing a line — one can add a field to a response, another can pin that response\'s exact shape, they merge cleanly in both directions and the second one still breaks the first. Only CI sees that.';
 
   // Contention found elsewhere does not excuse a comparison that did not run.
   const uncertainty = unknown.length
@@ -239,7 +234,7 @@ export function contentionVerdict({ subject, base, rivals = [], truncated = 0 } 
   const testWarning = (paths) => {
     const { tests } = partitionConflicts(paths);
     if (tests.length === 0) return '';
-    return `\n\n**${tests.length === 1 ? 'One of these is a test file' : 'Some of these are test files'}: ${list(tests)}.** Resolve test conflicts as a union, not a choice. Where two branches each *added* a test at the same anchor, both additions are correct and git can only offer you one of them — taking a side is how #109 was found, with the behaviour correct, the suite green, and three assertions silently gone. The \`test census\` check counts both sides and will notice if the total falls.`;
+    return `\n\n**${tests.length === 1 ? 'One of these is a test file' : 'Some of these are test files'}: ${list(tests)}.** Resolve test conflicts as a union, not a choice. Where two branches each *added* a test at the same anchor, both additions are correct and git can only offer you one of them — taking a side leaves the behaviour correct, the suite green, and an assertion silently gone. The \`test census\` check counts both sides and will notice if the total falls.`;
   };
 
   if (unknown.length > 0 && baseConflicts.length === 0 && colliding.length === 0) {

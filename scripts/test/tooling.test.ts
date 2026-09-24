@@ -14,8 +14,8 @@ type Manifest = {
 const read = (dir: string): Manifest => JSON.parse(readFileSync(join(ROOT, dir, 'package.json'), 'utf8')) as Manifest;
 const declared = (m: Manifest) => ({ ...m.dependencies, ...m.devDependencies });
 
-// The workspace directories an entry names. "apps/*" is a glob since #173
-// (so the root names no app); npm takes the directories under it that hold a
+// The workspace directories an entry names. "apps/*" is a glob so the root
+// names no app; npm takes the directories under it that hold a
 // package.json, and so does this.
 const expand = (entry: string): string[] => {
   if (!entry.endsWith('/*')) return [entry];
@@ -25,7 +25,7 @@ const expand = (entry: string): string[] => {
     .map((d) => `${parent}/${d.name}`);
 };
 
-// The root declares the AI layer's own test tools (#173) at the same versions
+// The root declares the AI layer's own test tools at the same versions
 // a workspace may also use, so npm installs one copy. Nothing else keeps the
 // two declarations equal: bump one and npm quietly installs two, and
 // verify:harness and the app's own checks run different versions of the same

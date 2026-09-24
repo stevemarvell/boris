@@ -1,16 +1,14 @@
-// Post-deploy smoke, for whatever project.json says is deployed (#173).
+// Post-deploy smoke, for whatever project.json says is deployed.
 //
-// smoke.yml used to be a list of this application's checks with both
-// hostnames written into it. The AI layer now owns only the part that is the
-// same for every app, and each app owns the rest:
+// smoke.yml stays generic: the AI layer owns only the part that is the same
+// for every app, and each app owns the rest:
 //
 // 1. The freshness gate — the one check that tells a *current* deployment
-//    from a stale one. Issue #50 is why it exists: on Railway, a commit
-//    touching only data/ once fell outside the watch list and silently
-//    deployed nothing, while every other check passed, because each asked
-//    whether the deployed API was correct and none asked whether it was
-//    *this* one. Each deployed app reports the commit it was built from at
-//    its `commitEndpoint` (VERCEL_GIT_COMMIT_SHA). The gate accepts this
+//    from a stale one. A commit touching only a path outside a watch list
+//    can fall through and silently deploy nothing, while every other check
+//    passes, because each asks whether the deployed API is correct and none
+//    asks whether it is *this* one. Each deployed app reports the commit it
+//    was built from at its `commitEndpoint` (VERCEL_GIT_COMMIT_SHA). The gate accepts this
 //    commit, or an older one whose build inputs are identical — which is what
 //    a build skipped by scripts/vercel-ignore.mjs leaves behind — asked of
 //    git with the same pathspecs the ignore step uses, so the two cannot

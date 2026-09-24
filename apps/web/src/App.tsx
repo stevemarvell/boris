@@ -11,9 +11,9 @@ import {
 setupIonicReact();
 
 /**
- * The web app's shell. The family tree it showed was stripped in #195; the
- * last commit that had it is tagged `family-tree-final`. The deployment still
- * serves the project's documentation at /docs/.
+ * The web app's shell: a placeholder, showing no application, kept live to
+ * serve the project's documentation at /docs/ until a real application
+ * replaces it.
  */
 export function App() {
   return (

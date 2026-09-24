@@ -1,14 +1,13 @@
 // Decide which reviews a pull request is worth spending a session on.
 //
-// A review session on this repository's pull requests costs between $0.83 and
-// $1.36 (measured from the `total_cost_usd` in the execution logs of runs
-// 34875160558 and 34874594954), so running two of them on a typo is real
-// money. But the way a path filter fails here is already on the record:
-// railway.json's watchPatterns named `apps/api/**` and omitted `manual/api/**`,
-// so a change to the manual deployed nothing and said nothing. An allow-list
-// of "security-sensitive paths" would fail the same way and be just as quiet —
-// a hardcoded credential can land in any file in the repository, and no
-// allow-list predicts which.
+// A review session on this repository's pull requests costs real money
+// (measured from `total_cost_usd` in the execution logs), so running two of
+// them on a typo adds up. But the way a path filter fails is a known shape:
+// a deploy config's watch pattern naming one path and omitting a sibling
+// means a change to the sibling deploys nothing and says nothing. An
+// allow-list of "security-sensitive paths" would fail the same way and be
+// just as quiet — a hardcoded credential can land in any file in the
+// repository, and no allow-list predicts which.
 //
 // So this is a deny-list of one narrow category, and the category is chosen
 // because the claim "this cannot move the line docs/data-governance.md draws"
@@ -43,12 +42,12 @@ export const GOVERNANCE = 'docs/data-governance.md';
  * One spelling of a path, for every comparison in this file — and now in
  * scripts/test-census.mjs too, which is why it lives in scripts/paths.mjs.
  *
- * Case folding happens there and nowhere else, which is the point. The defect
- * in #101 was one comparison lowercasing and the next one not: the extension
- * test folded case, the directory-prefix test did not, and
- * `.CLAUDE/agents/security-checker.md` skipped both of its own reviews.
+ * Case folding happens there and nowhere else, which is the point. A
+ * comparison that lowercases in one place and not the next — an extension
+ * test folding case, a directory-prefix test not — let
+ * `.CLAUDE/agents/security-checker.md` skip both of its own reviews.
  * Re-exported rather than moved silently, so the test asserting this helper
- * directly — the thing #108 bought — keeps asserting it here.
+ * directly keeps asserting it here.
  */
 export { canonical } from './paths.mjs';
 
@@ -58,8 +57,9 @@ export { canonical } from './paths.mjs';
  * Not part of the skip decision — a workflow change is already not prose. It
  * is reported separately because the job that checks a review actually ran
  * needs to know it: `claude-code-action` refuses to start a session when the
- * pull request changes the workflow file, and until #100 the check named that
- * rule for every missing session whether or not it applied.
+ * pull request changes the workflow file, and naming that rule for every
+ * missing session regardless of whether it applied would blame the wrong
+ * cause.
  */
 export function isWorkflow(path) {
   return canonical(path).startsWith('.github/workflows/');

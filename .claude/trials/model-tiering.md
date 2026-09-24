@@ -54,7 +54,7 @@ are exactly the defects that ship green.
 
 ## Baseline already paid for
 
-Ten Opus agent runs on 2026-09-13/14, across issues #47–#59 and the aia0 set.
+Ten Opus agent runs across the aia0 issue set.
 Useful as context, not as a control — the tasks differ. What it establishes:
 
 - Typical cost per implementation agent: **57k–127k tokens**
@@ -67,7 +67,9 @@ That last point is the thing to watch in a cheaper arm. It is invisible to CI.
 
 ## Trial 1 — an MCP server over the family tree
 
-**Subject:** `apps/mcp/`, exposing the tree over MCP. Chosen because it is
+**Subject:** `apps/mcp/`, exposing the tree over MCP (the family tree and its
+MCP server have since been removed from `apps/`; the trial's findings about
+model behaviour still hold). Chosen because it is
 additive (no collision with other work), has a real oracle (`npm run verify`),
 and contains one genuinely discriminating decision: relationship naming must
 reuse the derivations in `api.tree` rather than re-deriving them, which is the
@@ -75,13 +77,13 @@ project's central rule and is not something a test would catch being broken.
 
 **Arms:** `implementer` at `opus`, `implementer` at `sonnet`. Same brief.
 
-**Result.** Both arms shipped: Sonnet #90, Opus #92. Both green in CI, both reused
+**Result.** Both arms shipped pull requests. Both green in CI, both reused
 `FamilyTree` without re-deriving anything, both independently found three things the
 brief did not mention — the SDK had moved to `mcp` 2.x (`FastMCP` is now `MCPServer`),
 the SDK replaces any non-`ToolError` message with a generic string, and
 `data/family.json` contains no half-siblings at all.
 
-| | Opus #92 | Sonnet #90 |
+| | Opus | Sonnet |
 | --- | --- | --- |
 | Tokens | 143,958 | 137,066 |
 | Wall-clock | 17m 18s | 9m 27s |
@@ -119,7 +121,7 @@ review gate**. Not viable without one.
 
 ## Trial 2 — can the review tier down
 
-Same pull request (#90), same brief, two reviewer models.
+Same pull request as Sonnet's arm above, same brief, two reviewer models.
 
 | | Sonnet | Haiku |
 | --- | --- | --- |

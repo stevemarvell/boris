@@ -25,8 +25,7 @@ const MALICIOUS_FILENAME = 'a`touch pwned`$(touch pwned2);"x\' y.py';
 
 // Two Python apps and a node one, declared the way project.json declares
 // them. The routing is tested against this, not the live manifest, so it
-// holds whatever the application is (#173's proof found these tests had been
-// asserting the family tree's layout).
+// holds whatever the application is.
 const FIXTURE: Project = {
   name: 'thing',
   vercel: { team: 't' },
@@ -44,9 +43,9 @@ describe('hook roots', () => {
   it('resolve the repository root independently of the working directory', () => {
     expect(VERIFY_ROOT).toBe(REPO_ROOT);
     expect(FORMAT_ROOT).toBe(REPO_ROOT);
-    // This suite runs from the repository root since #173 moved it out of
-    // apps/web, so the in-process check above no longer proves anything
-    // about cwd. Import each hook fresh in a process started somewhere else.
+    // This suite runs from the repository root, so the in-process check
+    // above does not prove anything about cwd on its own. Import each hook
+    // fresh in a process started somewhere else.
     for (const hook of ['verify-on-stop.mjs', 'format-edited.mjs']) {
       const url = pathToFileURL(join(REPO_ROOT, '.claude', 'hooks', hook)).href;
       const root = execFileSync(process.execPath, ['--input-type=module', '-e', `import(${JSON.stringify(url)}).then((m) => process.stdout.write(m.ROOT))`], {
@@ -121,7 +120,7 @@ describe('fixCommands', () => {
 describe('runFixes', () => {
   it('hands the path to exec as a literal argv element, never as part of a larger string', () => {
     const calls: Array<[string, string[], unknown]> = [];
-    // Inside a Python app, so the ruff route is actually taken (project.json, #173).
+    // Inside a Python app, so the ruff route is actually taken (project.json).
     const malicious = `apps/svc/${MALICIOUS_FILENAME}`;
     runFixes(malicious, { exec: (command, args, options) => calls.push([command, args, options]), project: FIXTURE });
 
@@ -150,8 +149,8 @@ describe('runFixes', () => {
     const markerA = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-a`);
     const markerB = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-b`);
     // Inside a real Python app — whichever project.json declares first — so
-    // ruff really is invoked with it (#173). Outside every app the route is
-    // empty and this would prove nothing.
+    // ruff really is invoked with it. Outside every app the route is empty
+    // and this would prove nothing.
     const [, pythonApp] = apps(loadProject(), 'python')[0]!;
     const malicious = `${pythonApp.path}/a\`touch ${markerA}\`$(touch ${markerB}).py`;
     expect(fixCommands(malicious)).toHaveLength(2);

@@ -5,7 +5,7 @@ description: Works the open GitHub issue backlog unattended — runs scripts/tri
 
 # Working the backlog
 
-This is #151's first example: the work is chosen from repository state, not
+The work is chosen from repository state, not
 written in advance. `scripts/triage.mjs` makes the choice by fixed, tested
 rules; this skill acts on it. It is the "look first, then choose the recipe"
 counterpart to `drive-pr`, which runs a known recipe.

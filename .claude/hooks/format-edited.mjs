@@ -56,7 +56,7 @@ function resolveEslintBin() {
 export function fixCommands(filePath, project = loadProject()) {
   if (/\.py$/.test(filePath)) {
     // Ruff runs in the Python app that holds the file, with that app's own
-    // config (project.json, #173). A Python file outside every Python app is
+    // config (project.json). A Python file outside every Python app is
     // left alone rather than linted against a neighbour's rules.
     const owner = appFor(project, relative(ROOT, resolve(ROOT, filePath)));
     if (!owner || owner[1].toolchain !== 'python') return [];

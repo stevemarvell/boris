@@ -1,6 +1,5 @@
 // @ts-check
-// Lint for the AI layer's tests, the same rules they had inside apps/web
-// minus React's (#173).
+// Lint for the AI layer's tests, the same rules as apps/web minus React's.
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 

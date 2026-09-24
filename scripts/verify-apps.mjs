@@ -1,10 +1,10 @@
-// Run each app's own checks, as project.json declares them (#173).
+// Run each app's own checks, as project.json declares them.
 //
-// `npm run verify` is the contract. It used to spell out every app by hand in
-// the root package.json — each app's directory and workspace name — so the
-// AI layer's one required gate knew the application's layout. Now each app lists its own `verify` commands, run
-// from its own directory in project.json order, and this stops at the first
-// failure. The AI layer's own checks are `verify:harness`, run first.
+// `npm run verify` is the contract. Each app lists its own `verify` commands
+// in project.json, run from its own directory in project.json order, so the
+// AI layer's one required gate never has to know the application's layout
+// by hand. This stops at the first failure. The AI layer's own checks are
+// `verify:harness`, run first.
 //
 // Usage:
 //     node scripts/verify-apps.mjs          # every app

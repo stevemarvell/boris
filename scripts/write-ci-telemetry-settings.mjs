@@ -1,23 +1,21 @@
 // Point a GitHub runner's Claude Code session at Grafana Cloud, by writing a
 // settings file the session loads with `--settings` before it starts.
 //
-// This used to write `.claude/settings.local.json`, on the theory that
-// *project local* outranks the committed `.claude/settings.json` and
-// therefore beats the endpoint it points at a laptop's collector
-// (`http://localhost:4317`). That was correct about Claude Code's own
-// precedence and still wrong in practice: `claude-code-action` checks out a
-// pull request's head to review it, and — because that content is
-// attacker-controlled — restores `.claude`, `.mcp.json`, `CLAUDE.md` and a
-// handful of other paths from the base branch immediately before the CLI
-// starts (`restoreConfigFromBase` in the action's own source). That restore
-// deletes the whole `.claude` directory first, including any untracked file
-// under it. A `.claude/settings.local.json` written by an earlier workflow
-// step exists for a few dozen seconds and is gone before Claude Code ever
-// reads it — CI silently falls back to the committed `localhost:4317` again,
-// which is the exact failure this file was first written to fix. Issue #60
-// found it by reading Grafana Cloud itself: every session in the store, CI
-// runs included, carried `terminal_type=windows-terminal` and no
-// `environment` label at all.
+// Writing to `.claude/settings.local.json` looks tempting: *project local*
+// outranks the committed `.claude/settings.json` and therefore beats the
+// endpoint it points at a laptop's collector (`http://localhost:4317`). That
+// is correct about Claude Code's own precedence and wrong in practice:
+// `claude-code-action` checks out a pull request's head to review it, and —
+// because that content is attacker-controlled — restores `.claude`,
+// `.mcp.json`, `CLAUDE.md` and a handful of other paths from the base
+// branch immediately before the CLI starts (`restoreConfigFromBase` in the
+// action's own source). That restore deletes the whole `.claude` directory
+// first, including any untracked file under it. A
+// `.claude/settings.local.json` written by an earlier workflow step exists
+// for a few dozen seconds and is gone before Claude Code ever reads it — CI
+// silently falls back to the committed `localhost:4317` instead, so every
+// CI session would carry `terminal_type=windows-terminal` and no
+// `environment` label at all, indistinguishable from a laptop run.
 //
 // The fix this time works outside the path the restore can reach. Claude
 // Code's settings precedence, highest first, is: managed settings, the

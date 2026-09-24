@@ -1,5 +1,5 @@
 // The language servers behind the pyright-lsp and typescript-lsp plugins
-// enabled in .claude/settings.json (#160).
+// enabled in .claude/settings.json.
 //
 // Those plugins only find a server on PATH -- there is no setting that points
 // them at node_modules/.bin -- and a plugin whose binary is missing fails

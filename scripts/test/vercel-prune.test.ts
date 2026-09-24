@@ -110,8 +110,8 @@ describe('main', () => {
 });
 
 describe('prune', () => {
-  // Fixture projects, not project.json's: this tests the pruning, whatever the
-  // application is (#173).
+  // Fixture projects, not project.json's: this tests the pruning, whatever
+  // the application is.
   const projects = ['thing-front', 'thing-back'];
   const fetchJson: FetchJson = async (url) => ({
     deployments: url.includes('thing-front')
@@ -195,8 +195,8 @@ describe('selectHistory', () => {
     expect(doomed).not.toContain('p6');
   });
 
-  it('removes cancelled records newer than the live one, which never built anything (#184)', () => {
-    // What the API looked like after #183: live bf4, then four merges the
+  it('removes cancelled records newer than the live one, which never built anything', () => {
+    // What the API can look like: live bf4, then several merges the
     // ignore step skipped, each leaving a cancelled production record.
     const skipped = [
       prod('c4', 1000, 'CANCELED'),
@@ -246,8 +246,8 @@ describe('pruneHistory', () => {
   });
 
   it('deletes nothing from any app when one app of several cannot find its live deployment', async () => {
-    // #183's review: the first app's history must not go if the second's
-    // alias lookup then fails.
+    // The first app's history must not go if the second's alias lookup then
+    // fails.
     const two = [
       { project: 'thing-back', host: 'back.example.app' },
       { project: 'thing-front', host: 'front.example.app' },

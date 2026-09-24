@@ -1,176 +1,65 @@
 # Data governance
 
 Everything this project deploys can be read by anyone who knows the URL. That
-is a decision rather than an oversight, and this page is the decision: what is
-exposed, why it is acceptable today, what keeps it defensible, and the one fact
-that would change the answer.
+is a decision rather than an oversight, and this page is the decision: what
+is exposed, why it is acceptable today, and the one fact that would change
+the answer.
 
-> The deployed data is invented, and it is public on purpose. The API stays
-> unauthenticated. The controls that make that defensible — rate limiting, and
-> gating the executable query console out of production — are being added.
-> Authentication is the thing that changes if real family data ever lands here,
-> and that is the trigger to revisit.
+> Today's apps serve no data at all: a health check and this project's own
+> documentation. Nothing here needs authentication, because there is nothing
+> behind it to protect. The moment a real application replaces either
+> placeholder shell, this page has to be rewritten for what that application
+> actually exposes.
 
 This is the *data governance* guardrail from step 0 of `docs/adoption.md`. It
 is written down so that it can be found and argued with, instead of being
 inherited as whatever nobody got around to changing.
 
-One section here is not about the deployed data at all — "What CI holds, and
+One section here is not about the deployed apps at all — "What CI holds, and
 what voids that" applies the same three questions to the credentials the
-review jobs carry, because that posture had the same structure and no written
-trigger.
+review jobs carry, because that posture has the same shape and the same need
+for a written trigger.
 
 ---
 
 ## What is public
 
-Checked on 2026-09-16, after #126 cut the API over from Railway to Vercel,
-with `curl`, sending no credentials, from outside every deployment:
+With `curl`, sending no credentials, from outside every deployment:
 
 | Request | Anonymous response |
 | --- | --- |
-| `GET family-tree-api-stevemarvell-team.vercel.app/health` | `200` — `{"ok":true,"people":44,"commit":null}` |
-| `GET family-tree-api-stevemarvell-team.vercel.app/` | `200` — the API manual, **Run query** console *not* present |
-| `POST family-tree-api-stevemarvell-team.vercel.app/graphql` | `200` — `{ people { name } }` returns all 44 names |
-| `GET family-tree-api-stevemarvell-team.vercel.app/graphql` | `404` — there is no IDE to open |
-| `POST .../graphql` asking for `__schema` | `200` with errors — *"GraphQL introspection has been disabled"* |
-| `GET family-tree-web-eta.vercel.app/` | `200` — the web app |
+| `GET family-tree-api-stevemarvell-team.vercel.app/health` | `200` — `{"ok":true,"commit":"<deployed sha>"}` |
+| `GET family-tree-web-eta.vercel.app/` | `200` — the placeholder shell |
 | `GET family-tree-web-eta.vercel.app/docs/` | `200` — the documentation, this page among it |
-| `GET stevemarvell.github.io/boris/` | `404` — Pages is gone, see below |
-| `GET api-production-53f7b.up.railway.app/health` | `404` — Railway is gone too, see the `deployment` skill |
 
 Vercel's preview deployments are open as well, and deliberately so: an agent
 reviewing a pull request has to be able to load one.
 
-So: the whole tree, on demand, to anyone, in one unauthenticated POST.
+So: a health check and a set of static documentation pages, to anyone.
 
 ## Why that is acceptable
 
-`data/family.json` is invented. Forty-four people across four generations, each
-one an id, a name, a list of parent ids and a spouse id — no dates, no places,
-no addresses, no photographs, no contact details, and no correspondence to
-anybody who exists. It is a test fixture that the application happens to serve.
-
-What is public, then, is a plausible graph of names nobody has. Publishing it
-costs nothing and buys the thing this project is for: a deployment that a
-stranger, or an agent, can open and exercise without being issued a credential
-first. The API manual's console is only useful because there is nothing behind
-the door worth locking.
-
-## What makes it defensible rather than merely unnoticed
-
-Open is not the same as unguarded. What an anonymous caller can do is bounded
-— by two controls already in place, and two being added:
-
-- **A query depth limit.** `MAX_QUERY_DEPTH = 6` in
-  `apps/api/src/api/schema.py`. A person's relationship fields are mutually
-  recursive, so each extra level of nesting costs roughly 3.5x: a security
-  review measured depth 8 at 3.1 CPU-seconds and depth 10 at 23.7s, against
-  0.14s for the worst case depth 6 still admits. The deepest query the app or
-  the manual ever sends is depth 3.
-- **No introspection, and no IDE.** `API_ENVIRONMENT` in
-  `apps/api/src/api/main.py` defaults to `production`, which disables schema
-  introspection and serves no GraphiQL. It is never set on the Vercel project,
-  so the deployed behaviour is the default and a forgotten variable fails
-  closed. Both are confirmed by the table above.
-- **Rate limiting, at Vercel's edge and in process.** 120 requests per minute
-  per client IP, on `/graphql`, `/person` and `/me`. The ceiling that holds is
-  the Vercel WAF rule committed as `apps/api/firewall.json`, counted at the
-  edge before any function instance runs; `apps/api/src/api/limits.py` repeats
-  the limit in process, per instance. The depth limit caps what one query
-  costs and says nothing about a thousand cheap ones.
-  `/health` and the manual are deliberately *not* limited — `/health` is the
-  path Playwright polls for readiness, and a 429 there is the wrong signal to
-  give anything that acts on it.
-
-  The *key* half of this — one caller, one bucket, not fooled by a spoofed
-  header — was re-measured against the live Vercel deployment after #126 and
-  holds: five requests, two carrying forged `X-Real-IP`/`X-Forwarded-For`
-  values, drained one shared counter monotonically. That repeats the
-  discipline that first caught this class of bug: an earlier version of
-  `client_key` keyed on the rightmost `X-Forwarded-For` hop, reasoning it was
-  the one a caller could not forge, and Railway's edge turned out to be a pool
-  of five nodes — 571 requests answered in twelve seconds against a 120/minute
-  limit, one caller split across five counters, unit tests green throughout
-  because `TestClient` is one process with one stable key and the deployment
-  is neither.
-
-  The in-process *ceiling* does not hold on Vercel, and #126's migration is
-  what surfaced it: 200 concurrent requests against the live deployment were
-  answered by several execution environments in parallel, each with its own
-  in-memory counter — `X-RateLimit-Remaining` repeated the same values instead
-  of draining once. That made five times that a control here was present,
-  running, and doing less than its own tests and docstring claimed. The fix
-  (#128) is the edge rule above: Vercel's WAF rate limiting is available on
-  Hobby at no cost (one rule per project, IP-keyed, fixed window), so no new
-  service or storage was needed. Two limits remain on the WAF itself. Its
-  counters are per *region*, so one caller spread across regions could exceed
-  the limit, though a single address reaches one region. And the rule is
-  applied with `vercel firewall`, not by a deploy, so the file and the live
-  config can drift: `tests/test_firewall.py` holds the file to `limits.py`,
-  and the `smoke` workflow's last step fires a 300-request burst and fails
-  unless the edge refuses some of it.
-- **A gate on the query console.** The API serves its own manual at its root,
-  and that manual carries a **Run query** button posting to `/graphql` on the
-  same origin: a working console, no setup, no CORS negotiation. It is gated
-  on `API_ENVIRONMENT`, the same mechanism as the IDE, so production
-  serves the documentation without the console — confirmed on the deployment,
-  which returns the manual with no `id="run"` and no endpoint string. The
-  worked examples remain, with a `curl` that names whichever deployment is
-  serving it.
-
-  The gate reaches pull request environments too, since `API_ENVIRONMENT` is
-  unset there as well. Setting `API_ENVIRONMENT=development` on one restores
-  its console, and opens GraphiQL and introspection there in the same move.
-
-One smaller decision belongs in the same list: `allow_queries_via_get=False`,
-also in `api/main.py`. A GraphQL query is a short string that can trigger an
-expensive resolution, so accepting one over GET would turn an `<img src>` on
-any page on the internet into work this server has to do. It is off in both
-environments.
+Neither app holds or serves any data. The API reports only whether it is up
+and which commit built it; the web app serves this repository's own
+documentation and shows no application. There is nothing here to protect,
+so there is nothing to authenticate.
 
 ## What is deliberately absent
 
-Authentication. Every query is anonymous, and `/health` reports the size of the
-tree to anyone who asks.
-
-Adding it later is not one middleware line, because the CORS policy in
-`apps/api/src/api/main.py` is written on the assumption that no credentials
-ever travel:
-
-```python
-allow_methods=["GET", "POST", "OPTIONS"],
-allow_headers=["content-type"],
-```
-
-There is no `allow_credentials`, and `content-type` is the only admitted
-request header — an `Authorization` header would be refused at the preflight,
-by a browser, before the API ever saw it. So authentication means revisiting
-CORS in the same change. Anyone who splits the two will spend an afternoon
-debugging a preflight.
+Authentication, a data store, and any endpoint that reads or writes anything
+beyond the deployed commit's own identity.
 
 ## The trigger to revisit
 
-Real data. One actual relative, one actual birth date, anything in
-`data/family.json` that is not invented — and this decision is void rather than
-in need of review. The trigger is the data changing, not the traffic changing:
-nothing here should wait to be noticed first.
-
-What that change has to cover, collected in one place so nobody has to
-rediscover it:
-
-- authentication on `/graphql`, and with it the CORS policy above;
-- `/health` no longer reporting the tree size to anonymous callers;
-- the manual's console gated out of production, or moved behind the same
-  authentication;
-- the Vercel deployment and its previews, which are open by the same
-  reasoning and stop being defensible by it at the same moment.
+Any real application replacing either shell. The moment `apps/` serves
+actual data — invented or real — this page has to be rewritten for what
+that application exposes, and the decision above stops holding by default.
 
 ## What CI holds, and what voids that
 
 The page above is about what the *deployments* expose. This section is about
-what the *pull request checks* hold, because it has the same shape and until
-now had no written trigger.
+what the *pull request checks* hold, because it has the same shape and needs
+the same kind of written trigger.
 
 Three jobs run branch code with something live in the step. Two are in
 `.github/workflows/claude-code-review.yml` and carry a credential — the code
@@ -208,14 +97,14 @@ Two things, and only one of them is written in the configuration:
   fact about the repository's membership, and it carries the whole of the
   remaining severity.
 
-The scope job is not in this list: it checks out the base commit (#99), so the
+The scope job is not in this list: it checks out the base commit, so the
 rule deciding which reviews run is not the branch's copy. The
 two credentialed jobs still check out the merge ref, because a reviewer that
 cannot read the change under review is not a reviewer.
 
-### What the sandbox added for #150 changes here, and what it does not
+### What the sandbox adds here, and what it does not
 
-Both credentialed jobs now run their Bash tool — `gh pr diff` and
+Both credentialed jobs run their Bash tool — `gh pr diff` and
 `gh pr view`, the only two commands their `--allowedTools` permits —
 inside Claude Code's own sandbox; `docs/sops.md` SOP 10 has the
 configuration. It bounds what those two commands can reach once the
@@ -230,9 +119,9 @@ Actions `run:` step: plain Node, executed before `claude-code-action`
 starts a session at all. The sandbox wraps commands the session runs once
 it is running; it has no reach into the workflow step that precedes it.
 So the exposure this section describes is still bound by "one person has
-write access," exactly as before — the sandbox is a second layer around
-what the reviewing session itself can do with its two allowed commands,
-not a boundary around the step that hands it the credential.
+write access" — the sandbox is a second layer around what the reviewing
+session itself can do with its two allowed commands, not a boundary around
+the step that hands it the credential.
 
 ### A third job of the same shape, holding a different thing
 
@@ -291,9 +180,9 @@ that no longer exists, including one pushed and deleted without a pull request
 ever being opened, whose commit nothing keeps. So that run is started by a
 person and defaults to a dry run that lists what it would delete.
 
-The token expires a year after 2026-09-23. On that day the job fails loudly
-and nothing else is affected: deploys go through Vercel's Git integration, not
-this token.
+The token expires 2027-09-23. On that day the job fails loudly and nothing
+else is affected: deploys go through Vercel's Git integration, not this
+token.
 
 ### The trigger
 
@@ -325,22 +214,22 @@ holds before access is granted.
 
 ## What going private did, and did not do
 
-The repository went private on 2026-09-13. That made the source, the issue
-tracker and the Actions logs unreadable to strangers, and it retired one real
-risk: a `@claude` workflow that any stranger's comment could trigger. The
-`author_association` guard in `.github/workflows/claude.yml` was what actually
-carried that, and it stays.
+The repository is private. That makes the source, the issue tracker and the
+Actions logs unreadable to strangers, and it retires one real risk: a
+`@claude` workflow that any stranger's comment could trigger. The
+`author_association` guard in `.github/workflows/claude.yml` is what actually
+carries that.
 
-It removed no published URL. Every row in the table above was checked *after*
-the switch. Making the repository private changed who can read the source; it
-changed nothing about who can read the data.
+It removes no published URL. Every row in the table above was checked from
+outside the repository. Being private changes who can read the source; it
+changes nothing about who can read the data.
 
 Two side effects are worth knowing, because both look like breakage:
 
-- GitHub Actions minutes are billed now rather than free.
+- GitHub Actions minutes are billed rather than free.
 - GitHub Pages needs a paid plan on a private repository, which is why
   `stevemarvell.github.io/boris/` returns `404` and why everything it would
-  publish is served from Vercel, or from inside the API image, instead.
+  publish is served from Vercel instead.
 
 Visibility was never the control. If it had been, the table above would be
 shorter.

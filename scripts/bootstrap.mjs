@@ -12,7 +12,7 @@ const run = (command) => {
 };
 
 run('npm ci');
-// Every Python app in project.json (#173); node apps are npm workspaces.
+// Every Python app in project.json; node apps are npm workspaces.
 for (const [, app] of apps(loadProject(), 'python')) run(`uv sync --directory ${app.path} --frozen`);
 run('npx playwright install chromium');
 
@@ -23,7 +23,7 @@ if (packages.length) run(`npm install -g ${packages.join(' ')}`);
 
 // Which servers an app's e2e suite starts is the app's business (its own
 // ports() call), so this reports only the rule and this worktree's offset,
-// not a list of names it would have to guess (#180's review).
+// not a list of names it would have to guess.
 const offset = portOffset();
 process.stdout.write(
   `\nThis worktree's E2E port offset is ${offset}: the nth server an e2e config names gets ` +

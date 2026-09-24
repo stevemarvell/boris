@@ -1,5 +1,5 @@
 {
-  "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application (#173). Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape.",
+  "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape.",
   "name": "family-tree",
   "vercel": {
     "team": "stevemarvell-team"

@@ -41,7 +41,7 @@ jobs:
 
       # Fails the build rather than resolving new versions silently, so CI
       # tests the same dependency set as a local run.
-      # Every Python app project.json declares (#173). Assigned first rather
+      # Every Python app project.json declares. Assigned first rather
       # than piped, so a failing lookup stops the step under `bash -e`.
       - run: |
           apps=$(node scripts/project.mjs apps python)
