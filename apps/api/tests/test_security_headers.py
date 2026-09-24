@@ -20,7 +20,20 @@ from api.security_headers import DEVELOPMENT_CSP_DIRECTIVES, build_csp, security
 production = TestClient(create_app(environment="production"))
 development = TestClient(create_app(environment="development"))
 
-EXPECTED = security_headers(is_development=False)
+# Literal, not computed by security_headers(): a regression in the function
+# under test has to be caught by something that does not call it.
+EXPECTED = {
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "x-frame-options": "DENY",
+    "content-security-policy": (
+        "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+}
+
+
+def test_the_function_returns_exactly_the_expected_set() -> None:
+    assert security_headers(is_development=False) == EXPECTED
 
 
 def _assert_headers(path: str) -> None:
