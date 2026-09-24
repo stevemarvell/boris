@@ -6,7 +6,7 @@
 // model, so a failing gate becomes work to do rather than a claim to make.
 //
 // Blocking is what creates the fix-and-retry loop, so this hook is where
-// SOP 1's ceiling can be enforced rather than only followed (#80). It counts
+// SOP 1's ceiling can be enforced rather than only followed. It counts
 // consecutive blocks within one chain of continuations — Claude Code sets
 // `stop_hook_active` on a stop that follows a block — and at the third red in
 // a row it lets the turn end and reports instead, the same three attempts
@@ -40,10 +40,11 @@ export const STATE_DIR = join(tmpdir(), 'claude-verify-on-stop');
 const run = (command) =>
   execSync(command, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
-// What `verify` covers comes from project.json (#173): every app's directory
-// and build inputs, and the AI layer's own code. It used to be a regex naming
-// `data/`, which moved into apps/api in #126, so a data-only edit had stopped
-// triggering this hook without anything saying so. git does the matching.
+// What `verify` covers comes from project.json: every app's directory and
+// build inputs, and the AI layer's own code. A hardcoded list of paths would
+// silently drift from that as apps come and go; reading it from project.json
+// means an app's data directory moving is a data-only edit that still
+// triggers this hook. git does the matching.
 export function changedFiles(paths = verifiedPaths(loadProject())) {
   return execFileSync('git', ['status', '--porcelain', '--', ...paths], { cwd: ROOT, encoding: 'utf8' })
     .split('\n')

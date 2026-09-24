@@ -62,7 +62,7 @@ Three loops *are* mechanically bounded:
 
 - Smoke's waits, by `GATE_ATTEMPTS` and the `seq` bounds above.
 - The rate limiter, at 120 requests per minute — see `docs/data-governance.md`.
-- The fix-and-retry loop the stop hook drives (#80).
+- The fix-and-retry loop the stop hook drives.
   `.claude/hooks/verify-on-stop.mjs` blocks the end of a turn while `verify`
   is red, which is what creates that loop. It now counts consecutive blocks,
   per session, in a file outside the checkout. At the third red in a row it
@@ -115,14 +115,17 @@ at the time:
 | The rate limiter's counter | one budget, per its own docstring | one budget *per concurrent process*, and Vercel runs several |
 
 Every one of them surfaced under load against a live deployment, never in the
-suite. The rate-limit key held 84 passing unit tests while enforcing five times
-its configured limit, because `TestClient` is one process with one stable key
-and a deployment is neither; 600 concurrent requests showed it. The counter
-beneath it was the same shape one layer down (#128): 200 concurrent requests
-against the live Vercel API came back from several execution environments,
-each counting its own budget. The fix moved the ceiling to Vercel's edge
-(`apps/api/firewall.json`), and `smoke` now fires a burst after every merge
-to prove the edge refuses it.
+suite. A rate-limit key can hold a full passing unit test suite while
+enforcing several times its configured limit, because an in-process test
+client is one process with one stable key and a deployment is neither —
+only concurrent requests against the live thing show it. The same is true
+one layer down: a counter kept in process looks like one shared budget in
+its own docstring and is actually one budget *per execution environment*,
+and a serverless deployment runs several. The general fix is to move the
+ceiling somewhere genuinely shared — the platform's own edge, where
+available — and to have `smoke` fire a real burst after every merge to
+prove it holds, rather than trusting a unit test that structurally cannot
+see the gap.
 
 So when a change adds a control, exercise it against the deployed pull request
 environment and put the real output in the pull request body. A test proves the
@@ -175,9 +178,9 @@ for, not the first.
 ### The other two levers `docs/adoption.md` names
 
 Step 3's row also names advisors and LSPs alongside model selection and
-`CLAUDE.md` → Skills. #152 asked each of the four to be either in use or
-recorded as not applicable with the reason, the same treatment #120 and #64
-gave step 0–2 rows that did not apply.
+`CLAUDE.md` → Skills. Each of the four is either in use or recorded here as
+not applicable with the reason, the same treatment given to earlier rows
+that did not apply.
 
 **Advisors: not applicable.** The [advisor tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool)
 is a beta *Messages API* feature — a hand-rolled executor loop calls
@@ -191,7 +194,7 @@ mechanism, not a hand-rolled Messages API loop, so there is no call site to
 attach it to. **Trigger:** this repository starts orchestrating its own agents
 directly against the Messages API rather than through Claude Code.
 
-**LSPs: in use (#160).** Claude Code's [code intelligence plugins](https://code.claude.com/docs/en/discover-plugins#code-intelligence)
+**LSPs: in use.** Claude Code's [code intelligence plugins](https://code.claude.com/docs/en/discover-plugins#code-intelligence)
 (`pyright-lsp`, `typescript-lsp`, from the official marketplace) are enabled
 project-wide by `enabledPlugins` in `.claude/settings.json`. They are free and
 need no signup. A plugin does not install its own language server, and it only
@@ -241,12 +244,12 @@ This is the part the single word cannot carry, so the body carries it, and it
 is the same shape `docs/data-governance.md` uses for the whole deployment: a
 posture, what bounds it, and the trigger that voids the decision.
 
-- #103 is `high` because one person has write access. The trigger is named: a
-  second one gets it.
-- An exposed schema ranks where it does because it describes invented data
-  (#86). The trigger is the same one below.
-- `docs/data-governance.md` is defensible because `data/family.json` contains
-  nobody. The trigger is real data.
+- A CI credential exposure ranks `high` because one person has write access.
+  The trigger is named: a second one gets it.
+- An exposed schema ranks where it does because it describes invented data.
+  The trigger is the same one above.
+- `docs/data-governance.md` is defensible because the deployed apps serve no
+  real data. The trigger is real data landing.
 
 A `medium` with no stated bound is a guess wearing a label. The bound is the
 argument; the label is only its conclusion.
@@ -254,10 +257,10 @@ argument; the label is only its conclusion.
 ### External scales are quoted, not adopted
 
 `npm audit` says `moderate`. A CVE says `high`. Those are other people's
-scales, computed without knowing that this tree is invented and this API is
-public on purpose — #58's "two moderate advisories" needed a major version bump
-to fix and endangered nothing. Quote them, attribute them, and then rank the
-issue yourself.
+scales, computed without knowing that the data here is invented and the API
+is public on purpose — an advisory can need a major version bump to fix and
+still endanger nothing in this repository. Quote them, attribute them, and
+then rank the issue yourself.
 
 ### What enforces this
 
@@ -337,8 +340,7 @@ the commit records who and when.
 Mostly nothing, and there is a specific way that fails: both review agents
 read `CLAUDE.md`, so practice that changed in conversation but not in the file
 comes back as a finding on every pull request — correct against the file, stale
-against the instruction, as on #115. The file is the standard; conversation is
-not.
+against the instruction. The file is the standard; conversation is not.
 
 **One part is mechanical, and it does not agree with the list above.** The
 auto-mode classifier refuses a destructive *remote* git operation as
@@ -377,7 +379,7 @@ Both grant the same thing. Only one of them is looked at.
 
 Nobody decides it. Each entry is one "yes" at one prompt during real work,
 frozen into a permanent rule in a file no review reads — which is how a grant
-removed from the tracked file for pre-approving arbitrary code execution (#56)
+removed from the tracked file for pre-approving arbitrary code execution
 reappears in the local one by a shorter route, as `Bash(python -)`.
 
 Dead entries are the other half, and they are most of why this matters: a merge
@@ -418,10 +420,9 @@ nothing wider:
   allowed to do, and *"I was only tightening it"* is what the unsafe version
   says too. The same gate refuses edits to `CLAUDE.md`'s restraint rule
   (SOP 6).
-- **Narrowing is not.** Removing entries killed by #126 and #129 — `railway *`
-  commands and hosts that no longer answer — went through on #123. Removing a
-  grant cannot expand what an agent may do, so the argument above does not
-  reach it.
+- **Narrowing is not.** Removing dead entries — commands and hosts that no
+  longer answer — goes through without resistance. Removing a grant cannot
+  expand what an agent may do, so the argument above does not reach it.
 
 Nothing establishes that a removal is refused under other conditions, so this
 is an observation and not a guarantee: expect a widening edit to be stopped,
@@ -429,13 +430,12 @@ and expect nothing either way of a removal. A rule predicting a refusal that
 does not happen is the shape this document exists to avoid.
 
 So *adding* a permission is `human` work by construction rather than by
-preference, and #118 is labelled that way on that evidence. What an agent can
-do is audit both files, report, and take dead entries out of the tracked one.
+preference. What an agent can do is audit both files, report, and take dead
+entries out of the tracked one.
 
 The `/fewer-permission-prompts` skill does the tidying mechanically, reading
-transcripts to find the commands actually run. #123 is what one run produces:
-nine entries added, and the seven its own branch had gone stale holding
-removed on the day it merged.
+transcripts to find the commands actually run, adding what is missing and
+removing what has gone stale in the same pass.
 
 ---
 
@@ -458,12 +458,10 @@ git checkout --ours   scripts/review-scope.mjs
 git checkout --theirs apps/web/src/review-scope.test.ts
 ```
 
-On the same-line run recorded in
-[#63](https://github.com/stevemarvell/boris/issues/63#issuecomment-5676905837)
-that resolution dropped three assertions, including the ones proving the
-governance half of a fix that had just merged. The behaviour stayed correct and
-the suite stayed green — 13 passed, from 14 — so `verify` would have stayed
-green with it.
+On a run of exactly this shape, that resolution dropped assertions, including
+ones proving the governance half of a fix that had just merged. The
+behaviour stayed correct and the suite stayed green, fewer tests and all —
+`verify` would have stayed green with it.
 
 That is this repository's signature defect, a control present and inert,
 arriving by a route none of SOP 1–4 covers: written correctly, merged
@@ -482,7 +480,7 @@ conflict by deleting evidence, and nothing in the file's own suite can tell.
 
 ### What enforces this
 
-The `test census` check (#109, `scripts/test-census.mjs`) counts declarations on
+The `test census` check (`scripts/test-census.mjs`) counts declarations on
 both sides of a pull request and goes red when the head has fewer without that
 line. It is the backstop, and it counts declarations rather than results — a
 row deleted from inside an `it.each` table is still invisible.
@@ -494,10 +492,10 @@ conflicting files are test files, because those are the ones this SOP is about.
 It reports and does not block: two colliding pull requests are not a defect in
 either, and a red check on both is one neither author can clear alone.
 
-Neither sees a collision with no textual overlap. #72 added a field to
-`/health`, #77 pinned its exact JSON, and the merge was clean in both
-directions — two branches sharing a *contract* is the harder case than two
-sharing a file, and only CI catches it.
+Neither sees a collision with no textual overlap: one branch can add a field
+to a response, another can pin that response's exact JSON, and the merge is
+clean in both directions — two branches sharing a *contract* is the harder
+case than two sharing a file, and only CI catches it.
 
 ---
 
@@ -505,21 +503,18 @@ sharing a file, and only CI catches it.
 
 `docs/adoption.md` lists, among step 2's guardrails, Claude-powered
 end-to-end verification — looking at the rendered app, not only asserting
-against it. The 23 Playwright specs against the built bundle (`vite preview`
+against it. The Playwright specs against the built bundle (`vite preview`
 plus a real `uvicorn`, never a mock) are the right foundation and
-structurally cannot cover this. `apps/web/e2e/family-tree.spec.ts` has a test
-named *"person cards carry the padding that separates them"* — a visual
-judgement squeezed into a pixel assertion. It passes when the number is
-right and says nothing about whether four generations actually fit on
-screen, or whether the filter's empty state reads sensibly to a person
-looking at it.
+structurally cannot cover this. A pixel assertion on spacing or layout passes
+when the number is right and says nothing about whether the thing it is
+meant to guarantee — content fitting on screen, an empty state reading
+sensibly to a person looking at it — is actually true.
 
 ### What this is not
 
 Not a visual-regression pipeline, not screenshots in CI, not a new gate
 blocking `verify`. Both are a later-stage cost this solo repository does not
-carry yet — #121 records that step 3's fan-out tooling is deliberately
-untouched. This is one instruction: look before claiming.
+carry yet. This is one instruction: look before claiming.
 
 ### The procedure
 
@@ -528,14 +523,13 @@ person would notice by eye: drive the built app with the `run` skill —
 start it, or open its PR preview — and look at the actual result of the
 change. Put what was observed in the pull request body, specifically: not
 "looks fine" but the thing looked at and what was seen. *"Loaded the PR
-preview, filtered to 'a', four matching cards render with the derived
-relationships correct, the empty state reads '…' when nothing matches"* is a
-report. "Looks fine" is not, for the same reason "cleaned up" is not a report
-under SOP 6.
+preview, the new panel renders where it should, and the empty state reads
+'…' when nothing matches"* is a report. "Looks fine" is not, for the same
+reason "cleaned up" is not a report under SOP 6.
 
-A visual defect a pixel assertion cannot see is not hypothetical here: the
-padding test above would pass unchanged whether or not four generations
-actually fit the viewport it is meant to guarantee they do.
+A visual defect a pixel assertion cannot see is not hypothetical: a layout
+test can pass unchanged whether or not the thing it measures actually fits
+the viewport it is meant to guarantee it does.
 
 ### What enforces this
 
@@ -549,13 +543,13 @@ exists to catch — a control that looks like it ran and did not.
 
 ## SOP 10: A permission gate is not an execution sandbox
 
-#118 and #150 name the same gap. The auto-mode classifier and the two
-permission files (SOP 7) decide *whether* a command runs. Neither one
-constrains what it can reach once it does — same machine, same filesystem,
-same credentials, same network. #150's nearest concrete case: the two
-review jobs in `.github/workflows/claude-code-review.yml` read a pull
-request's *head*, which `docs/data-governance.md` already treats as
-untrusted, with a Bash tool that can run `gh pr diff` and `gh pr view`.
+The auto-mode classifier and the two permission files (SOP 7) decide
+*whether* a command runs. Neither one constrains what it can reach once it
+does — same machine, same filesystem, same credentials, same network. The
+concrete case: the two review jobs in `.github/workflows/claude-code-review.yml`
+read a pull request's *head*, which `docs/data-governance.md` already
+treats as untrusted, with a Bash tool that can run `gh pr diff` and `gh pr
+view`.
 
 ### What runs sandboxed today
 
@@ -570,17 +564,16 @@ telemetry one:
 ```
 
 Claude Code's own sandbox — the built-in one, not the standalone
-`sandbox-runtime` package #150 also names, which wraps a whole process
-rather than one tool inside a session Claude Code already runs — puts
-`bubblewrap` around every Bash, PowerShell, and Monitor command. The
-GitHub-hosted Ubuntu runner does not carry `bubblewrap` or `socat` by
-default, so the first step installs them; the second writes `sandbox`
-settings into the same out-of-checkout file
-`scripts/write-ci-telemetry-settings.mjs` already writes, for the reason
-that file's own header gives for #60 and #157 record hardening: this job
-checks out a pull request's *head* to review it, and `claude-code-action`
-deletes and restores `.claude` from the *base* branch immediately before
-the CLI starts, so nothing written under the checkout survives to be read.
+`sandbox-runtime` package, which wraps a whole process rather than one tool
+inside a session Claude Code already runs — puts `bubblewrap` around every
+Bash, PowerShell, and Monitor command. The GitHub-hosted Ubuntu runner does
+not carry `bubblewrap` or `socat` by default, so the first step installs
+them; the second writes `sandbox` settings into the same out-of-checkout
+file `scripts/write-ci-telemetry-settings.mjs` already writes, for the same
+reason that file's own header gives: this job checks out a pull request's
+*head* to review it, and `claude-code-action` deletes and restores
+`.claude` from the *base* branch immediately before the CLI starts, so
+nothing written under the checkout survives to be read.
 `scripts/write-ci-sandbox-settings.mjs` merges a `sandbox` key into that
 same file rather than writing a second one, because nothing here
 establishes that the action's `--settings` flag can be given twice.
@@ -614,21 +607,20 @@ running the whole session inside a WSL2 distribution, which is a bigger
 change than this issue's scope and not one to make silently as a side
 effect of closing it.
 
-This is the outcome #150 names as legitimate — "a note records why this
-project deliberately runs without one" — for the half of the gap CI
-cannot close. It is bounded the same way #150 itself bounds the rest of
-the gap it names: one person has write access (#103's trigger), the data
-is invented (`docs/data-governance.md`), and the realistic risk on a
-laptop session is a prompt-injected agent rather than a malicious one. CI
-was the sharper case *because* it is the one place here that already
-reads content nobody here wrote — a laptop session reads whatever the
-person at the keyboard points it at, which is a different, and today
-still open, question. **What would void this:** a second person with
+This is a legitimate outcome — a note records why this project deliberately
+runs without one — for the half of the gap CI cannot close. It is bounded
+the same way the rest of that gap is bounded: one person has write access,
+the deployed apps serve no data at all (`docs/data-governance.md`), and the
+realistic risk on a laptop session is a prompt-injected agent rather than a
+malicious one. CI was the sharper case *because* it is the one place here
+that already reads content nobody here wrote — a laptop session reads
+whatever the person at the keyboard points it at, which is a different, and
+today still open, question. **What would void this:** a second person with
 write access, real data, or a laptop session routinely running third-party
-content it fetched at run time — a dependency README, a fetched page — the
-same trigger #150 names for the gap as a whole. Any of the three makes
-running Claude Code inside WSL2 (or accepting the loss of the platforms
-that still lack a sandbox) worth doing rather than deferring.
+content it fetched at run time — a dependency README, a fetched page. Any
+of the three makes running Claude Code inside WSL2 (or accepting the loss
+of the platforms that still lack a sandbox) worth doing rather than
+deferring.
 
 Nothing here changes `.claude/settings.json`'s own `sandbox` key, which
 would be the way to turn this on for interactive sessions on a supported

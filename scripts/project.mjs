@@ -1,4 +1,4 @@
-// The AI layer's only view of the application (#173).
+// The AI layer's only view of the application.
 //
 // Everything under .claude/, scripts/ and .github/ that needs to know what
 // the application is — where its apps live, what toolchain each uses, what a
@@ -10,7 +10,7 @@
 //
 // The manifest is validated on load, so a typo fails the first hook or script
 // that reads it, loudly, rather than turning into a build that silently never
-// happens. A field is added when something reads it, not before (#174's review).
+// happens. A field is added when something reads it, not before.
 //
 // CLI, for workflows and shells:
 //
@@ -32,7 +32,7 @@ const TOOLCHAINS = new Set(['python', 'node']);
 /**
  * Whether `child` is strictly inside `parent`, both repository-relative. A
  * string prefix is not enough — `apps/api/../../etc/x` starts with
- * `apps/api/` (#177's review) — so both are normalised and `child` must be
+ * `apps/api/` — so both are normalised and `child` must be
  * spelled in normal form, with no `..` left once it is.
  */
 export function inside(parent, child) {
@@ -69,7 +69,7 @@ export function validate(project) {
       fail(`${at}.vercelProject must be a non-empty string`);
     }
     // A deployed app must say where it answers and which endpoint reports the
-    // commit it was built from: smoke's freshness gate (#50) is what tells a
+    // commit it was built from: smoke's freshness gate is what tells a
     // deployment that happened from one that silently did not.
     if (app.vercelProject !== undefined) {
       if (typeof app.url !== 'string' || !/^https:\/\/[^/]+$/.test(app.url)) fail(`${at}.url must be an https origin with no path`);

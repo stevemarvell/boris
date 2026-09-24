@@ -1,21 +1,26 @@
 # Extracting the baseline
 
-How the step-2 apparatus in this repository is used on a project that is not a
-family tree, and what would have to be pulled apart to get a base, a backend, a
-frontend and an MCP template out of it.
+How the step-2 apparatus in this repository was used on a project that was
+not a family tree, and what had to be pulled apart to get a base, a backend,
+a frontend and an MCP template out of it.
 
-This is a report on what is here today, measured rather than estimated. It does
-not change any code.
+This is a report on what was measured, not an estimate, and it does not
+change any code. **It describes the family-tree application and its MCP
+server as they stood when measured — both have since been removed from
+`apps/`.** The file paths and line counts below no longer exist in this
+repository; they are kept as the record of what proved separable, for the
+next project that needs to run this same exercise.
 
 ---
 
-## Since #173: the two layers are separate
+## The two layers are separate
 
-Everything below this section is the report as first measured, before the
-separation. It stays because the reasoning in it is still the reasoning; where
-a line has since stopped being true, it says so where it stands.
+The reasoning in this section is still the reasoning, even though the
+application it was proved against is gone; where a line has since stopped
+being true, it says so where it stands.
 
-The repository is now two layers, and the line between them is one file.
+At the time of measurement, the repository was two layers, and the line
+between them was one file.
 
 - **The AI layer** — `.claude/`, `scripts/`, `.github/`, `telemetry/`,
   the root `CLAUDE.md` — learns about the application only from
@@ -28,9 +33,9 @@ The repository is now two layers, and the line between them is one file.
   `verify:harness`, not inside an app.
 - **The application** — `apps/`, with its own `apps/CLAUDE.md`, skills in
   `apps/.claude/skills/`, build scripts, smoke checks and `.gitignore` —
-  is everything that knows it is a family tree.
+  was everything that knew it was a family tree.
 
-**The proof** (#173, phase 5). In a throwaway branch, `apps/api` became
+**The proof.** In a throwaway branch, `apps/api` became
 `apps/backend`, `apps/web` became `apps/site`, and the project name, Vercel
 team, project names and URLs all changed. 61 files changed; **outside `apps/`,
 only `project.json`**. Inside `apps/` the edits beyond the renames were the
@@ -48,8 +53,8 @@ passed — the tests now use fixture manifests, or derive what they check from
 
 What the proof did not do is swap the *domain*: a rename changes where the
 application is and what it is called, not what it models. The domain was never
-in the AI layer (the measurement below found eight incidental words), and #173
-moved the last domain assertions — smoke's "44 people" — into the application.
+in the AI layer (the measurement below found eight incidental words), and the
+last domain assertions — smoke's "44 people" — moved into the application.
 
 ---
 
@@ -135,7 +140,7 @@ trust, automated review, worktree isolation, auto mode.
 
 - `.claude/hooks/verify-on-stop.mjs` — the Stop hook that blocks a turn while
   `verify` is red. This is what converts "the contract" from a convention into a
-  control. What it watches now comes from `project.json` (#173).
+  control. What it watches comes from `project.json`.
 - `.claude/hooks/filter-verbose.mjs` — shrinks CI logs before they enter the
   conversation, at zero token cost. The command list is a narrow allow-list to
   extend, not domain logic.
@@ -170,17 +175,18 @@ trust, automated review, worktree isolation, auto mode.
   about people: `verify` is the contract, every behaviour change ships with a
   test, every change ships as a pull request, decide and act, one scale ranks
   everything, known gaps live in issues, context is the budget.
-- root `package.json` — *(since #173: `verify` is `verify:harness` then
+- root `package.json` — `verify` is `verify:harness` then
   `scripts/verify-apps.mjs`, which runs each app's `verify` list from
-  `project.json`; nothing in it names an app)* — the `verify` / `verify:api` / `verify:web` / `verify:e2e`
-  fan-out. Three lines, and the single most load-bearing file in the repository.
+  `project.json`; nothing in it names an app. Three lines, and the single
+  most load-bearing file in the repository.
 - `scripts/bootstrap.mjs`, `scripts/build-docs.mjs`, `scripts/markdown.mjs` and
   the `docs-site` skill — the published-docs half. Generic, but `MARKDOWN_PAGES`
   and the six-file checklist are per-project.
 
 **Leave behind:** `.claude/trials/model-tiering.md` (measurements of this
-repository), `.github/workflows/smoke.yml` (*since #173 generic: the assertions moved to `apps/*/smoke.sh`* — every assertion was a hostname or a
-count), `index.html`, `design/`, `manual/`.
+repository), `.github/workflows/smoke.yml` (generic: every assertion lives
+in `apps/*/smoke.sh` as a hostname or a count), `index.html`, `design/`,
+`manual/`.
 
 ### Backend — FastAPI, Strawberry, uv, Vercel
 
@@ -230,13 +236,13 @@ turned off by one variable that defaults to the safe value.
 **Replace:** `PersonCard.tsx`, `filter.ts` (a generic list filter, but shaped
 around generations), the generation grouping in `App.tsx`, `styles.css`.
 
-### MCP — present, and the one correction to make
+### MCP — it existed, and the one correction that applied
 
-`apps/mcp` already exists: 303 lines of source, 511 of tests, wired into the
-contract as `npm run verify:mcp` (*now `node scripts/verify-apps.mjs mcp`*), and listed in `CLAUDE.md`'s Layout table. What
-it is not is *deployed* — `CLAUDE.md` says so — which is probably what "isn't in
-it presently" refers to. Either way there is a working reference implementation
-to template from rather than a gap to fill.
+`apps/mcp` existed at the time of measurement: 303 lines of source, 511 of
+tests, wired into the contract as `npm run verify:mcp`, and listed in
+`CLAUDE.md`'s Layout table. It was never *deployed* — `CLAUDE.md` said so.
+Either way it was a working reference implementation to template from
+rather than a gap to fill, for whoever runs this exercise next.
 
 **Keep:**
 
@@ -287,10 +293,11 @@ already libraries, sitting in a directory that happens to be an application.
 
 ## What has to be parameterised
 
-*Since #173 this list is done for the AI layer: deployment identity and package
-names live in `project.json` and `apps/`. What follows is the original count.*
+*This list is already done for the AI layer: deployment identity and package
+names live in `project.json` and `apps/`. What follows is the original count,
+from before that separation.*
 
-Thirty-four tracked files carry a hardcoded `family-tree`, `stevemarvell` or
+Thirty-four tracked files carried a hardcoded `family-tree`, `stevemarvell` or
 `boris`. Excluding the data, manual and design directories, they cluster into
 four groups, and only the first is fiddly:
 
@@ -337,9 +344,9 @@ else's incidents is read once and never again.
 30 × 15s) are this repository's, and one of them exists because three subagents
 died on session limits here. Keep the requirement that every loop declares a
 maximum; set the maxima locally. Note that SOP 1 is honest about being
-unenforced for the model-driven loops, and that `verify-on-stop.mjs` has no
-counter — issue #80 is the obvious first improvement a new project inherits.
-*(Done in #171: the stop hook now gives up after three consecutive reds.)*
+unenforced for the model-driven loops. The stop hook now gives up after
+three consecutive reds, which was the obvious first improvement a new
+project inherited.
 
 **The `smoke` assertions.** `"people":44` and "four generations" are the right
 *kind* of check — a deployed-value assertion rather than a 200 — and exactly the
@@ -363,8 +370,8 @@ and keeps the git history that says when each line was added and why.
 
 A workable order, each step landing as its own pull request:
 
-- **Prove the seam first.** *(The structural half is done — #173's rename
-  proof, above. The domain swap below is still undone.)* Before extracting anything, replace `models.py` and
+- **Prove the seam first.** *(The structural half was done — the rename
+  proof, above. The domain swap below was still undone.)* Before extracting anything, replace `models.py` and
   `tree.py` in a branch with a different two-entity domain and see what else
   goes red. That measures the coupling instead of trusting this report's
   reading of it, which is the same argument SOP 3 makes about controls.
@@ -393,24 +400,24 @@ forked and edited are the step-2 answer.
 
 Stated plainly, because a template that oversells is worse than none.
 
-- **No step-3 fan-out.** *(No longer true: `drive-pr` (#149) and
-  `scripts/triage.mjs` with the `work-backlog` skill (#151) exist now; nothing
-  yet starts them on a schedule.)* `/loop`, `/batch`, `/goal`, routines and dynamic
+- **No step-3 fan-out.** *(No longer true: `drive-pr` and `scripts/triage.mjs`
+  with the `work-backlog` skill exist now; nothing yet starts them on a
+  schedule.)* `/loop`, `/batch`, `/goal`, routines and dynamic
   workflows are deliberately untouched here. `docs/adoption.md` lists them under
-  step 3, and issue #121 records the decision to leave them alone.
+  step 3, and the decision to leave them alone is deliberate.
 - **One required check.** `verify` is the only one. `contention`, `test census`
   and both reviews are advisory, and the reason is written down: a gate that
   goes red for its own reasons is one people learn to click past. A new project
   inherits that judgement and may want a different one.
-- **One known open defect travels with the code.** `verify-on-stop.mjs` has no
-  iteration counter (#80) *(fixed in #171)*. Worth fixing in the template rather than in each
-  project that forks it. The rate limiter's counter is per process, which is
-  why the ceiling on Vercel is a WAF rule (`apps/api/firewall.json`, #128). A
-  fork on another platform needs its own edge limit or shared storage.
-- **The e2e suite is the expensive part.** The web app's `npm run e2e` (formerly `verify:e2e`) needs both toolchains
-  and a Playwright browser per worktree. `scripts/bootstrap.mjs` handles it, but
-  it is minutes, not seconds, and it is what makes parallel worktrees costly.
+- **A rate limiter's counter is per process by default, and a serverless
+  platform runs several.** Whatever replaces the family tree's rate limiting
+  needs its own edge limit or shared storage from the start, not an
+  in-process counter re-discovered the same way this one was.
+- **The e2e suite is the expensive part.** The web app's `npm run e2e` needs
+  both toolchains and a Playwright browser per worktree. `scripts/bootstrap.mjs`
+  handles it, but it is minutes, not seconds, and it is what makes parallel
+  worktrees costly.
 - **Nothing here is multi-developer.** One author, one queue — which is the
-  explicit premise of SOP 5's single ranking scale, and the reason `#103` is
-  ranked where it is. A second person with write access changes several of these
+  explicit premise of SOP 5's single ranking scale. A second person with
+  write access changes several of these
   answers, and SOP 5 names that as the trigger.

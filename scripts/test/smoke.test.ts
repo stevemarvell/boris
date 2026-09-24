@@ -156,7 +156,7 @@ describe('smoke', () => {
 });
 
 describe("each app's smoke script", () => {
-  // #178: the checks were written for a step shell of `bash -e`. Under
+  // The checks are written for a step shell of `bash -e`. Under
   // pipefail, `printf "$page" | grep -q …` fails on a match — grep exits
   // early and printf dies of SIGPIPE — so every retry read "not yet" until the
   // ceiling. Linux delivers that SIGPIPE and Git Bash on Windows does not, so

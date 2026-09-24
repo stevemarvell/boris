@@ -36,11 +36,10 @@ const toolResult = (content: string, extra: Record<string, unknown> = {}) => ({
   },
 });
 
-// Both of these are #112's run 34961716119, where the two reviews errored and
-// this check said the same thing about both of them. The comment bodies are
-// the ones actually on that pull request, abridged in the middle and not at
-// either end — the verdict line and the unticked checklist are the whole
-// point, so they are verbatim.
+// A realistic pair of tracking comments from a run where both reviews
+// errored and this check said the same thing about both of them, abridged
+// in the middle and not at either end — the verdict line and the unticked
+// checklist are the whole point, so they are verbatim.
 const TRACKING_COMMENT = 'mcp__github_comment__update_claude_comment';
 const INLINE_COMMENT = 'mcp__github_inline_comment__create_inline_comment';
 
@@ -113,11 +112,11 @@ describe('reviewVerdict', () => {
   });
 
   it('does not say a review posted nothing when the log shows it posted a verdict', () => {
-    // #113. On #112 the security review wrote its completed checklist, its
-    // reasoning and `Verdict: this belongs on develop as it stands.` into the
-    // tracking comment, and *then* fell over. Telling somebody that pull
-    // request is unreviewed costs a re-run that produces the review already
-    // sitting on it.
+    // A security review can write its completed checklist, its reasoning
+    // and `Verdict: this belongs on develop as it stands.` into the tracking
+    // comment, and *then* fall over. Telling somebody that pull request is
+    // unreviewed costs a re-run that produces the review already sitting on
+    // it.
     const verdict = reviewVerdict({ kind: 'security', execution: erroredAfterItsVerdict() });
     expect(verdict.ok).toBe(false);
     expect(verdict.headline).not.toContain('posted nothing');
@@ -177,8 +176,8 @@ describe('reviewVerdict', () => {
     // `create_inline_comment` fails routinely: GitHub rejects a review comment
     // on a line that is not part of the diff. The call is in the log either
     // way, and counting it would have this check announce a finding and send
-    // somebody to a pull request with nothing on it — #113's false claim, one
-    // turn further in. "It was called" is not "it worked".
+    // somebody to a pull request with nothing on it. "It was called" is not
+    // "it worked".
     const verdict = reviewVerdict({
       execution: [
         assistant(toolUse(INLINE_COMMENT, { path: 'scripts/ports.mjs', line: 4, body: 'a' })),
@@ -234,9 +233,10 @@ describe('reviewVerdict', () => {
   });
 
   it('names the workflow rule only when a workflow file actually changed', () => {
-    // #100: the security review on #98 produced no execution log, and this
-    // check sent the reader off to diff a workflow file that pull request
-    // never touched. The scope job knows the answer; it is passed in.
+    // A security review with no execution log and no workflow-file change
+    // should not send the reader off to diff a workflow file that pull
+    // request never touched. The scope job knows the answer; it is passed
+    // in.
     const blamed = reviewVerdict({ execution: null, workflowChanged: true });
     expect(blamed.ok).toBe(false);
     expect(blamed.detail).toContain('byte-identical');

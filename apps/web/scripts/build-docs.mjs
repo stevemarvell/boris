@@ -1,10 +1,9 @@
 // Build the documentation site that Vercel serves alongside the web app.
 //
-// This exists because GitHub Pages is not available on a private repository
-// without a paid plan, and the repository is going private. Everything Pages
-// published — the step-0 page, the web manual, and the Markdown under docs/ —
-// is rendered into apps/web/public/docs, which Vite copies verbatim into the
-// bundle, so it lands at /docs on the Vercel deployment.
+// GitHub Pages needs a paid plan on a private repository, so the step-0
+// page, the web manual, and the Markdown under docs/ are rendered into
+// apps/web/public/docs instead, which Vite copies verbatim into the bundle,
+// so it lands at /docs on the Vercel deployment.
 //
 // The output directory is generated and gitignored. It is deleted and rebuilt
 // on every run, so a page removed from this script cannot linger in a build.
@@ -14,8 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { escapeHtml, firstHeading, renderMarkdown } from '../../../scripts/markdown.mjs';
 
-// apps/web/scripts/ -> the repository root, three levels up (#173 moved this
-// file here from scripts/, where it was two).
+// apps/web/scripts/ -> the repository root, three levels up.
 export const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 export const DOCS_DIR = join(REPO_ROOT, 'apps', 'web', 'public', 'docs');
 
@@ -129,9 +127,8 @@ export function indexPage(rendered = []) {
   ];
 
   const body = `<h1>boris docs</h1>
-<p>Everything this project publishes about itself. These pages used to be on
-GitHub Pages; they are built from the repository into this deployment instead,
-so a private repository keeps them.</p>
+<p>Everything this project publishes about itself, built from the repository
+into this deployment so a private repository can still publish it.</p>
 <ul class="cards">
 ${cards
   .map(

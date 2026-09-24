@@ -77,9 +77,8 @@ misread.
 
 This is what that gap meant by *"prompts, responses and tool inputs are
 redacted by default; leave them that way"* — the redaction is those three flags,
-not the pipe itself. An earlier version of this file kept the pipe shut
-entirely, which was stricter than the rule asked and cost the integration's
-dashboards.
+not the pipe itself. Shutting the pipe entirely would be stricter than the
+rule asks and would cost the integration's dashboards their event data.
 
 The collector also deletes `user.email`, `user.id`, `user.account_uuid`,
 `user.account_id` and `organization.id` before anything is stored **locally**. A
@@ -93,10 +92,9 @@ and the duplication is load-bearing. Claude Code sends identity as *resource*
 attributes; the `attributes` processor only sees datapoint attributes; and
 `resource_to_telemetry_conversion` promotes resource attributes to Prometheus
 labels inside the exporter, which runs after every processor. A config carrying
-only the `attributes` processor reads as though it scrubs and does not. That was
-not theory — the first version of this file had exactly that bug, and a test
-payload arrived in Prometheus labelled `user_email="steve@example.com"`. If you
-edit these processors, re-run the check below.
+only the `attributes` processor reads as though it scrubs and does not — a
+test payload can arrive in Prometheus labelled `user_email="steve@example.com"`
+with no error anywhere. If you edit these processors, re-run the check below.
 
 `add_metric_suffixes: false` on the Prometheus exporter keeps the names as
 Claude Code spells them — `claude_code_token_usage`, not
@@ -138,12 +136,11 @@ Claude also runs in GitHub Actions — `claude-code-review.yml` on every pull
 request, and `claude.yml` whenever someone tags `@claude`. That is the spend
 least likely to be noticed, because nobody is sitting there while it happens.
 
-It used to be invisible, and not for the reason this section previously
-claimed. `claude-code-action` passes the nine OTel variables through from `env`
-(see its `action.yml`), and all nine were empty — so CI telemetry was not
-failing quietly against `localhost`, it was simply off.
+`claude-code-action` passes the nine OTel variables through from `env` (see
+its `action.yml`); if a workflow does not set them, CI telemetry is not
+failing quietly against `localhost` — it is simply off.
 
-Both workflows now set them. A runner cannot reach the collector on this
+Both workflows set them. A runner cannot reach the collector on this
 laptop, so CI ships straight to Grafana Cloud, and the overlay above sends local
 metrics to the same place. One store, both sources, told apart by
 `OTEL_RESOURCE_ATTRIBUTES`:
@@ -157,17 +154,16 @@ metrics to the same place. One store, both sources, told apart by
 Without that split, tokens per merged PR quietly absorbs the review bot and
 stops meaning what the panel title says.
 
-The settings are not exported as environment variables, and the reason is the
-trap that cost three silent runs. **A settings file beats the process
-environment** — "Claude Code writes each `env` entry into the process
-environment, replacing the value inherited from the shell"
+The settings are not exported as environment variables, because **a settings
+file beats the process environment** — "Claude Code writes each `env` entry
+into the process environment, replacing the value inherited from the shell"
 (<https://code.claude.com/docs/en/env-vars>). `.claude/settings.json` is checked
 out on the runner along with everything else, and it points
 `OTEL_EXPORTER_OTLP_ENDPOINT` at `http://localhost:4317` for the benefit of a
-laptop. So the workflow exported Grafana Cloud's endpoint, the checked-out file
-overwrote it, and every run shipped its metrics to a port nothing was listening
-on. Nothing failed: the job was green, the credential was present, the log was
-clean, and the dashboard was empty.
+laptop. Exporting Grafana Cloud's endpoint as a workflow env var would have the
+checked-out file overwrite it, and every run would ship its metrics to a port
+nothing is listening on. Nothing fails visibly: the job stays green, the
+credential is present, the log is clean, and the dashboard is empty.
 
 `scripts/write-ci-telemetry-settings.mjs` writes a settings file instead, and
 the session loads it with `--settings` in `claude_args`. That flag outranks
@@ -179,19 +175,18 @@ variables from `env` into the CLI, and
 `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` is not among them. A value
 in a settings file arrives regardless of which nine the action forwards.
 
-This script used to write `.claude/settings.local.json`, reasoning that
-*project local* outranks the committed `.claude/settings.json`. That was true
-and still wasn't enough: `claude-code-action` checks out a pull request's
-head to review it, and because that content is untrusted, it deletes and
-restores `.claude` (along with `.mcp.json`, `CLAUDE.md` and a few other
-paths) from the base branch immediately before the CLI starts. A
-`.claude/settings.local.json` written by an earlier workflow step is gone by
-the time Claude Code reads it, and CI falls back to the committed
-`localhost:4317` again — silently, the same way it did the first time. Issue
-#60 caught it by reading Grafana Cloud's own attributes: every session in the
-store, CI runs included, carried `terminal_type=windows-terminal` and no
-`environment` label at all, nine days after the settings-file fix had
-supposedly landed. Writing the file to `$RUNNER_TEMP` and loading it with
+Writing to `.claude/settings.local.json` instead looks tempting: *project
+local* outranks the committed `.claude/settings.json`. That is true and still
+not enough: `claude-code-action` checks out a pull request's head to review
+it, and because that content is untrusted, it deletes and restores `.claude`
+(along with `.mcp.json`, `CLAUDE.md` and a few other paths) from the base
+branch immediately before the CLI starts. A `.claude/settings.local.json`
+written by an earlier workflow step is gone by the time Claude Code reads it,
+and CI falls back to the committed `localhost:4317` again — silently, the
+same way as the process-environment trap above, findable only by reading
+Grafana Cloud's own attributes: every session in the store, CI runs
+included, would carry `terminal_type=windows-terminal` and no `environment`
+label at all. Writing the file to `$RUNNER_TEMP` and loading it with
 `--settings` keeps it outside the checkout entirely, where that restore never
 looks.
 
@@ -207,13 +202,13 @@ Two deliberate choices in that script:
 
 ### Checking it actually arrives
 
-Every telemetry failure here has been silent by construction: a failed OTLP
-export writes nothing to the Actions log, so a broken runner and a working one
-produce the same green job and the same clean log. Three separate causes have
-hidden behind that — wrong temporality (#39), the checked-out `settings.json`
-overriding the endpoint (#43), and the action deleting `.claude` before the CLI
-started (#60). Each was found the same way and could not have been found any
-other way: **read the store's own attributes, never the config.**
+Every telemetry failure here is silent by construction: a failed OTLP export
+writes nothing to the Actions log, so a broken runner and a working one
+produce the same green job and the same clean log. Wrong temporality, the
+checked-out `settings.json` overriding the endpoint, and the action deleting
+`.claude` before the CLI started have all hidden behind that, and each is
+found the same way and could not be found any other way: **read the store's
+own attributes, never the config.**
 
 Grafana Cloud, Explore, the `grafanacloud-…-prom` datasource, a 7-day window.
 Ask what is actually in there rather than opening a dashboard, which will show
@@ -228,7 +223,7 @@ What the answer means:
 | Result | Reading |
 | --- | --- |
 | A series with `environment="ci"` | CI telemetry is arriving. This is the one that matters. |
-| Only `terminal_type="windows-terminal"`, no `environment` | Laptop sessions only. CI is silent — this is the #60 symptom exactly. |
+| Only `terminal_type="windows-terminal"`, no `environment` | Laptop sessions only. CI is silent — the checked-out-settings or restored-`.claude` failure mode above. |
 | Nothing at all | Nothing is reaching the store, laptop included. Check the credential and the overlay before suspecting CI. |
 
 To pin it to one run, narrow by the attributes
@@ -252,9 +247,9 @@ Grafana Cloud ships a **Claude Code integration** — Connections, the Claude Co
 tile, Install. It provisions **one** dashboard, "Claude Code", with an Overview
 section (cost, tokens, sessions, active users, cost by model and by team member,
 API latency, OS/arch/terminal/version) and a Productivity section (lines of
-code, commits, pull requests, active time, session outcome). An earlier version
-of this file said four; there is one, and it is still better than a cloud copy
-of the local dashboard, which is why this repository does not ship one.
+code, commits, pull requests, active time, session outcome). It is better than
+a cloud copy of the local dashboard, which is why this repository does not
+ship one.
 
 1. Grafana Cloud Portal, your stack, the **OpenTelemetry** tile, Configure.
    Generate a token; it prints the `OTEL_*` variables ready-made.

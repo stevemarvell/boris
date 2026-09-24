@@ -7,9 +7,8 @@ import { decide, forkPoint, type Git } from '../vercel-ignore.mjs';
 import type { Project } from '../project.mjs';
 
 // The layout these tests build in a temporary repository, declared the way
-// project.json declares it. A fixture, not the live manifest: this tests the
-// ignore step's decisions, whatever the application is (#173's proof found
-// these tests had been asserting the family tree's layout instead).
+// project.json declares it. A fixture, not the live manifest, so this tests
+// the ignore step's decisions whatever the application is.
 const FIXTURE: Project = {
   name: 'thing',
   vercel: { team: 't' },
@@ -191,7 +190,7 @@ describe('pathspecs', () => {
     expect(touching('scripts/markdown.mjs')).toEqual({ api: false, web: true });
   });
 
-  it('builds nothing for a path no app declares it reads (#173)', () => {
+  it('builds nothing for a path no app declares it reads', () => {
     // The manifest lists what a build reads, not what it does not. A read left
     // undeclared is caught after merge by smoke.yml's freshness gates.
     expect(touching('brand-new/x')).toEqual({ api: false, web: false });

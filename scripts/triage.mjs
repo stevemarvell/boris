@@ -1,4 +1,4 @@
-// Decide which open issues an agent should work, and in what order (#151).
+// Decide which open issues an agent should work, and in what order.
 //
 // This is the "dynamic" half of step 3: the work is chosen from repository
 // state rather than written in advance. The choice is still made by fixed

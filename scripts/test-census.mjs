@@ -1,11 +1,10 @@
 // Count the tests a pull request removes, and make it say so.
 //
 // `verify` observes whether the tests that are present pass. Nothing observed
-// which tests were present, so a pull request could delete one and stay green
-// — and one did. Resolving a conflict between two branches that both added a
-// test at the same anchor dropped three assertions from review-scope.test.ts,
-// including the ones proving half of the fix that had just merged (#109). The
-// code stayed correct; the proof did not, and every check went green.
+// which tests were present, so a pull request could delete one and stay
+// green. Resolving a conflict between two branches that both added a test at
+// the same anchor can drop assertions silently — the code stays correct, the
+// proof does not, and every check goes green.
 //
 // This is not a coverage gate. No percentage, no threshold, no ratchet on
 // lines. The claim is narrower and checkable: a pull request that ends up with
@@ -44,10 +43,10 @@ import { canonical } from './paths.mjs';
  * the shape SOP 3 is about, so the rule is the basename: pytest's own default
  * discovery is `test_*.py` and `*_test.py` at any depth, and this follows it.
  *
- * `canonical` rather than a trim-and-strip of its own: #101 was one comparison
- * folding case and the next one not, #108 gave path comparisons here one
- * spelling, and a second weaker copy in this file would be the first step back
- * towards it. A file that stopped matching would leave both trees at once and
+ * `canonical` rather than a trim-and-strip of its own: one comparison folding
+ * case and the next one not is exactly the kind of drift a single shared
+ * normalisation prevents, and a second weaker copy in this file would be the
+ * first step back towards it. A file that stopped matching would leave both trees at once and
  * report nothing, which is the failure this whole script exists to catch.
  */
 export function isTestFile(path) {
@@ -129,9 +128,9 @@ export function census(files) {
  *     Removes tests:
  *     - the two covering the CSV export, because that feature is gone
  *
- * The first version required the same line, and would have gone red on that
- * body while the author had explained themselves one line down. A check that
- * rejects the natural spelling of compliance teaches people to ignore it.
+ * Requiring the reason on the same line would go red on that body while the
+ * author had explained themselves one line down. A check that rejects the
+ * natural spelling of compliance teaches people to ignore it.
  * What it still refuses is a bare `Removes tests:` with nothing after it.
  */
 export const ACKNOWLEDGEMENT = /^[ \t>*-]*removes tests:[ \t]*(\S|\r?\n[ \t>*-]*\S)/im;
@@ -211,7 +210,7 @@ export function censusVerdict({ base, head, body = '' } = {}) {
     ok: false,
     removed: lost,
     headline: `${lost} ${lost === 1 ? 'test disappears' : 'tests disappear'} and nothing says why`,
-    detail: `${before} tests on the base, ${after} here.\n\n${losses}\n\nRemoving a test can be right: a deleted feature takes its tests with it. What is not right is removing one by accident, which is how #109 was found — a conflict resolution dropped three assertions, including the ones proving the fix that had just merged, and every check stayed green.\n\nIf the removal is deliberate, put a line in the pull request body beginning \`Removes tests:\` saying which and why — on that line or on the one below it, a bullet list underneath is fine. If it is not, this check has just caught it.${aside}`,
+    detail: `${before} tests on the base, ${after} here.\n\n${losses}\n\nRemoving a test can be right: a deleted feature takes its tests with it. What is not right is removing one by accident — a conflict resolution can drop assertions, including the ones proving a fix that had just merged, and every check stays green.\n\nIf the removal is deliberate, put a line in the pull request body beginning \`Removes tests:\` saying which and why — on that line or on the one below it, a bullet list underneath is fine. If it is not, this check has just caught it.${aside}`,
   };
 }
 

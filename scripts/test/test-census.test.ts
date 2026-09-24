@@ -109,11 +109,12 @@ describe('isTestFile', () => {
   });
 
   it('compares paths the one way this repository compares paths', () => {
-    // #108 gave path comparisons here a single normalisation, because #101 was
-    // one comparison folding case and the next one not. This file re-derived a
-    // weaker copy — trim and strip `./`, no case fold — which is the first step
-    // back towards that, so it now imports `canonical` from the same place
-    // review-scope.mjs does. The stake is the same as everywhere else here: a
+    // Path comparisons here get a single shared normalisation, because a
+    // comparison that folds case in one place and not the next is exactly
+    // how a path silently stops matching. A weaker, re-derived copy — trim
+    // and strip `./`, no case fold — would be the first step back towards
+    // that, so this imports `canonical` from the same place review-scope.mjs
+    // does. The stake is the same as everywhere else here: a
     // file that stops matching leaves both trees at once and reports nothing.
     expect(isTestFile('./Apps/Api/Tests/Test_Tree.PY')).toBe(true);
     expect(isTestFile('  apps/web/src/API.Test.TS  ')).toBe(true);
@@ -158,9 +159,9 @@ describe('censusVerdict', () => {
   });
 
   it('fails a change that quietly drops one, and names the file', () => {
-    // #109: this is the shape that got through — review-scope.test.ts went
-    // from 14 tests to 13 during a conflict resolution and every check stayed
-    // green.
+    // This is the shape that gets through unnoticed — review-scope.test.ts
+    // dropping from 14 tests to 13 during a conflict resolution while every
+    // check stays green.
     const verdict = censusVerdict({
       base: tree({ 'review-scope.test.ts': 14, 'other.test.ts': 9 }),
       head: tree({ 'review-scope.test.ts': 13, 'other.test.ts': 9 }),
@@ -196,10 +197,10 @@ describe('censusVerdict', () => {
   });
 
   it('takes the reason on the line below, because that is how people write it', () => {
-    // Found in review. A colon and a bullet list underneath is the natural
-    // spelling, and the first version went red on it while the author had
-    // explained themselves one line down. A check that rejects the natural
-    // spelling of compliance gets ignored.
+    // A colon and a bullet list underneath is the natural spelling, and a
+    // check that rejected it would go red while the author had explained
+    // themselves one line down. A check that rejects the natural spelling
+    // of compliance gets ignored.
     const body = 'Drops the CSV export.\n\nRemoves tests:\n- the two covering it, which this deletes\n';
     expect(ACKNOWLEDGEMENT.test(body)).toBe(true);
     expect(
@@ -212,7 +213,7 @@ describe('censusVerdict', () => {
   });
 
   it('reads a rename as a rename, not a removal', () => {
-    // The requirement #109 states outright. Names change constantly — a check
+    // The requirement above states outright. Names change constantly — a check
     // that went red for a rename would be trained out of people in a week, and
     // the one time it was right nobody would look.
     const base = census({ 'a.test.ts': ts('renders a card', 'derives siblings') });
@@ -284,12 +285,12 @@ describe('the premise: this repository can actually be counted', () => {
   // count that quietly stops matching the runner.
   const root = resolve(__dirname, '../..');
 
-  // Every suite, not the three anyone thinks of first: apps/mcp has tests too,
-  // and the AI layer's own live in scripts/test since #173. A census that
-  // walked a hand-written list of directories would stop seeing a suite the
-  // day one is added (this used to walk apps/ only), which is this
-  // repository's signature failure wearing a different hat. So this asks git
-  // for every tracked file instead.
+  // Every suite, not only the ones anyone thinks of first: every app can
+  // have its own, and the AI layer's own live in scripts/test. A census
+  // that walked a hand-written list of directories would stop seeing a
+  // suite the day a new one is added, which is this repository's signature
+  // failure wearing a different hat. So this asks git for every tracked
+  // file instead.
   const everything = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
     .split('\n')
     .filter(Boolean);
@@ -298,8 +299,8 @@ describe('the premise: this repository can actually be counted', () => {
   it("finds every suite: the AI layer's own, and one in every declared app", () => {
     expect(testFiles.length).toBeGreaterThan(10);
     expect(testFiles).toContain('scripts/test/test-census.test.ts');
-    // Every app project.json declares, not a list of the ones anyone thinks
-    // of first — the list this replaced named three directories (#173).
+    // Every app project.json declares, not a hand-written list of the ones
+    // anyone thinks of first.
     for (const [name, app] of apps(loadProject())) {
       expect(testFiles.some((path) => path.startsWith(`${app.path}/`)), name).toBe(true);
     }
@@ -343,7 +344,7 @@ describe('the premise: this repository can actually be counted', () => {
     // comparison), and the alternative — a detector that parses instead of
     // matching — is not worth what it would cost here.
     // Outside the application, the list is exact. Inside it, which files are
-    // table-driven is the application's business (#173: the AI layer's tests
+    // table-driven is the application's business (the AI layer's tests
     // name no app), so each has only to sit inside a declared app, and an app
     // with none is equally fine; the census names every one of them in its
     // summary on the pull request, which is where a new one is seen. That the

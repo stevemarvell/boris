@@ -1,44 +1,37 @@
 // Fail the review job when no review was produced, and say which way it
 // failed.
 //
-// This exists because the review job's green tick has meant nothing before,
-// in three different ways.
+// This exists because the review job's green tick can mean nothing, in three
+// different ways.
 //
 // 1. `claude-code-action` refuses to run at all when the pull request changes
 //    the workflow file, because the file has to be byte-identical to the copy
 //    on the default branch. It logs "Exiting due to workflow validation skip",
-//    posts nothing, and *leaves the job green*. Run 34814234791 is the
-//    example: sixteen seconds, success, no review. So the one class of change
+//    posts nothing, and *leaves the job green*. So the one class of change
 //    most worth a security review — a change to CI, its token permissions, or
 //    an action pin — is the class this reviewer structurally cannot review.
-// 2. The session ends with `is_error: true`. Three of the twenty runs before
-//    this script existed did (34875160558, 34835904028, 34814480801), and the
-//    job's own log says "No buffered inline comments" — nothing reached the
-//    pull request.
+// 2. The session ends with `is_error: true`, and the job's own log says "No
+//    buffered inline comments" — nothing reached the pull request.
 // 3. The action starts no session for its own reasons, on a pull request that
-//    changes no workflow file. #98 did this: eighteen seconds, no execution
-//    log, while the code review job on the same commit produced a full review
-//    in 1m 20s. From inside the log this is indistinguishable from 1 — both
-//    have no log at all — which is why the scope job's answer about the
-//    changed files is passed in rather than guessed at here.
+//    changes no workflow file. From inside the log this is indistinguishable
+//    from 1 — both have no log at all — which is why the scope job's answer
+//    about the changed files is passed in rather than guessed at here.
 //
 // None can be fixed from here: the first is the action's own rule and the
 // other two are a session failing to start or to finish. What can be fixed is
 // the silence. A reviewer that produced nothing is not a reviewer that found
-// nothing, and this repository has four shipped defects whose common shape is
-// a control that ran, reported success, and did not do its job. This one says
-// so — and #100 is the reminder that saying the wrong thing is its own way of
-// saying nothing.
+// nothing, and this repository watches for exactly that shape of defect: a
+// control that ran, reported success, and did not do its job. This one says
+// so, and says so specifically rather than blaming the same cause every time
+// regardless of which one actually applied.
 //
-// #113 is that reminder again, one branch along. Case 2 above is not one case
-// but two. On #112 both reviews ended with `is_error: true` and this script
-// told both of them "errored and posted nothing" — but the security review's
-// tracking comment carried its completed checklist, its reasoning and
-// `Verdict: this belongs on develop as it stands.`, while the code review's
-// stopped at an unticked `[ ] Get diff`. One of those pull requests was
-// reviewed and one was not. `is_error: true` is where the session ended, not
-// what it produced, and reading it as "posted nothing" was an inference. The
-// log holds the messages, so the messages are what gets read.
+// Case 2 above is not one case but two. A session that ends with
+// `is_error: true` can still have posted a completed review before it
+// errored, or it can have stopped at an unticked first step and posted
+// nothing. `is_error: true` is where the session ended, not what it
+// produced, and reading it as "posted nothing" is an inference the log does
+// not support on its own. The log holds the messages, so the messages are
+// what gets read.
 import { readFileSync } from 'node:fs';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -55,16 +48,16 @@ import { pathToFileURL } from 'node:url';
  *
  * `workflowChanged` is the scope job's answer to "does this pull request
  * touch `.github/workflows/`", and `null` when the scope job could not say.
- * It exists because of #100: with no session and no log, this function used
- * to blame the workflow-file rule every time, including on #98, which changed
- * no workflow file. Three answers, three messages — the rule stated as fact
- * when it applies, ruled out when it does not, and offered as the likely
- * cause only when nobody knows.
+ * With no session and no log, blaming the workflow-file rule every time
+ * would be wrong whenever a different workflow-unrelated cause stopped the
+ * session. Three answers, three messages — the rule stated as fact when it
+ * applies, ruled out when it does not, and offered as the likely cause only
+ * when nobody knows.
  *
  * A session that ended with `is_error: true` is read the same way: the whole
  * message array, not just the result, because the result says where the
  * session stopped and the messages say what it produced on the way. See
- * `reviewEvidence` and #113.
+ * `reviewEvidence`.
  */
 export function reviewVerdict({
   kind = 'code',
@@ -161,7 +154,7 @@ const TRACKING_COMMENT_TOOL = 'mcp__github_comment__update_claude_comment';
 /**
  * A verdict is a line that *begins* with the word, which is the shape both
  * rubrics produce and the shape the prompt asks for ("End your final message
- * with the one-line verdict the rubric asks for"). On #112 that line read
+ * with the one-line verdict the rubric asks for"), for example
  * `**Verdict: this belongs on \`develop\` as it stands.**`.
  *
  * Deliberately narrow, and narrow in the safe direction. Matching "would
@@ -187,10 +180,10 @@ const VERDICT_LINE = /^[ \t>*_#-]*verdict\b[^\n]*\S/im;
  * a review comment on a line that is not part of the diff, an easy mistake
  * for a reviewer working from a truncated hunk. Counting that call would have
  * this check announce "errored after producing 1 inline comment" and send
- * somebody to a pull request with no comment on it: the same false claim as
- * #113, one turn further in. A control observed by "it was called" rather
- * than "it worked" is this repository's signature defect, and this script
- * exists to catch exactly that.
+ * somebody to a pull request with no comment on it — the same false claim
+ * one turn further in. A control observed by "it was called" rather than
+ * "it worked" is this repository's signature defect, and this script exists
+ * to catch exactly that.
  *
  * A call with no result at all is left counted, deliberately. The session
  * died in flight and the log does not say which side of the call it died on,

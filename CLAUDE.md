@@ -5,13 +5,13 @@ A practice ground for climbing the steps in
 Jul 2026). Each step of the climb is deliberate; do not reach for tooling that
 belongs to a later step.
 
-The repository is two layers (#173). **The AI layer** — `.claude/`,
+The repository is two layers. **The AI layer** — `.claude/`,
 `scripts/`, `.github/`, `telemetry/`, and this file — is the loop: verify,
-review, isolate, deploy, smoke, triage. **The application** — `apps/`, today a
-family tree — is what the loop works on. The AI layer learns about the
-application only from `project.json`. The application's own rules, layout,
-deployments and run commands are in **`apps/CLAUDE.md`**; read it before
-working under `apps/`.
+review, isolate, deploy, smoke, triage. **The application** — `apps/`,
+currently two placeholder shells pending a real workload — is what the loop
+works on. The AI layer learns about the application only from
+`project.json`. The application's own rules, layout, deployments and run
+commands are in **`apps/CLAUDE.md`**; read it before working under `apps/`.
 
 `index.html` at the root is the step-0 artifact. It is published at
 `/docs/step-0.html` on the Vercel deployment, along with the rest of the
@@ -22,7 +22,7 @@ documentation — see `apps/CLAUDE.md`.
 | Path | Holds |
 | --- | --- |
 | `apps/` | The application, with its own `CLAUDE.md`. |
-| `project.json` | The one place the AI layer (`.claude/`, `scripts/`, `.github/`) learns about the apps: paths, toolchains, build inputs, Vercel projects (#173). Read through `scripts/project.mjs`. |
+| `project.json` | The one place the AI layer (`.claude/`, `scripts/`, `.github/`) learns about the apps: paths, toolchains, build inputs, Vercel projects. Read through `scripts/project.mjs`. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run; `extraction.md`, what here is reusable on another project and what is a conclusion that must not be copied. |
 | `manual/web/` | The web app's reference manual (see `apps/CLAUDE.md`). |
 
@@ -87,12 +87,10 @@ documentation — see `apps/CLAUDE.md`.
   illustrate the rule closes that issue on merge. Where the issue's done-when
   is confirmation *outside* the repository, `Closes` belongs on the pull
   request that confirms, not the one that fixes — merging a fix is not
-  evidence it worked. #60 wanted CI metrics found in Grafana Cloud and
-  auto-closed on the fix's merge, two pull requests before anyone could look;
-  the fix happened to be right, and nothing about the merge said so. Labels
-  carry the structure: `aia0`/`aia1`/`aia2` for the adoption step, `security`
-  for exposure, and one of `critical`/`high`/`medium` for how bad it is and
-  therefore when it gets done.
+  evidence it worked. Labels carry the structure: `aia0`/`aia1`/`aia2` for
+  the adoption step, `security` for exposure, and one of
+  `critical`/`high`/`medium` for how bad it is and therefore when it gets
+  done.
 
 - **One scale ranks everything.** `critical`/`high`/`medium` carries both how
   bad a thing is and when it gets done. There is no second severity axis: two

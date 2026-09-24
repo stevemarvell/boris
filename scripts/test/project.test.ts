@@ -197,9 +197,9 @@ describe('verifiedPaths', () => {
   });
 
   it('covers everything inside every declared app', () => {
-    // The stop hook used to watch a hard-coded `data/`, which had moved inside
-    // an app in #126, so data-only edits stopped triggering it silently. Every
-    // app's whole directory is covered now, whatever the apps are (#173).
+    // A hard-coded path here would silently stop covering data-only edits the
+    // moment an app moved its data directory. Every app's whole directory is
+    // covered instead, whatever the apps are.
     const project = loadProject();
     const covered = verifiedPaths(project);
     for (const [name, app] of apps(project)) {

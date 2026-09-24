@@ -38,10 +38,10 @@ describe('reviewScope', () => {
   });
 
   it('folds case everywhere a path is compared, not just on the extension', () => {
-    // #101: the extension test lowercased and the two prefix tests did not, so
-    // `.CLAUDE/...` skipped both reviews — the exact disarming the test above
-    // exists to prevent — and `docs/data-governance.MD` skipped the security
-    // review of the file that *is* the security posture.
+    // An extension test that lowercases while the prefix tests do not would
+    // let `.CLAUDE/...` skip both reviews — the exact disarming the test
+    // above exists to prevent — and `docs/data-governance.MD` skip the
+    // security review of the file that *is* the security posture.
     expect(isProse('.CLAUDE/agents/security-checker.md')).toBe(false);
     expect(reviewScope(['.CLAUDE/agents/security-checker.md'])).toMatchObject({
       code: true,
@@ -78,7 +78,7 @@ describe('reviewScope', () => {
   });
 
   it('reports whether a workflow file changed, for the check that needs it', () => {
-    // #100: with no execution log, assert-review-ran.mjs can only tell the
+    // With no execution log, assert-review-ran.mjs can only tell the
     // action's workflow-validation skip from a session that failed to start
     // if somebody tells it which. This is that somebody.
     expect(reviewScope(['.github/workflows/verify.yml']).workflows).toBe(true);

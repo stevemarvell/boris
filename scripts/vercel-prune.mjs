@@ -41,7 +41,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { deployed, loadProject } from './project.mjs';
 
-// Which team and projects, from project.json (#173): every app that names a
+// Which team and projects, from project.json: every app that names a
 // vercelProject.
 const PROJECT = loadProject();
 export const TEAM = PROJECT.vercel.team;
@@ -101,7 +101,7 @@ export function selectHistory(deployments, { liveId, keep = KEEP_PRODUCTION }) {
     // Only a built deployment newer than the live one is protected — it is
     // history ahead of a rollback, and could be rolled forward to. A cancelled
     // or failed one never built anything to roll to, whatever its age; the
-    // ignore step leaves one of those per merge that skips an app (#184).
+    // ignore step leaves one of those per merge that skips an app.
     (d) =>
       !kept.has(idOf(d)) &&
       FINISHED.has(stateOf(d)) &&
@@ -127,7 +127,7 @@ export async function listDeployments(fetchJson, project, branch, target) {
 }
 
 /** Delete what `rule` selects across both projects. Returns what it did. */
-/** `projects` defaults to project.json's deployed apps; tests pass their own (#173). */
+/** `projects` defaults to project.json's deployed apps; tests pass their own. */
 export async function prune({ fetchJson, remove, rule, dryRun = false, log = console.log, projects = PROJECTS }) {
   const deleted = [];
   for (const project of projects) {
@@ -148,9 +148,9 @@ export async function prune({ fetchJson, remove, rule, dryRun = false, log = con
  * Two phases: every app's live deployment and deletion list are worked out
  * first, and nothing is deleted unless all of them were. One app's failed
  * alias lookup therefore stops the whole run before any app loses anything —
- * the "deletes nothing" guarantee holds for the run, not only per app (#183's
- * review found the one-loop version deleted the first app's history and then
- * failed on the second).
+ * the "deletes nothing" guarantee holds for the run, not only per app. A
+ * version that deletes as it goes, one app's loop at a time, can delete the
+ * first app's history and then fail on the second.
  */
 export async function pruneHistory({ fetchJson, remove, dryRun = false, log = console.log, targets = TARGETS, keep = KEEP_PRODUCTION }) {
   const plans = [];

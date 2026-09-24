@@ -1,7 +1,7 @@
 // Derive e2e ports from the worktree so parallel checkouts do not collide.
 //
-// The caller names the servers it needs (#173: the AI layer does not know
-// which apps there are); each gets its own 400-port band, 8200 + 400 × its
+// The caller names the servers it needs (the AI layer does not know which
+// apps there are); each gets its own 400-port band, 8200 + 400 × its
 // position, plus one per-worktree offset. So ports(['api', 'web']) is
 // api 8200–8399 and web 8600–8999 — the values this returned before it took
 // names — leaving 8400–8599 for a caller that offsets past the first band.

@@ -10,8 +10,8 @@ means a page that builds locally and 404s on the deployment.
 
 ## Documentation
 
-Everything GitHub Pages used to publish is now served by the web deployment. Nothing is hosted anywhere a private repository
-cannot reach.
+Everything this project publishes about itself is served by the web
+deployment. Nothing is hosted anywhere a private repository cannot reach.
 
 | URL | Source | Carried by |
 | --- | --- | --- |
@@ -19,6 +19,7 @@ cannot reach.
 | `/docs/adoption.html` | `docs/adoption.md` | Vercel |
 | `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
 | `/docs/sops.html` | `docs/sops.md` | Vercel |
+| `/docs/extraction.html` | `docs/extraction.md` | Vercel |
 | `/docs/manual/web/` | `manual/web/` | Vercel |
 | `/docs/step-0.html` | `index.html` | Vercel |
 

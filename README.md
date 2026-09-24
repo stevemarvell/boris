@@ -3,8 +3,8 @@
 A practice ground for running software work with AI agents, climbing the steps
 in [`docs/adoption.md`](docs/adoption.md), a rendering of *Steps of AI
 Adoption* (Boris Cherny, Jul 2026). The thing being built is the loop that
-builds software. The application it builds today, a small family tree, is the
-workload.
+builds software — not any particular application it happens to be running
+against.
 
 ## Two layers
 
@@ -17,7 +17,7 @@ flowchart TB
   manifest[("project.json")]
   subgraph APP["Application — apps/ · apps/CLAUDE.md"]
     direction LR
-    api["api<br/>FastAPI + GraphQL"] --- web["web<br/>React"] --- mcp["mcp<br/>MCP server"]
+    api["api<br/>FastAPI health check"] --- web["web<br/>React + project docs"]
   end
   AI -- "reads the application only through" --> manifest
   APP -- "declares itself in" --> manifest
@@ -33,10 +33,12 @@ flowchart TB
 - `triage` and the `work-backlog`/`drive-pr` skills, which pick issues and
   drive them to merge within declared limits.
 
-**The application** is everything that knows it is a family tree. The AI
-layer learns about it only from [`project.json`](project.json). Renaming both
-deployed apps and changing the project's name, team and URLs was tested in
-#173, and it needed no change outside `apps/` except `project.json`.
+**The application**, under `apps/`, is currently two deployable placeholders —
+a health-check API and a web shell serving this repository's own
+documentation — kept live so the Vercel projects and smoke checks keep
+passing while a real workload is chosen. The AI layer learns about it only
+from [`project.json`](project.json); swapping in a real application means
+changing `apps/` and that one file, nothing else in the AI layer.
 
 ## Quick start
 
@@ -102,8 +104,8 @@ flowchart LR
    | `smoke` | Its post-deploy checks, a script inside the app. |
 
 3. **Rewrite [`docs/data-governance.md`](docs/data-governance.md)** before
-   deploying anything real. Its verdict ("the data is invented, and public on
-   purpose") is this application's, and real data voids it.
+   deploying anything real. Its verdict applies to the current placeholder
+   apps, which serve no data at all, and any real application voids it.
    [`docs/extraction.md`](docs/extraction.md) lists what else is a conclusion
    rather than a reusable part.
 

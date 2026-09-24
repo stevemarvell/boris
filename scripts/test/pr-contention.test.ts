@@ -149,8 +149,8 @@ describe('reportingTargets', () => {
   it('reports on every open pull request, not only the one that triggered the run', () => {
     // The defect this fixes: reporting only the trigger left the pull request
     // that was already open with no warning at all, because a rival opening
-    // gives it no event of its own. #132 was told about #131; #131 was told
-    // nothing, and then lost the race (#135).
+    // gives it no event of its own. #132 is told about #131; #131 would be
+    // told nothing, and then lose the race it was never warned about.
     const open = [{ number: 131 }, { number: 132 }];
     expect(reportingTargets(open, [132]).map((pr) => pr.number)).toEqual([131, 132]);
   });
@@ -204,11 +204,11 @@ describe('contentionVerdict', () => {
   });
 
   it('says a clean base merge does not make two changes compatible', () => {
-    // #72 and #77 shared a contract and not a line. A verdict that read
+    // Two branches can share a contract and not a line. A verdict that read
     // "no contention" without that caveat would be making a claim it cannot
     // support, which is the shape SOP 3 exists for.
     const verdict = contentionVerdict({ subject, base: { ref: 'develop', conflicts: [] } });
-    expect(verdict.detail).toContain('#72');
+    expect(verdict.detail).toContain('share a contract without sharing a line');
   });
 
   it('puts the base conflict first when the branch has already gone stale', () => {

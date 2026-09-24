@@ -12,7 +12,7 @@
 // cannot prove "nothing changed" builds — a missing base commit, a failed
 // fetch, a git error, even node itself failing to start. The cost of being
 // wrong that way is one redundant build; the cost of being wrong the other
-// way is a deployment that silently never happened, which is #50.
+// way is a deployment that silently never happens.
 //
 // The base is VERCEL_GIT_PREVIOUS_SHA — the last *successful* deployment of
 // this project on this branch — so a skipped build never becomes a base, and
@@ -30,7 +30,7 @@ import { buildPathspecs, loadProject } from './project.mjs';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// What each build reads comes from project.json (#173): an app's `reads`
+// What each build reads comes from project.json: an app's `reads`
 // and `ignores`, plus the manifest and this script, which can change any
 // decision. See scripts/project.mjs's buildPathspecs. The list is what a build
 // reads, not what it does not, so a path no app declares rebuilds nothing;
@@ -60,7 +60,7 @@ export function decide(project, env, git, manifest = loadProject()) {
 }
 
 // Where a branch left develop, found without develop. Vercel's clone has no
-// credentials to fetch it — measured on #168's own first build — but it does
+// credentials to fetch it, but it does
 // hold the branch's last few ancestors, and develop's commits are recognisable:
 // squash merges, committed by GitHub, with one parent and a "(#123)" subject.
 // A branch's own commits are committed locally, and GitHub's "update branch"
