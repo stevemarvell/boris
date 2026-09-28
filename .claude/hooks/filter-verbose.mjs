@@ -6,11 +6,10 @@
 // is the whole reason this exists rather than a "read the log" skill: the
 // cheapest model is no model.
 //
-// Measured motivation. In one session `gh run view --log` was run six times
-// against CI logs of a few thousand lines each, and every one of those lines
-// entered the conversation and was then re-sent on every subsequent request at
-// the cached rate. What was wanted each time was the failing step and the
-// first real error.
+// Measured motivation: `gh run view --log` against a CI log of a few
+// thousand lines lets every one of those lines enter the conversation and
+// then be re-sent on every subsequent request at the cached rate, when what
+// was wanted was the failing step and the first real error.
 //
 // Two rules keep this from hiding something that mattered:
 //
