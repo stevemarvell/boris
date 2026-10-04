@@ -11,9 +11,10 @@ sequence. This skill is that sequence, fixed, with every decision point
 written as a rule rather than left to judgement, and every ceiling from
 `docs/sops.md` SOP 1 declared up front.
 
-Takes one argument: the pull request number, `<n>`. Assumes a checkout of
-that pull request's branch is available (this worktree, or run
-`gh pr checkout <n>` first) — step 3 commits and pushes to it.
+Takes one argument: the pull request number, `<n>`. The driver reads,
+replies and merges; it does not commit to the pull request's branch. Fixes
+in step 3 are committed and pushed by an `implementer` (the one exception is
+a docs-only pull request the driver opened itself).
 
 ## The five steps
 
@@ -116,13 +117,14 @@ One round is: read every open finding from step 2, then for each one:
     <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
     replies quote CI and review output, and `$(…)` or a backtick in that text
     would be executed by the shell.
-- Commit and push once per round, after all findings in that round are
-  either fixed or answered — not per finding, so the branch never sits with
-  a fix committed but unexplained.
+- Send one brief per round covering every finding that reproduced, so the
+  implementer pushes the round's fixes together and the branch never sits
+  with a fix committed but unexplained. Reply to each finding once its fix
+  is pushed.
 
-Run `npm run verify` after each round's commit (its own ceiling is the 3
-attempts `.claude/commands/ship.md` already declares — this step does not
-get a separate budget for that).
+The implementer runs `npm run verify` before it pushes (its own ceiling is
+the 3 attempts `.claude/commands/ship.md` declares — this step does not get
+a separate budget for that); the driver confirms it from the checks.
 
 **Round 2 exists only if round 1 left something unresolved** — a finding
 still disputed, a fix that did not turn `verify` green, or new findings
