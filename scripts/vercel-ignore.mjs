@@ -48,6 +48,12 @@ export function decide(project, env, git, manifest = loadProject()) {
     if (!hasCommit(git, base) && git(['fetch', '--no-tags', '--depth=1', 'origin', base]).status !== 0) {
       return { build: true, reason: `cannot fetch the previous deployment's commit ${base}` };
     }
+  } else if (env.VERCEL_ENV === 'production') {
+    // No successful production deployment has ever happened, so there is
+    // nothing to be unchanged *from*: a fork point here would only say whether
+    // the last merge touched this app, and every earlier merge that did would
+    // stay undeployed. A fresh project hits this on its first merge.
+    return { build: true, reason: 'no previous production deployment' };
   } else {
     base = forkPoint(git);
     if (!base) return { build: true, reason: 'no previous deployment, and no merged pull request in the clone' };
@@ -66,10 +72,12 @@ export function decide(project, env, git, manifest = loadProject()) {
 // A branch's own commits are committed locally, and GitHub's "update branch"
 // merges have two parents, so neither is mistaken for one. The nearest such
 // ancestor is the fork point, or near enough that the diff only over-counts.
+// HEAD itself never is: the log's first line is HEAD, and on develop that is a
+// squash merge, which would compare HEAD with HEAD and skip every build.
 export function forkPoint(git) {
   const log = git(['log', '-n', '50', '--format=%H%x09%P%x09%ce%x09%s', 'HEAD']);
   if (log.status !== 0) return null;
-  for (const line of log.stdout.split('\n')) {
+  for (const line of log.stdout.split('\n').slice(1)) {
     const [sha, parents, committer, subject] = line.split('\t');
     if (!sha || parents === undefined || subject === undefined) continue;
     if (committer === 'noreply@github.com' && parents.split(' ').length === 1 && /\(#\d+\)$/.test(subject)) {

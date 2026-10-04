@@ -146,8 +146,8 @@ describe('runFixes', () => {
   // consults a shell — proving the vulnerability class is actually closed,
   // not just that our code calls the right-sounding API.
   it('does not execute shell metacharacters embedded in a crafted .py filename', () => {
-    const markerA = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-a`);
-    const markerB = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-b`);
+    const markerA = join(tmpdir(), `ai-layer-hook-test-pwned-${process.pid}-a`);
+    const markerB = join(tmpdir(), `ai-layer-hook-test-pwned-${process.pid}-b`);
     // Inside a real Python app — whichever project.json declares first — so
     // ruff really is invoked with it. Outside every app the route is empty
     // and this would prove nothing.
@@ -164,7 +164,7 @@ describe('runFixes', () => {
   // Same proof for the TypeScript/eslint route, which is the one that used
   // to go through the npx .cmd shim.
   it('does not execute shell metacharacters embedded in a crafted .ts filename', () => {
-    const marker = join(tmpdir(), `boris-hook-test-pwned-${process.pid}-c`);
+    const marker = join(tmpdir(), `ai-layer-hook-test-pwned-${process.pid}-c`);
     const malicious = `a\`touch ${marker}\`$(touch ${marker}).ts`;
 
     expect(() => runFixes(malicious)).not.toThrow();

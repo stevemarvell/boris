@@ -78,10 +78,23 @@ describe('decide', () => {
   });
 
   it("compares a branch's first push with where it left develop", () => {
-    const log = 'dev123\tpar1\tnoreply@github.com\tAdd a thing (#42)\n';
+    // The log's first line is HEAD — the branch's own commit — then develop.
+    const log = 'b1\tdev123\tme@example.com\tStart\n' + 'dev123\tpar1\tnoreply@github.com\tAdd a thing (#42)\n';
     const { git, calls } = fakeGit({ log: { status: 0, stdout: log }, diff: { status: 0 } });
     expect(decide('web', {}, git, FIXTURE).build).toBe(false);
     expect(calls.find((c) => c[0] === 'diff')?.slice(0, 4)).toEqual(['diff', '--quiet', 'dev123', 'HEAD']);
+  });
+
+  // A fresh project has no previous production deployment, so
+  // VERCEL_GIT_PREVIOUS_SHA is unset, and develop's HEAD is itself a squash
+  // merge — "nothing changed since <HEAD>" every time, and production never
+  // builds at all.
+  it('builds production when there has never been a production deployment', () => {
+    const log = 'd3\td2\tnoreply@github.com\tChange the API (#28)\n' + 'd2\td1\tnoreply@github.com\tDocs (#26)\n';
+    const { git } = fakeGit({ log: { status: 0, stdout: log }, diff: { status: 0 } });
+    const result = decide('api', { VERCEL_ENV: 'production' }, git, FIXTURE);
+    expect(result.build).toBe(true);
+    expect(result.reason).toMatch(/no previous production deployment/);
   });
 
   it("builds a branch's first push when no fork point is in the clone", () => {
@@ -111,6 +124,13 @@ describe('forkPoint', () => {
           'b1\td2\tme@example.com\tStart\n' +
           'd2\td1\tnoreply@github.com\tAdd a thing (#42)\n',
       ),
+    ).toBe('d2');
+  });
+
+  it('never returns HEAD itself, even when HEAD is a squash merge', () => {
+    // Comparing HEAD with HEAD is always an empty diff — a skip that proves nothing.
+    expect(
+      at('d3\td2\tnoreply@github.com\tChange the API (#28)\n' + 'd2\td1\tnoreply@github.com\tDocs (#26)\n'),
     ).toBe('d2');
   });
 
