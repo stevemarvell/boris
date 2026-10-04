@@ -47,6 +47,12 @@ describe('triage', () => {
     expect(skip[0]!.reason).toBe('needs a person (human)');
   });
 
+  it('skips a template, which is a scaffold for a person to copy, never work to do', () => {
+    const { work, skip } = triage([issue(1, ['template']), issue(2, [])], []);
+    expect(work.map((w) => w.number)).toEqual([2]);
+    expect(skip).toEqual([{ number: 1, title: 'issue 1', reason: 'a template, copied by a person' }]);
+  });
+
   it('skips an issue an open pull request already claims', () => {
     const { work, skip } = triage([issue(7, ['high']), issue(8, ['medium'])], [
       { number: 99, body: 'Some text.\n\nCloses #7' },

@@ -58,7 +58,19 @@ documentation — see `apps/CLAUDE.md`.
   reword, summarise, or drop content, and keep every link intact.
 
 - **Deployment config lives in the repo, not in dashboards.** A setting only
-  visible in a web console is invisible to everyone working here.
+  visible in a web console is invisible to everyone working here. The same
+  goes for how to operate here: a rule that lives in one machine's memory is
+  missing from every fresh clone.
+
+- **No paid tiers.** Anything a paid plan gates — Claude Team or Enterprise
+  features, Vercel Pro — is permanently unavailable, not pending. An issue
+  that needs one is labelled `blocked: no paid plan`.
+
+- **Templates are filled by people.** An issue labelled `template` is a blank
+  scaffold to copy. An agent may build the empty scaffold once; it never
+  fills one in, and triage never picks one.
+
+- **Diagrams in Markdown are Mermaid blocks**, never ASCII art.
 
 - **Every loop declares a maximum, and reports when it hits it.** No skill,
   command, or agent retries until it succeeds — an unbounded loop has no upper
@@ -133,5 +145,14 @@ on every pull request; it is advisory, and `verify` is the only required check.
 ## Worktrees
 
 Each agent works in its own worktree, so parallel work cannot collide — how to
-create one, per-worktree e2e ports, and why previews do not pair themselves:
+create one, per-worktree e2e ports, previews, and how to clean worktrees up:
 **read the `worktrees` skill**.
+
+## Agents and skills
+
+| To | Use |
+| --- | --- |
+| Pick what to work next | `node scripts/triage.mjs`, or the `work-backlog` skill to work it |
+| Take a pull request to merged | the `drive-pr` skill |
+| Hand a change or a review to an agent in `.claude/agents/` | **read the `delegate` skill first** — when to, the brief, the ceiling |
+| Verify, commit and open a PR | `/ship`; just verify: `/gate` |

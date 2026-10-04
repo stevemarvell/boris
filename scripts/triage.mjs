@@ -6,7 +6,8 @@
 //
 // 1. Skip anything a person owns: `human`, `do not automate`, or any
 //    `blocked…` label (CLAUDE.md: work that needs a person is labelled, not
-//    attempted).
+//    attempted). Skip a `template` too: it is a blank scaffold a person
+//    copies, and filling it in is never an agent's job (CLAUDE.md).
 // 2. Skip anything already in flight: an open pull request whose body names
 //    the issue with Closes/Fixes/Resolves/Refs.
 // 3. Skip anything whose body says "Depends on #<n>" for an issue still open.
@@ -70,6 +71,10 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
   const skip = [];
 
   for (const issue of issues) {
+    if (issue.labels.includes('template')) {
+      skip.push({ number: issue.number, title: issue.title, reason: 'a template, copied by a person' });
+      continue;
+    }
     const person = issue.labels.filter(PERSON);
     if (person.length) {
       skip.push({ number: issue.number, title: issue.title, reason: `needs a person (${person.join(', ')})` });
