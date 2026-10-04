@@ -65,7 +65,7 @@ Changing a dependency needs npm 11 for the lock step (`npx npm@11 install`);
 flowchart LR
   issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>≤ 3 per run"]
   triage --> pr["Pull request<br/>own worktree"]
-  pr --> checks{"verify<br/>(required)"}
+  pr --> checks{"verify<br/>(merge gate)"}
   pr -.-> reviews["code + security review,<br/>census, contention<br/>(advisory)"]
   checks -- green --> merge[Merge to develop]
   merge --> deploy["Vercel deploys<br/>or skips unchanged builds"]
@@ -79,8 +79,9 @@ flowchart LR
 2. **Triage** (`node scripts/triage.mjs`) picks what an agent may take on:
    it skips issues a person owns, issues already in flight, and issues with
    open dependencies, and takes at most three per run.
-3. **A pull request** from its own worktree. `verify` is the only required
-   check. The code review, security review, test census and cross-PR
+3. **A pull request**, written by an `implementer` agent in its own worktree.
+   `verify` is the one check the coordinator waits for before merging;
+   nothing mechanical requires it on a free-plan private repository. The code review, security review, test census and cross-PR
    conflict check comment on it but don't block it.
 4. **Merge deploys.** Both Vercel projects build from `develop`, unless
    nothing a project reads changed, in which case the build is skipped.

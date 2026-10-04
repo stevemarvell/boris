@@ -10,8 +10,8 @@ Code makes them under `.claude/worktrees/` (`EnterWorktree`, or the Agent tool
 with `isolation: "worktree"`); by hand:
 
 ```bash
-git worktree add ../boris-<name> -b feat/<name>
-cd ../boris-<name> && npm run bootstrap
+git worktree add ../<repo>-<name> -b feat/<name>   # <repo>: this repository's folder name
+cd ../<repo>-<name> && npm run bootstrap
 ```
 
 `node_modules` and `.venv` are per-worktree, not shared — `npm run bootstrap`
@@ -26,16 +26,18 @@ its own band; set `E2E_<NAME>_PORT` (e.g. `E2E_API_PORT`) to override one.
 
 ## Previews
 
-A branch gets a Vercel preview of each app only when it changes what that app
-reads (the `deployment` skill has the ignore step). The two previews are
-independent: nothing pairs a branch's web preview with its API preview.
-Vercel tears neither down; the `preview-prune` workflow deletes a branch's
-previews when its pull request closes.
+A branch gets a Vercel preview of each deployed app only when it changes what
+that app reads (`scripts/vercel-ignore.mjs`). Each app's preview is
+independent: nothing pairs a branch's web preview with its API preview, so
+which API a web preview calls is the application's business — its
+`deployment` skill under `apps/.claude/skills/` says. Vercel tears no preview
+down; the `preview-prune` workflow deletes a branch's previews when its pull
+request closes.
 
 ## Cleaning up
 
 Every worktree here was made by a Claude session or one of its agents —
-`.claude/worktrees/*` and any `../boris-*` sibling alike. None is someone
+`.claude/worktrees/*` and any `../<repo>-*` sibling alike. None is someone
 else's to leave alone. Audit them all, then remove what is finished.
 
 Before removing one, establish it is recoverable — by command, not by eye

@@ -89,9 +89,24 @@ One round is: read every open finding from step 2, then for each one:
   does not reproduce, or that turns out to be a decision `CLAUDE.md` or
   `docs/sops.md` already records on purpose (SOP 5's "medium with a stated
   bound" is not a defect), is **not fixed**.
-- **A finding that reproduces is fixed.** Make the smallest change that
-  removes it, with a test per the "every behaviour change ships with a test"
-  rule if the fix changes behaviour.
+- **A finding that reproduces is fixed, by an `implementer`, not by the
+  driver.** Send it back to the agent that wrote the PR (`SendMessage` to
+  it). If that agent is gone, spawn a fresh `implementer` whose prompt names
+  PR `<n>` as the one to continue, so its "Continuing an existing pull
+  request" instructions apply: it pushes to that branch and opens no new
+  PR. The brief carries the finding, the reproduction, and the instruction to make
+  the smallest change that removes it, with a test per the "every behaviour
+  change ships with a test" rule if the fix changes behaviour. The driver
+  never edits code in the PR's worktree, even a one-liner: the coordinator
+  that edits code is no longer checking it. Docs-only PRs the driver opened
+  itself are the exception.
+- **A finding the implementer reports as needing a person** (a credential, a
+  dashboard, money, an open decision) usually has no issue behind it. Open
+  one with `gh issue create --body-file <file>`, rank it, label it
+  `human` + `do not automate`, assign it, and link it in the reply to the
+  finding. Write the body with a quoted heredoc, as for replies below: it
+  quotes the implementer's report. A reply alone is not enough to clear
+  step 4's merge gate.
 - **Reply to every finding, fixed or not**, with what was done or why not:
   - Inline finding → reply in its own thread:
     `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment_id>/replies -F body=@/tmp/reply.md`
@@ -122,7 +137,9 @@ attempt a third round, do not merge with an unanswered finding. Go to step 5.
 Merge only when **both** are true, checked, not assumed:
 
 - `npm run verify` is green on the branch's current head.
-- Every finding from step 2 has a reply posted in step 3 (or needed none).
+- Every finding from step 2 has a reply posted in step 3 (or needed none),
+  and every one that needs a person has its own `human` issue linked in
+  that reply.
 
 ```bash
 gh pr merge <n> --squash

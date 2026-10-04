@@ -33,17 +33,26 @@ counterpart to `drive-pr`, which runs a known recipe.
    - If the plan warns it was truncated, stop and report; do not work from
      a partial list.
    - If there is nothing to work, say so and stop. That is a complete run.
-2. **Work the first pick.** Read the issue and its comments. Then:
-   - Isolate it in its own worktree (the `worktrees` skill).
-   - Make the change with a test (`CLAUDE.md`'s rules), and run `npm run verify`.
-   - Open a pull request against `develop`. Its body puts `Closes #<n>`, or
-     `Refs #<n>` where the done-when is confirmed outside the repository, and
-     pastes the triage plan that picked it, so the reason for the choice is on
-     the record.
-   - If the issue turns out to need a person, a dashboard, money, or a
-     decision, don't open a pull request. Comment on the issue with what
-     was found, label it `human` and `do not automate`, and count it as one of
-     the three.
+2. **Work the first pick.** Read the issue and its comments, then hand it to
+   an `implementer` agent (`isolation: worktree`). Don't write the code
+   yourself (`CLAUDE.md`, "Code is written by `implementer` agents").
+
+   **The brief** (the `delegate` skill has everything it must carry) names
+   the issue and the files the agent owns, and tells it to:
+   - make the change with a test (`CLAUDE.md`'s rules) and run
+     `npm run verify`;
+   - open a pull request against `develop` whose body puts `Closes #<n>`,
+     or `Refs #<n>` where the done-when is confirmed outside the repository,
+     and pastes the triage plan that picked it, so the reason for the choice
+     is on the record.
+
+   **When it reports back**, you, not the implementer:
+   - check its report against the pull request and the preview rather than
+     taking it on trust;
+   - if it stopped because the issue needs a person, a dashboard, money, or
+     a decision (`implementer.md`, "When the work needs a person"), comment
+     on the issue with what it found, label it `human` and
+     `do not automate`, and count it as one of the three.
 3. **Drive it.** Follow `drive-pr` for that pull request. Its own ceilings
    apply inside this one (40 polls, 2 fix rounds, 30 smoke polls).
    - If `drive-pr` stops on a ceiling, stop this skill too: report the

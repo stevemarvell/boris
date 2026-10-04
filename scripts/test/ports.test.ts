@@ -31,7 +31,7 @@ describe('ports', () => {
   });
 
   it('gives different worktrees different ports', () => {
-    expect(ports(['api', 'web'], '/somewhere/boris')).not.toEqual(ports(['api', 'web'], '/somewhere/boris-other'));
+    expect(ports(['api', 'web'], '/somewhere/repo')).not.toEqual(ports(['api', 'web'], '/somewhere/repo-other'));
   });
 
   it('keeps the two ranges disjoint', () => {

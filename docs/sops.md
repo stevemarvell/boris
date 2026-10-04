@@ -170,6 +170,9 @@ no model.
 `.claude/trials/model-tiering.md`. Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
+Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
+focused brief writes code more cheaply than the coordinator does in its own,
+larger context — the `delegate` skill.
 
 **Model choice is the smallest of these.** Measured, it moved about 5%. It is
 worth getting right — see `.claude/trials/model-tiering.md` for where a cheaper

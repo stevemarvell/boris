@@ -55,10 +55,30 @@ Be careful that your check actually observes the thing. `TestClient` is one
 process with one client key. `curl` has no CORS. A test that calls the code
 under test to compute its own expected value proves nothing.
 
+## Continuing an existing pull request
+
+If the prompt names an open pull request to fix, for example a review
+finding, you are continuing it, not starting a new one. In your worktree
+run `gh pr checkout <n>` and work on that branch. Push your commits to it
+and **do not** run `gh pr create`: a second pull request leaves the
+finding unfixed on the one it was raised against. Reproduce the finding
+first, as the prompt describes. If it doesn't reproduce, say so instead of
+changing anything.
+
+## When the work needs a person
+
+If the task turns out to need a person (a dashboard behind a login, money,
+a credential, or a decision the plan or the issue leaves open), stop
+there. Open no pull request and push nothing half-done. Report what you
+found and what remains, leading with that. Labelling the issue `human` is
+the coordinator's job, from your report (`docs/sops.md` SOP 2).
+
 ## Finishing
 
 - `npm run verify` green, in full.
-- Commit, push, and open a pull request with `gh pr create --base develop`.
+- Commit and push. For new work, open a pull request with
+  `gh pr create --base develop`. When continuing an existing pull request,
+  push to its branch and open nothing.
 - Put `Closes #<n>` in the body if the prompt names an issue. **Never** write a
   closing keyword — close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved
   — before any *other* issue number anywhere in the body. GitHub will close
