@@ -17,7 +17,10 @@ Copied verbatim, every file:
 - `.claude/agents/`, `.claude/commands/`, `.claude/hooks/`, `.claude/skills/`,
   `.claude/statusline.mjs`, `.claude/statusline.d.mts`
 - `docs/sops.md`
-- `scripts/*.mjs`, `scripts/*.d.mts`, and `scripts/test/`
+- `scripts/*.mjs`, `scripts/*.d.mts`, and `scripts/test/` — including
+  `scripts/labels.mjs`
+- `labels.json` at the repository root: the one source of truth for label
+  names, colours and descriptions, applied by `scripts/labels.mjs`
 - `.github/workflows/`, except anything that names a repository or project
 
 And one block of `CLAUDE.md`: everything between `<!-- shared:begin` and
@@ -53,8 +56,9 @@ on.
    request, with any test that came with them. Strip incident narrative and
    the downstream repository's name as they come up.
 4. **Then down.** Copy every shared file from boris's `develop`, replace the
-   shared block of its `CLAUDE.md`, run `npm run verify` there, and open a
-   pull request. Its body lists any file that is still intentionally
-   different, and why.
+   shared block of its `CLAUDE.md`, run `npm run verify` there, and run
+   `node scripts/labels.mjs --repo <downstream>` so the downstream repository's
+   labels match `labels.json`. Open a pull request; its body lists any file
+   that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only the per-repository files
    above may still differ.
