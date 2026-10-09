@@ -4,13 +4,14 @@ export interface Label {
   description: string;
 }
 export type LabelAction = Label & { action: 'create' | 'update' };
-export type Run = (args: string[]) => Promise<{ status: number; stdout: string }>;
+export type RunResult = { status: number; stdout: string; stderr: string };
+export type Run = (args: string[]) => Promise<RunResult>;
 
 export declare const MANIFEST: string;
 export declare function validate(manifest: unknown): Label[];
 export declare function loadManifest(path?: string): Label[];
 export declare function plan(manifest: Label[], existing: Label[]): LabelAction[];
-export declare function gh(args: string[]): Promise<{ status: number; stdout: string }>;
+export declare function gh(args: string[]): Promise<RunResult>;
 export declare function listLabels(run: Run, repo?: string): Promise<Label[]>;
 export declare function apply(options: {
   run?: Run;

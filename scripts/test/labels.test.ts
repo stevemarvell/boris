@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apply, gh, listLabels, loadManifest, plan, validate, type Label, type Run } from '../labels.mjs';
+import { apply, gh, listLabels, loadManifest, main, plan, validate, type Label, type Run } from '../labels.mjs';
 
 const label = (name: string, color = 'b60205', description = 'd'): Label => ({ name, color, description });
 
@@ -106,7 +106,11 @@ describe('plan', () => {
 
 describe('listLabels', () => {
   it('parses gh label list output', async () => {
-    const run: Run = async () => ({ status: 0, stdout: JSON.stringify([{ name: 'bug', color: 'd73a4a', description: 'x' }]) });
+    const run: Run = async () => ({
+      status: 0,
+      stdout: JSON.stringify([{ name: 'bug', color: 'd73a4a', description: 'x' }]),
+      stderr: '',
+    });
     expect(await listLabels(run)).toEqual([{ name: 'bug', color: 'd73a4a', description: 'x' }]);
   });
 
@@ -114,15 +118,20 @@ describe('listLabels', () => {
     const calls: string[][] = [];
     const run: Run = async (args) => {
       calls.push(args);
-      return { status: 0, stdout: '[]' };
+      return { status: 0, stdout: '[]', stderr: '' };
     };
     await listLabels(run, 'owner/name');
     expect(calls[0]).toContain('owner/name');
   });
 
-  it('throws when gh fails, rather than treating empty as no labels', async () => {
-    const run: Run = async () => ({ status: 1, stdout: 'not found' });
-    await expect(listLabels(run)).rejects.toThrow(/not found/);
+  it('throws with the injected stderr, rather than treating empty as no labels', async () => {
+    const run: Run = async () => ({ status: 1, stdout: '', stderr: 'not found (HTTP 404)' });
+    await expect(listLabels(run)).rejects.toThrow(/not found \(HTTP 404\)/);
+  });
+
+  it('falls back to stdout when gh fails with nothing on stderr', async () => {
+    const run: Run = async () => ({ status: 1, stdout: 'bogus flag', stderr: '' });
+    await expect(listLabels(run)).rejects.toThrow(/bogus flag/);
   });
 });
 
@@ -133,8 +142,8 @@ describe('apply', () => {
     const calls: string[][] = [];
     const run: Run = async (args) => {
       calls.push(args);
-      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]' };
-      return { status: 0, stdout: '' };
+      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
     };
     const lines: string[] = [];
     const actions = await apply({ run, manifest, log: (l) => lines.push(l) });
@@ -148,27 +157,28 @@ describe('apply', () => {
     const calls: string[][] = [];
     const run: Run = async (args) => {
       calls.push(args);
-      return { status: 0, stdout: '[]' };
+      return { status: 0, stdout: '[]', stderr: '' };
     };
     const actions = await apply({ run, manifest, dryRun: true, log: () => {} });
     expect(actions).toEqual([{ ...manifest[0], action: 'create' }]);
     expect(calls.some((c) => c[1] === 'create')).toBe(false);
   });
 
-  it('throws when gh label create fails, naming the label', async () => {
+  it('throws with the injected stderr when gh label create fails, naming the label', async () => {
     const run: Run = async (args) => {
-      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]' };
-      return { status: 1, stdout: 'boom' };
+      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+      return { status: 1, stdout: '', stderr: 'HTTP 422: already exists on a different colour' };
     };
-    await expect(apply({ run, manifest, log: () => {} })).rejects.toThrow(/critical.*boom|boom/);
+    await expect(apply({ run, manifest, log: () => {} })).rejects.toThrow(/critical/);
+    await expect(apply({ run, manifest, log: () => {} })).rejects.toThrow(/already exists on a different colour/);
   });
 
   it('makes no network calls of its own: everything goes through the injected run', async () => {
     let invoked = 0;
     const run: Run = async (args) => {
       invoked += 1;
-      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]' };
-      return { status: 0, stdout: '' };
+      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
     };
     await apply({ run, manifest, log: () => {} });
     expect(invoked).toBeGreaterThan(0);
@@ -176,7 +186,23 @@ describe('apply', () => {
 });
 
 describe('gh', () => {
-  it('is the real executable wrapper, exported so main can default to it', () => {
-    expect(typeof gh).toBe('function');
+  it('reports a real failure with a non-empty stderr, for an invocation that is safe offline', async () => {
+    // An unknown flag makes gh's own argument parser reject the command
+    // before it would otherwise need the network, so this is deterministic
+    // without talking to GitHub — and it is this suite's one real exercise
+    // of the execFile wiring the mocked `run` in every other test replaces.
+    const result = await gh(['label', 'list', '--repo', 'no/such/repo-x', '--bogus-flag']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr.trim()).not.toBe('');
+  });
+});
+
+describe('main', () => {
+  it('rejects --repo followed by another flag rather than treating the flag as the repo name', async () => {
+    await expect(main(['--repo', '--dry-run'])).rejects.toThrow(/usage/);
+  });
+
+  it('rejects --repo with no value at all', async () => {
+    await expect(main(['--repo'])).rejects.toThrow(/usage/);
   });
 });

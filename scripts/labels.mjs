@@ -75,22 +75,27 @@ export function plan(manifest, existing) {
   return actions;
 }
 
-/** Runs `gh` with `args`, resolving to its exit status and stdout. Never rejects. */
+/** Runs `gh` with `args`, resolving to its exit status, stdout and stderr. Never rejects. */
 export function gh(args) {
   return new Promise((resolve) => {
-    execFile('gh', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
-      resolve({ status: error?.code ?? 0, stdout: String(stdout ?? '') });
+    execFile('gh', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({ status: error?.code ?? 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
   });
+}
+
+/** What a failed `run` call says went wrong: stderr, falling back to stdout when gh left stderr empty. */
+function reason({ stdout, stderr }) {
+  return (stderr?.trim() || stdout?.trim() || '').trim();
 }
 
 /** The live labels of a repository, via `gh label list`. `repo` is omitted when undefined. */
 export async function listLabels(run, repo) {
   const args = ['label', 'list', '--json', 'name,color,description', '--limit', '200'];
   if (repo) args.push('--repo', repo);
-  const { status, stdout } = await run(args);
-  if (status !== 0) throw new Error(`gh label list failed: ${stdout.trim()}`);
-  return JSON.parse(stdout);
+  const result = await run(args);
+  if (result.status !== 0) throw new Error(`gh label list failed: ${reason(result)}`);
+  return JSON.parse(result.stdout);
 }
 
 /**
@@ -105,8 +110,8 @@ export async function apply({ run = gh, manifest, repo, dryRun = false, log = co
     if (dryRun) continue;
     const args = ['label', 'create', label.name, '--color', label.color, '--description', label.description, '--force'];
     if (repo) args.push('--repo', repo);
-    const { status, stdout } = await run(args);
-    if (status !== 0) throw new Error(`gh label create ${label.name} failed: ${stdout.trim()}`);
+    const result = await run(args);
+    if (result.status !== 0) throw new Error(`gh label create ${label.name} failed: ${reason(result)}`);
   }
   if (actions.length === 0) log('every label already matches labels.json');
   return actions;
@@ -116,7 +121,12 @@ export async function main(argv) {
   const dryRun = argv.includes('--dry-run');
   const repoFlag = argv.indexOf('--repo');
   const repo = repoFlag === -1 ? undefined : argv[repoFlag + 1];
-  if (repoFlag !== -1 && !repo) throw new Error('usage: labels.mjs [--repo owner/name] [--dry-run]');
+  // A missing value, or one that is itself a flag (`--repo --dry-run`, or
+  // `--repo` last), is not a repository name; treat it as the usage error
+  // rather than passing "--dry-run" to `gh label list --repo`.
+  if (repoFlag !== -1 && (!repo || repo.startsWith('--'))) {
+    throw new Error('usage: labels.mjs [--repo owner/name] [--dry-run]');
+  }
   const manifest = loadManifest();
   await apply({ manifest, repo, dryRun });
 }
