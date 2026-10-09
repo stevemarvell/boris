@@ -1,6 +1,6 @@
 ---
 name: docs-site
-description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, manual/, or the page list in apps/web/smoke.sh.
+description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, or the page list in apps/web/smoke.sh.
 ---
 
 # The documentation site
@@ -19,8 +19,6 @@ deployment. Nothing is hosted anywhere a private repository cannot reach.
 | `/docs/adoption.html` | `docs/adoption.md` | Vercel |
 | `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
 | `/docs/sops.html` | `docs/sops.md` | Vercel |
-| `/docs/extraction.html` | `docs/extraction.md` | Vercel |
-| `/docs/manual/web/` | `manual/web/` | Vercel |
 | `/docs/step-0.html` | `index.html` | Vercel |
 
 The web app's `prebuild` runs `apps/web/scripts/build-docs.mjs`, which renders the

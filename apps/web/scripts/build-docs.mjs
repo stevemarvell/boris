@@ -1,13 +1,13 @@
 // Build the documentation site that Vercel serves alongside the web app.
 //
 // GitHub Pages needs a paid plan on a private repository, so the step-0
-// page, the web manual, and the Markdown under docs/ are rendered into
-// apps/web/public/docs instead, which Vite copies verbatim into the bundle,
-// so it lands at /docs on the Vercel deployment.
+// page and the Markdown under docs/ are rendered into apps/web/public/docs
+// instead, which Vite copies verbatim into the bundle, so it lands at /docs
+// on the Vercel deployment.
 //
 // The output directory is generated and gitignored. It is deleted and rebuilt
 // on every run, so a page removed from this script cannot linger in a build.
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -16,6 +16,11 @@ import { escapeHtml, firstHeading, renderMarkdown } from '../../../scripts/markd
 // apps/web/scripts/ -> the repository root, three levels up.
 export const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 export const DOCS_DIR = join(REPO_ROOT, 'apps', 'web', 'public', 'docs');
+
+/** The project's own name, read the one place the AI layer declares it. */
+function projectName(root) {
+  return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).name;
+}
 
 /** The Markdown documents, in the order the index lists them. */
 export const MARKDOWN_PAGES = [
@@ -33,11 +38,6 @@ export const MARKDOWN_PAGES = [
     slug: 'sops',
     source: join('docs', 'sops.md'),
     blurb: 'How agent work is run here: bounded loops, work that needs a person, and where a control is proven.',
-  },
-  {
-    slug: 'extraction',
-    source: join('docs', 'extraction.md'),
-    blurb: 'What in this repository is reusable on another project, and what is a conclusion that must not be copied.',
   },
 ];
 
@@ -80,7 +80,7 @@ footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 `.trim();
 
 /** Wraps a rendered fragment in the shared page shell. */
-export function page({ title, body, crumbs = true }) {
+export function page({ title, body, crumbs = true, name }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -93,8 +93,8 @@ ${STYLE}
 </head>
 <body>
 <main>
-${crumbs ? '<nav class="crumbs"><a href="./">boris docs</a></nav>\n' : ''}${body}
-<footer>Part of the <a href="../">boris</a> deployment. Built from the repository, not from a dashboard.</footer>
+${crumbs ? `<nav class="crumbs"><a href="./">${escapeHtml(name)} docs</a></nav>\n` : ''}${body}
+<footer>Part of the <a href="../">${escapeHtml(name)}</a> deployment. Built from the repository, not from a dashboard.</footer>
 </main>
 </body>
 </html>
@@ -107,7 +107,7 @@ ${crumbs ? '<nav class="crumbs"><a href="./">boris docs</a></nav>\n' : ''}${body
  * `rendered` carries each Markdown page's own H1, so the index names a
  * document the way the document names itself.
  */
-export function indexPage(rendered = []) {
+export function indexPage(rendered = [], name) {
   const cards = [
     ...rendered.map((entry) => ({
       href: `${entry.slug}.html`,
@@ -115,18 +115,13 @@ export function indexPage(rendered = []) {
       blurb: entry.blurb,
     })),
     {
-      href: 'manual/web/',
-      title: 'Web app manual',
-      blurb: 'What the screen shows, the four states, and the test hooks behind them.',
-    },
-    {
       href: 'step-0.html',
       title: 'The step-0 page',
       blurb: 'The first artifact this project ever published, kept as it was.',
     },
   ];
 
-  const body = `<h1>boris docs</h1>
+  const body = `<h1>${escapeHtml(name)} docs</h1>
 <p>Everything this project publishes about itself, built from the repository
 into this deployment so a private repository can still publish it.</p>
 <ul class="cards">
@@ -138,7 +133,7 @@ ${cards
   .join('\n')}
 </ul>`;
 
-  return page({ title: 'boris docs', body, crumbs: false });
+  return page({ title: `${name} docs`, body, crumbs: false, name });
 }
 
 /**
@@ -149,6 +144,7 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
 
+  const name = projectName(root);
   const written = [];
   const rendered = [];
 
@@ -156,7 +152,7 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
     const markdown = readFileSync(join(root, entry.source), 'utf8');
     const title = firstHeading(markdown) ?? entry.slug;
     const body = renderMarkdown(markdown);
-    writeFileSync(join(out, `${entry.slug}.html`), page({ title, body }), 'utf8');
+    writeFileSync(join(out, `${entry.slug}.html`), page({ title, body, name }), 'utf8');
     rendered.push({ ...entry, title });
     written.push(`${entry.slug}.html`);
   }
@@ -166,12 +162,7 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   writeFileSync(join(out, 'step-0.html'), readFileSync(join(root, 'index.html'), 'utf8'), 'utf8');
   written.push('step-0.html');
 
-  // Copied whole: the manual references its screenshots relatively, so the
-  // directory moves as a unit.
-  cpSync(join(root, 'manual', 'web'), join(out, 'manual', 'web'), { recursive: true });
-  written.push('manual/web/index.html');
-
-  writeFileSync(join(out, 'index.html'), indexPage(rendered), 'utf8');
+  writeFileSync(join(out, 'index.html'), indexPage(rendered, name), 'utf8');
   written.push('index.html');
 
   // The commit this build is of, for smoke.yml's web freshness gate — the web

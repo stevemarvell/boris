@@ -1,4 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+
+// The deployment's title comes from project.json, not a hardcoded name — so
+// this reads the same manifest the build does, rather than asserting a
+// literal string that would drift the moment that name changes.
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const { name: PROJECT_NAME } = JSON.parse(readFileSync(join(PROJECT_ROOT, 'project.json'), 'utf8'));
 
 // These run against the built bundle, which is the point: the docs are
 // produced by a prebuild step and copied in by Vite, so nothing but a real
@@ -8,14 +17,12 @@ import { expect, test } from '@playwright/test';
 test.describe('the docs Vercel serves', () => {
   test('lists every document at /docs/', async ({ page }) => {
     await page.goto('/docs/');
-    await expect(page.getByRole('heading', { name: 'boris docs' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: `${PROJECT_NAME} docs` })).toBeVisible();
 
     for (const name of [
       'Steps of AI Adoption',
       'Data governance',
       'Standard operating procedures',
-      'Extracting the baseline',
-      'Web app manual',
     ]) {
       await expect(page.getByRole('link', { name })).toBeVisible();
     }
@@ -87,34 +94,6 @@ test.describe('the docs Vercel serves', () => {
     for (const file of ['.claude/settings.json', '.claude/settings.local.json']) {
       await expect(page.locator('body')).toContainText(file);
     }
-  });
-
-  test('publishes the extraction report', async ({ page }) => {
-    // The report exists to be read when starting the *next* project, which by
-    // definition is from outside this checkout. Rendering locally is not the
-    // claim; reaching the deployment is.
-    await page.goto('/docs/extraction.html');
-    await expect(page.getByRole('heading', { name: 'Extracting the baseline' })).toBeVisible();
-
-    // The section that stops a reader copying this project's security verdict
-    // onto a project with real data. It is the one part of the report that is
-    // dangerous to lose, so it is the part asserted.
-    await expect(
-      page.getByRole('heading', { name: 'What must not be inherited' }),
-    ).toBeVisible();
-    await expect(page.locator('body')).toContainText('Do not take the verdict.');
-    await expect(page.locator('body')).not.toContainText('**');
-  });
-
-  test('serves the web manual with its screenshots', async ({ page }) => {
-    const response = await page.goto('/docs/manual/web/');
-    expect(response?.status()).toBe(200);
-
-    const shot = page.locator('img[src="screenshot-list.jpg"]').first();
-    await expect(shot).toBeVisible();
-    // A broken <img> is still "visible" to Playwright; the decoded width is
-    // what says the file actually arrived.
-    expect(await shot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
   });
 
   test('still publishes the step-0 page as it was', async ({ page }) => {

@@ -16,6 +16,11 @@ describe('App', () => {
     expect(link.getAttribute('href')).toBe('/docs/');
   });
 
+  it("titles the toolbar from the project's own name, not a hardcoded one", () => {
+    render(<App />);
+    expect(screen.getByText(__APP_NAME__)).toBeTruthy();
+  });
+
   it('calls no API', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     render(<App />);

@@ -34,8 +34,7 @@ docs_served() (
   for attempt in $(seq 1 30); do
     missing=''
     for path in /docs/ /docs/adoption.html /docs/data-governance.html \
-                /docs/sops.html /docs/extraction.html /docs/step-0.html \
-                /docs/manual/web/; do
+                /docs/sops.html /docs/step-0.html; do
       curl -fsS --max-time 30 -o /dev/null "$WEB$path" || missing="$missing $path"
     done
     if [ -z "$missing" ]; then

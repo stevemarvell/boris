@@ -7,8 +7,8 @@ building and smoke keeps passing while a real application is chosen.
 The rules below are this application's. The AI layer's rules — the loop,
 `verify`, pull requests, ceilings, issues — are in the root `CLAUDE.md` and
 hold here too. The AI layer learns about this application only from
-`project.json`; swapping the application means editing `apps/`,
-`manual/web/`, `project.json` and this file.
+`project.json`; swapping the application means editing `apps/`, `project.json`
+and this file.
 
 ## Layout
 
@@ -17,7 +17,6 @@ hold here too. The AI layer learns about this application only from
 | `api/` | FastAPI shell: `/health` (with the deployed commit), security headers, and Swagger UI, ReDoc and `/openapi.json` in development only. Deploys to Vercel. `smoke.sh` is its post-deploy checks. |
 | `web/` | Ionic React shell on Vite, calling no API. Deploys to Vercel with the project documentation at `/docs/`. `scripts/` is its `prebuild` (the docs site); `smoke.sh` is its post-deploy checks. |
 | `.claude/skills/` | This application's skills: `deployment`, `docs-site`. |
-| `../manual/web/` | A reference manual for an application no longer served here. Ships to Vercel with the web app; treat its contents as illustrative, not current, until a real application's manual replaces it. |
 
 ## Rules
 

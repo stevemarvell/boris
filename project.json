@@ -1,6 +1,6 @@
 {
   "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape.",
-  "name": "family-tree",
+  "name": "boris",
   "vercel": {
     "team": "stevemarvell-team"
   },
@@ -38,7 +38,6 @@
       "reads": [
         "apps/web",
         "docs",
-        "manual/web",
         "index.html",
         "package.json",
         "package-lock.json",
