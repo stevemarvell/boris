@@ -20,7 +20,7 @@ export function App() {
     <IonApp>
       <IonHeader>
         <IonToolbar>
-          <IonTitle>boris</IonTitle>
+          <IonTitle>{__APP_NAME__}</IonTitle>
         </IonToolbar>
       </IonHeader>
       <IonContent>

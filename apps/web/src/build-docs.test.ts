@@ -14,15 +14,15 @@ beforeEach(() => {
   out = join(mkdtempSync(join(tmpdir(), 'docs-out-')), 'docs');
 
   mkdirSync(join(root, 'docs'), { recursive: true });
-  mkdirSync(join(root, 'manual', 'web'), { recursive: true });
 
+  // A name distinct from this repository's own, so a test proving the build
+  // reads it dynamically cannot pass by accident the way a hardcoded name
+  // would.
+  writeFileSync(join(root, 'project.json'), JSON.stringify({ name: 'stand-in-app' }));
   writeFileSync(join(root, 'docs', 'adoption.md'), '# Stages\n\nA **step**.\n\n- [ ] a gap\n');
   writeFileSync(join(root, 'docs', 'data-governance.md'), '# Governance\n\nInvented *data*.\n');
   writeFileSync(join(root, 'docs', 'sops.md'), '# Procedures\n\nBounded `loops`.\n');
-  writeFileSync(join(root, 'docs', 'extraction.md'), '# Baseline\n\nA ~~carved~~ forked base.\n');
   writeFileSync(join(root, 'index.html'), '<h1>Hello, world</h1>\n');
-  writeFileSync(join(root, 'manual', 'web', 'index.html'), '<h1>Web manual</h1>\n');
-  writeFileSync(join(root, 'manual', 'web', 'shot.jpg'), 'not really a jpeg');
 });
 
 afterEach(() => {
@@ -42,7 +42,6 @@ describe('buildDocs', () => {
         'adoption.html',
         'data-governance.html',
         'sops.html',
-        'extraction.html',
         'index.html',
         'step-0.html',
       ]),
@@ -51,7 +50,6 @@ describe('buildDocs', () => {
     expect(read('adoption.html')).toContain('<input type="checkbox" disabled> a gap');
     expect(read('data-governance.html')).toContain('<em>data</em>');
     expect(read('sops.html')).toContain('<code>loops</code>');
-    expect(read('extraction.html')).toContain('<del>carved</del>');
   });
 
   it("publishes the build's commit for smoke's web freshness gate", () => {
@@ -69,11 +67,17 @@ describe('buildDocs', () => {
     expect(read('adoption.html')).toContain('<title>Stages</title>');
     expect(read('data-governance.html')).toContain('<title>Governance</title>');
     expect(read('sops.html')).toContain('<title>Procedures</title>');
-    expect(read('extraction.html')).toContain('<title>Baseline</title>');
     expect(read('index.html')).toContain('>Stages</a>');
     expect(read('index.html')).toContain('>Governance</a>');
     expect(read('index.html')).toContain('>Procedures</a>');
-    expect(read('index.html')).toContain('>Baseline</a>');
+  });
+
+  it("titles the site from project.json's name, not a hardcoded one", () => {
+    // stand-in-app is this fixture's name, not this repository's own — so
+    // this would fail if the build ever went back to a hardcoded name.
+    build();
+    expect(read('index.html')).toContain('<h1>stand-in-app docs</h1>');
+    expect(read('adoption.html')).toContain('<a href="./">stand-in-app docs</a>');
   });
 
   it('lists the documents in the order the build script declares them', () => {
@@ -83,7 +87,6 @@ describe('buildDocs', () => {
     const index = read('index.html');
     expect(index.indexOf('adoption.html')).toBeLessThan(index.indexOf('data-governance.html'));
     expect(index.indexOf('data-governance.html')).toBeLessThan(index.indexOf('sops.html'));
-    expect(index.indexOf('sops.html')).toBeLessThan(index.indexOf('extraction.html'));
   });
 
   it('publishes the step-0 page exactly as it was written', () => {
@@ -91,12 +94,6 @@ describe('buildDocs', () => {
     // restyle.
     build();
     expect(read('step-0.html')).toBe('<h1>Hello, world</h1>\n');
-  });
-
-  it('copies the web manual whole, screenshots included', () => {
-    build();
-    expect(read(join('manual', 'web', 'index.html'))).toContain('Web manual');
-    expect(existsSync(join(out, 'manual', 'web', 'shot.jpg'))).toBe(true);
   });
 
   it('clears the output directory, so a removed page cannot linger', () => {
@@ -120,21 +117,19 @@ describe('buildDocs', () => {
 
 describe('indexPage', () => {
   it('lists every document', () => {
-    const html = indexPage([
-      { slug: 'adoption', title: 'Stages', blurb: 'the ladder' },
-    ]);
+    const html = indexPage(
+      [{ slug: 'adoption', title: 'Stages', blurb: 'the ladder' }],
+      'stand-in-app',
+    );
     expect(html).toContain('href="adoption.html"');
-    expect(html).toContain('href="manual/web/"');
-    expect(html).not.toContain('API manual');
     expect(html).toContain('href="step-0.html"');
   });
 
-  it('escapes what it puts into the page', () => {
-    const html = indexPage([
-      { slug: 'x', title: '<script>', blurb: 'a & b' },
-    ]);
+  it('escapes what it puts into the page, including the project name', () => {
+    const html = indexPage([{ slug: 'x', title: '<script>', blurb: 'a & b' }], '<b>app</b>');
     expect(html).toContain('&lt;script&gt;');
     expect(html).toContain('a &amp; b');
+    expect(html).toContain('&lt;b&gt;app&lt;/b&gt; docs');
   });
 });
 

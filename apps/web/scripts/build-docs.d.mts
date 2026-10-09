@@ -5,9 +5,11 @@ export declare function page(options: {
   title: string;
   body: string;
   crumbs?: boolean;
+  name: string;
 }): string;
 export declare function indexPage(
   rendered?: { slug: string; title: string; blurb: string }[],
+  name?: string,
 ): string;
 export declare function buildDocs(options?: {
   root?: string;

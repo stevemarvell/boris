@@ -24,8 +24,7 @@ commands are in **`apps/CLAUDE.md`**; read it before working under `apps/`.
 | --- | --- |
 | `apps/` | The application, with its own `CLAUDE.md`. |
 | `project.json` | The one place the AI layer (`.claude/`, `scripts/`, `.github/`) learns about the apps: paths, toolchains, build inputs, Vercel projects. Read through `scripts/project.mjs`. |
-| `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run; `extraction.md`, what here is reusable on another project and what is a conclusion that must not be copied. |
-| `manual/web/` | The web app's reference manual (see `apps/CLAUDE.md`). |
+| `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run. |
 
 <!-- shared:begin — the AI layer's rules, identical in every repository built
 from boris. Edit them in boris and sync; a local edit here is lost on the next

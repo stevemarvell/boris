@@ -26,7 +26,7 @@ def create_app(*, environment: str | None = None) -> FastAPI:
     # Swagger UI is an unauthenticated console and openapi.json a published
     # schema. FastAPI turns both on by default; production passes None.
     app = FastAPI(
-        title="family-tree-api",
+        title="api",
         docs_url="/docs" if is_development else None,
         redoc_url="/redoc" if is_development else None,
         openapi_url="/openapi.json" if is_development else None,

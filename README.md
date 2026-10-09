@@ -107,8 +107,6 @@ flowchart LR
 3. **Rewrite [`docs/data-governance.md`](docs/data-governance.md)** before
    deploying anything real. Its verdict applies to the current placeholder
    apps, which serve no data at all, and any real application voids it.
-   [`docs/extraction.md`](docs/extraction.md) lists what else is a conclusion
-   rather than a reusable part.
 
 ## Documentation
 
@@ -118,7 +116,6 @@ flowchart LR
 | [`apps/CLAUDE.md`](apps/CLAUDE.md) | The application's rules, layout and deployments. |
 | [`docs/sops.md`](docs/sops.md) | How agent work is run, including every loop's declared limit. |
 | [`docs/data-governance.md`](docs/data-governance.md) | What is exposed, why, and what would change that. |
-| [`docs/extraction.md`](docs/extraction.md) | What is reusable elsewhere, and the separation proof. |
 | [`docs/adoption.md`](docs/adoption.md) | The adoption ladder being climbed. |
 
 The docs are also published at `/docs/` on the web deployment, and the API

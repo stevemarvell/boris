@@ -4,9 +4,9 @@
 // the application is — where its apps live, what toolchain each uses, what a
 // build reads, which Vercel project deploys it, where it answers and how to
 // smoke-test it — asks
-// this module, which reads project.json at the repository root. Swapping the
-// family tree for another application means editing apps/ and project.json;
-// nothing here names an app.
+// this module, which reads project.json at the repository root. Swapping in
+// another application means editing apps/ and project.json; nothing here
+// names an app.
 //
 // The manifest is validated on load, so a typo fails the first hook or script
 // that reads it, loudly, rather than turning into a build that silently never

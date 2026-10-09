@@ -101,11 +101,12 @@ describe('reviewScope', () => {
     expect(reviewScope([])).toMatchObject({ code: true, security: true, workflows: false });
   });
 
-  it('reviews a change to the family tree', () => {
-    // data/family.json is invented, and docs/data-governance.md says the
-    // trigger that voids that decision is real data arriving. A change to the
-    // tree is exactly when someone should look.
-    expect(reviewScope(['data/family.json'])).toMatchObject({ code: true, security: true });
+  it('reviews a change to real application data', () => {
+    // Today's apps are placeholder shells with no data file at all, and
+    // docs/data-governance.md says the trigger that voids that decision is
+    // real data arriving. A change under a data path is exactly when someone
+    // should look.
+    expect(reviewScope(['apps/api/data/example.json'])).toMatchObject({ code: true, security: true });
   });
 
   it('runs both reviews when it has no file list', () => {

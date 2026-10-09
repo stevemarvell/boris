@@ -1,5 +1,5 @@
 [project]
-name = "family-tree-api"
+name = "api"
 version = "0.1.0"
 description = "The API shell: a health check behind security headers."
 requires-python = ">=3.12"
