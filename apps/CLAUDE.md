@@ -1,8 +1,10 @@
 # The application: shells, pending a replacement
 
-What lives under `apps/` today is two deployable placeholder shells — no
-application logic, no data. They exist so the live Vercel projects keep
-building and smoke keeps passing while a real application is chosen.
+What lives under `apps/` today is two placeholder shells — no application
+logic, no data, and neither deployed. They exist so `npm run verify` keeps
+passing while a real application is chosen; nothing here is published
+anywhere until `npm run deploy:add` says otherwise (see root `CLAUDE.md`'s
+"Deployments and documentation").
 
 The rules below are this application's. The AI layer's rules — the loop,
 `verify`, pull requests, ceilings, issues — are in the root `CLAUDE.md` and
@@ -14,14 +16,17 @@ and this file.
 
 | Path | Holds |
 | --- | --- |
-| `api/` | FastAPI shell: `/health` (with the deployed commit), security headers, and Swagger UI, ReDoc and `/openapi.json` in development only. Deploys to Vercel. `smoke.sh` is its post-deploy checks. |
-| `web/` | Ionic React shell on Vite, calling no API. Deploys to Vercel with the project documentation at `/docs/`. `scripts/` is its `prebuild` (the docs site); `smoke.sh` is its post-deploy checks. |
-| `.claude/skills/` | This application's skills: `deployment`, `docs-site`. |
+| `api/` | FastAPI shell: `/health` (with the deployed commit, once deployed), security headers, and Swagger UI, ReDoc and `/openapi.json` in development only. `smoke.sh` is its post-deploy checks. |
+| `web/` | Ionic React shell on Vite, calling no API. Builds the project documentation to `/docs/` (`scripts/` is its `prebuild`). `smoke.sh` is its post-deploy checks. |
+| `.claude/skills/` | This application's skills: `docs-site`, and `deployment` once `npm run deploy:add` has added one. |
 
 ## Rules
 
-- **Merging deploys.** `develop` publishes both Vercel projects. The approval
-  path and the release path are the same.
+- **Nothing here is deployed by default.** `npm run verify` is what keeps
+  both shells green; there is no Vercel project building either until
+  `npm run deploy:add -- vercel --app <app> ...` adds one. Once an app is
+  deployed, merging to `develop` publishes it — the approval path and the
+  release path are the same.
 
 - **Neither shell serves data.** `docs/data-governance.md` describes an
   application no longer served here; read it before adding anything that
@@ -32,21 +37,22 @@ and this file.
 
 | What | Where | Built from |
 | --- | --- | --- |
-| API | <https://family-tree-api-stevemarvell-team.vercel.app> | Vercel project `family-tree-api`, root directory `apps/api` |
-| Web | Vercel project `family-tree-web` | root directory `apps/web`, deploys from `develop` |
-| Docs | `/docs/` on the web deployment | `apps/web/scripts/build-docs.mjs`, run by the web `prebuild` |
+| API | Not deployed. | `apps/api`, once `npm run deploy:add -- vercel --app api ...` adds a `deploy` block for it. |
+| Web | Not deployed. | `apps/web`, once `npm run deploy:add -- vercel --app web ...` adds a `deploy` block for it. |
+| Docs | Not published. | `apps/web/scripts/build-docs.mjs` builds `/docs/` into the web app's own bundle; it is reachable once the web app is deployed. |
 
-Both deployments are Vercel end to end. Their project names and URLs don't
-describe what's here now — rename them when a real application replaces the
-shells. The same names and URLs are in `project.json`, which is the copy the
-AI layer reads. **Read the `deployment` skill before changing anything that
-deploys.**
+`project.json` is the AI layer's own copy of which apps are deployed, read
+through `scripts/project.mjs`. Nothing is deployed there either, by default.
+**Read the `deployment` skill under `apps/.claude/skills/` — written by
+`deploy:add` from `scripts/deploy/vercel/template/` — before changing
+anything that deploys, once one exists.**
 
 ## Documentation
 
-`/docs/` on Vercel carries the project documentation. Adding a page touches
-six files and missing one means a page that builds locally and 404s live —
-**read the `docs-site` skill**.
+The web app's build puts the project documentation at `/docs/` inside its own
+bundle; it is reachable wherever the web app is deployed, and nowhere while
+it isn't. Adding a page touches six files and missing one means a page that
+builds locally and 404s wherever it is live — **read the `docs-site` skill**.
 
 ## Running it
 

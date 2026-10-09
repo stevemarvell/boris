@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decide, forkPoint, type Git } from '../vercel-ignore.mjs';
+import { decide, forkPoint, type Git } from '../deploy/vercel/vercel-ignore.mjs';
 import type { Project } from '../project.mjs';
 
 // The layout these tests build in a temporary repository, declared the way
@@ -11,22 +11,17 @@ import type { Project } from '../project.mjs';
 // the ignore step's decisions whatever the application is.
 const FIXTURE: Project = {
   name: 'thing',
-  vercel: { team: 't' },
   apps: {
     api: {
       path: 'apps/api',
       toolchain: 'python',
-      vercelProject: 'thing-api',
-      url: 'https://api.example',
-      commitEndpoint: '/health',
+      deploy: { provider: 'vercel', team: 't', project: 'thing-api', url: 'https://api.example', commitEndpoint: '/health' },
       reads: ['apps/api'],
     },
     web: {
       path: 'apps/web',
       toolchain: 'node',
-      vercelProject: 'thing-web',
-      url: 'https://web.example',
-      commitEndpoint: '/version.json',
+      deploy: { provider: 'vercel', team: 't', project: 'thing-web', url: 'https://web.example', commitEndpoint: '/version.json' },
       reads: ['apps/web', 'docs', 'manual/web', 'index.html', 'package.json', 'package-lock.json', 'scripts/markdown.mjs'],
       ignores: ['apps/web/e2e', '**/*.test.ts', '**/*.test.tsx'],
     },
@@ -192,7 +187,7 @@ describe('pathspecs', () => {
   });
 
   it('builds both when the ignore script itself changes', () => {
-    expect(touching('scripts/vercel-ignore.mjs')).toEqual({ api: true, web: true });
+    expect(touching('scripts/deploy/vercel/vercel-ignore.mjs')).toEqual({ api: true, web: true });
   });
 
   it('skips the web app for tests and CI-only scripts, which never reach the bundle', () => {
@@ -200,7 +195,7 @@ describe('pathspecs', () => {
     expect(touching('apps/web/e2e/docs.spec.ts')).toEqual({ api: false, web: false });
     expect(touching('scripts/pr-contention.mjs')).toEqual({ api: false, web: false });
     expect(touching('scripts/paths.mjs')).toEqual({ api: false, web: false });
-    expect(touching('scripts/vercel-prune.mjs')).toEqual({ api: false, web: false });
+    expect(touching('scripts/deploy/vercel/vercel-prune.mjs')).toEqual({ api: false, web: false });
     expect(touching('scripts/triage.mjs')).toEqual({ api: false, web: false });
     expect(touching('scripts/write-ci-sandbox-settings.mjs')).toEqual({ api: false, web: false });
   });

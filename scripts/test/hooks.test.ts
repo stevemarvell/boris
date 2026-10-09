@@ -28,7 +28,6 @@ const MALICIOUS_FILENAME = 'a`touch pwned`$(touch pwned2);"x\' y.py';
 // holds whatever the application is.
 const FIXTURE: Project = {
   name: 'thing',
-  vercel: { team: 't' },
   apps: {
     svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] },
     tool: { path: 'apps/tool', toolchain: 'python', reads: ['apps/tool'] },

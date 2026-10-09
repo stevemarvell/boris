@@ -2,29 +2,24 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { deployed, loadProject, type Project } from '../project.mjs';
-import { GATE_ATTEMPTS, appUrls, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
+import { apps, loadProject, type Project } from '../project.mjs';
+import { GATE_ATTEMPTS, appUrls, gateForEvent, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
   name: 'thing',
-  vercel: { team: 't' },
   apps: {
     back: {
       path: 'apps/back',
       toolchain: 'python',
       reads: ['apps/back'],
-      vercelProject: 'thing-back',
-      url: 'https://back.example',
-      commitEndpoint: '/health',
+      deploy: { provider: 'vercel', team: 't', project: 'thing-back', url: 'https://back.example', commitEndpoint: '/health' },
       smoke: 'apps/back/smoke.sh',
     },
     front: {
       path: 'apps/front',
       toolchain: 'node',
       reads: ['apps/front'],
-      vercelProject: 'thing-front',
-      url: 'https://front.example',
-      commitEndpoint: '/version.json',
+      deploy: { provider: 'vercel', team: 't', project: 'thing-front', url: 'https://front.example', commitEndpoint: '/version.json' },
     },
     tool: { path: 'apps/tool', toolchain: 'python', reads: ['apps/tool'] },
   },
@@ -153,6 +148,52 @@ describe('smoke', () => {
     const result = await smoke({ project: project(), sha: undefined, fetchJson, git: gitSays(0), sleep: noSleep, run: () => 0, log: quiet });
     expect(result.ok).toBe(false);
   });
+
+  it('skips the freshness gate when gate is false, checking whatever is currently deployed', async () => {
+    const ran: [string, Record<string, string>][] = [];
+    // The old commit would fail waitForCommit's gate; gate: false never calls it.
+    const { fetchJson, asked } = server({ 'https://back.example/health': ['old'], 'https://front.example/version.json': ['old'] });
+    const result = await smoke({
+      project: project(),
+      sha: undefined,
+      gate: false,
+      fetchJson,
+      git: gitSays(1),
+      sleep: noSleep,
+      run: (script, urls) => (ran.push([script, urls]), 0),
+      log: quiet,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.reason).toMatch(/freshness gate skipped/);
+    expect(asked).toEqual(['https://back.example/health', 'https://front.example/version.json']);
+    expect(ran).toEqual([['apps/back/smoke.sh', { BACK: 'https://back.example', FRONT: 'https://front.example' }]]);
+  });
+
+  it('fails an app whose commit endpoint reports nothing, even with gate: false', async () => {
+    const { fetchJson } = server({ 'https://front.example/version.json': ['new'] }); // back answers nothing
+    const result = await smoke({
+      project: project(),
+      sha: undefined,
+      gate: false,
+      fetchJson,
+      git: gitSays(1),
+      sleep: noSleep,
+      run: () => 0,
+      log: quiet,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/back is unreachable/);
+  });
+});
+
+describe('gateForEvent', () => {
+  it('gates every trigger except an explicit schedule or manual dispatch', () => {
+    expect(gateForEvent('push')).toBe(true);
+    expect(gateForEvent(undefined)).toBe(true);
+    expect(gateForEvent('pull_request')).toBe(true);
+    expect(gateForEvent('schedule')).toBe(false);
+    expect(gateForEvent('workflow_dispatch')).toBe(false);
+  });
 });
 
 describe("each app's smoke script", () => {
@@ -164,7 +205,9 @@ describe("each app's smoke script", () => {
   const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
   it('runs with the step shell\'s options: set -e, never pipefail', () => {
-    const scripts = deployed(loadProject()).flatMap(([, app]) => (app.smoke ? [app.smoke] : []));
+    // Every app's own smoke script, deployed or not: `verify` keeps an
+    // undeployed app's checks around so deploy:add has something to run.
+    const scripts = apps(loadProject()).flatMap(([, app]) => (app.smoke ? [app.smoke] : []));
     expect(scripts.length).toBeGreaterThan(0);
     for (const script of scripts) {
       const code = readFileSync(join(ROOT, script), 'utf8')

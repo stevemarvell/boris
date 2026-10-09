@@ -29,16 +29,20 @@ flowchart TB
   ending its turn while `verify` is red, giving up after three attempts;
 - automatic code and security review on every pull request;
 - per-agent worktrees with their own ports;
-- build skipping, deployment, post-merge smoke and preview cleanup on Vercel;
+- an optional per-app `deploy` block, build skipping, post-merge smoke and
+  preview cleanup for whichever apps actually have one;
 - `triage` and the `work-backlog`/`drive-pr` skills, which pick issues and
   drive them to merge within declared limits.
 
-**The application**, under `apps/`, is currently two deployable placeholders —
-a health-check API and a web shell serving this repository's own
-documentation — kept live so the Vercel projects and smoke checks keep
-passing while a real workload is chosen. The AI layer learns about it only
-from [`project.json`](project.json); swapping in a real application means
-changing `apps/` and that one file, nothing else in the AI layer.
+**The application**, under `apps/`, is currently two placeholders — a
+health-check API and a web shell serving this repository's own
+documentation — while a real workload is chosen. Neither is deployed: this
+repository's own default is nothing deployed anywhere, so `npm run verify` is
+what keeps them green, not a live Vercel project. The AI layer learns about
+the application only from [`project.json`](project.json); swapping in a real
+application means changing `apps/` and that one file, nothing else in the AI
+layer. `npm run deploy:add` is what a repository built from this one uses to
+put an app on Vercel.
 
 ## Quick start
 
@@ -68,7 +72,7 @@ flowchart LR
   pr --> checks{"verify<br/>(merge gate)"}
   pr -.-> reviews["code + security review,<br/>census, contention<br/>(advisory)"]
   checks -- green --> merge[Merge to develop]
-  merge --> deploy["Vercel deploys<br/>or skips unchanged builds"]
+  merge --> deploy["deployed apps build,<br/>or skip unchanged ones<br/>(none, by default)"]
   deploy --> smoke["smoke: this commit?<br/>then the app's checks"]
   merge --> prune["previews of the<br/>closed PR deleted"]
 ```
@@ -83,17 +87,20 @@ flowchart LR
    `verify` is the one check the coordinator waits for before merging;
    nothing mechanical requires it on a free-plan private repository. The code review, security review, test census and cross-PR
    conflict check comment on it but don't block it.
-4. **Merge deploys.** Both Vercel projects build from `develop`, unless
-   nothing a project reads changed, in which case the build is skipped.
+4. **Merge deploys whatever has a `deploy` block.** By default nothing does
+   — `npm run deploy:add` is what adds one — but a deployed app builds from
+   `develop`, unless nothing it reads changed, in which case the build is
+   skipped.
 5. **Smoke** checks each deployed app is serving this commit (or an
-   equivalent skipped build), then runs that app's own checks.
-6. **Preview cleanup:** closing the pull request deletes its preview
-   deployments.
+   equivalent skipped build), then runs that app's own checks. With nothing
+   deployed, it finishes green with a notice instead.
+6. **Preview cleanup:** closing the pull request deletes any deployed app's
+   preview deployments.
 
 ## Swapping the application
 
-1. Replace what is under `apps/`, including `apps/CLAUDE.md`, each app's
-   `vercel.json` and `smoke.sh`, and the app skills in `apps/.claude/skills/`.
+1. Replace what is under `apps/`, including `apps/CLAUDE.md` and `smoke.sh`,
+   and the app skills in `apps/.claude/skills/`.
 2. Rewrite [`project.json`](project.json). Each app declares:
 
    | Field | Meaning |
@@ -101,12 +108,19 @@ flowchart LR
    | `path`, `toolchain` | Where it lives; `python` or `node`. |
    | `verify` | Its checks, run from its directory by `npm run verify`. |
    | `reads`, `ignores` | What its build reads, so unchanged builds are skipped. |
-   | `vercelProject`, `url`, `commitEndpoint` | For a deployed app: where it answers, and the endpoint reporting the commit it was built from. |
-   | `smoke` | Its post-deploy checks, a script inside the app. |
+   | `deploy` | Optional. `{ provider, team, project, url, commitEndpoint }` — where it answers and the endpoint reporting the commit it was built from. `npm run deploy:add` writes this for you. |
+   | `smoke` | Its post-deploy checks, a script inside the app, run when `deploy` is set. |
 
-3. **Rewrite [`docs/data-governance.md`](docs/data-governance.md)** before
-   deploying anything real. Its verdict applies to the current placeholder
-   apps, which serve no data at all, and any real application voids it.
+3. **To actually deploy an app**, run `npm run deploy:add -- vercel --app
+   <app> ...` (`scripts/deploy/add.mjs`). It writes the `deploy` block, drops
+   in that provider's `vercel.json` and `deployment` skill
+   (`scripts/deploy/vercel/template/`), and prints the steps that are yours:
+   creating the real Vercel project, turning off Deployment Protection's
+   Vercel Authentication, copying the real production URL, and adding
+   `VERCEL_TOKEN`.
+4. **Rewrite [`docs/data-governance.md`](docs/data-governance.md)** before
+   deploying anything real. Its verdict applies while nothing is deployed,
+   and any real deployment voids it.
 
 ## Documentation
 
@@ -118,15 +132,16 @@ flowchart LR
 | [`docs/data-governance.md`](docs/data-governance.md) | What is exposed, why, and what would change that. |
 | [`docs/adoption.md`](docs/adoption.md) | The adoption ladder being climbed. |
 
-The docs are also published at `/docs/` on the web deployment, and the API
-serves its own manual at its root.
+Nothing is deployed by default, so none of this is published anywhere today.
+`npm run deploy:add` is what would make the web app's `/docs/` and the API's
+own manual reachable, once there is a deployment for them to live on.
 
 ## Repository secrets
 
 | Secret | Used by |
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | The code and security reviews, and `@claude` in issues and PRs. |
-| `VERCEL_TOKEN` | Preview cleanup. Team-scoped; expires 2027-09-23. |
+| `VERCEL_TOKEN` | Preview cleanup, once `npm run deploy:add` adds a Vercel deployment. Not set today — nothing is deployed. Team-scoped; record its expiry here once it is added. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Merge notifications. |
 | `GRAFANA_CLOUD_OTLP_ENDPOINT`, `GRAFANA_CLOUD_OTLP_AUTH` | Telemetry from the Claude CI jobs ([`telemetry/`](telemetry/README.md)). |
 

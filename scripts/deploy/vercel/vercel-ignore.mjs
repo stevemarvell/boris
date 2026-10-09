@@ -1,11 +1,13 @@
 // Vercel's Ignored Build Step: skip a build when nothing it reads has changed.
 //
-// Both Vercel projects rebuilt on every push to every branch, whatever the
-// push touched — 100 deployments in the 30 hours before this existed, most of
-// them for pull requests that changed only .claude/ or .github/. Each
-// project's vercel.json runs this as its `ignoreCommand`:
+// Every Vercel project that deploys an app from this repository rebuilds on
+// every push to every branch, whatever the push touched, unless its own
+// vercel.json's `ignoreCommand` runs this:
 //
-//     node ../../scripts/vercel-ignore.mjs api|web
+//     node ../../scripts/deploy/vercel/vercel-ignore.mjs <app>
+//
+// (`npm run deploy:add -- vercel --app <app>` writes that vercel.json from
+// scripts/deploy/vercel/template/.)
 //
 // Vercel reads the exit code backwards from what you would guess: 0 means
 // *skip* the build, anything else means build. Every path through here that
@@ -26,9 +28,9 @@
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPathspecs, loadProject } from './project.mjs';
+import { buildPathspecs, loadProject } from '../../project.mjs';
 
-const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 
 // What each build reads comes from project.json: an app's `reads`
 // and `ignores`, plus the manifest and this script, which can change any

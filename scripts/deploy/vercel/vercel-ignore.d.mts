@@ -1,4 +1,4 @@
-import type { Project } from './project.mjs';
+import type { Project } from '../../project.mjs';
 
 export type Git = (args: string[]) => { status: number; stdout: string };
 export declare function forkPoint(git: Git): string | null;

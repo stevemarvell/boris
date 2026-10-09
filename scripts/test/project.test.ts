@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import {
   buildPathspecs,
   cli,
   deployed,
+  hasDeploy,
   loadProject,
   validate,
   verifiedPaths,
@@ -20,7 +21,6 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const minimal = (): Project => ({
   name: 'thing',
-  vercel: { team: 't' },
   apps: {
     svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] },
     ui: {
@@ -28,9 +28,7 @@ const minimal = (): Project => ({
       toolchain: 'node',
       reads: ['apps/ui', 'docs'],
       ignores: ['apps/ui/e2e', '**/*.test.ts'],
-      vercelProject: 'thing-ui',
-      url: 'https://thing.example',
-      commitEndpoint: '/version.json',
+      deploy: { provider: 'vercel', team: 't', project: 'thing-ui', url: 'https://thing.example', commitEndpoint: '/version.json' },
       smoke: 'apps/ui/smoke.sh',
     },
   },
@@ -73,6 +71,19 @@ describe('the committed project.json', () => {
       expect(ignoreCommand.endsWith(` ${deployedPaths.get(file)}`), file).toBe(true);
     }
   });
+
+  it('deploys nothing by default: this repository is a neutral base', () => {
+    expect(deployed(loadProject())).toEqual([]);
+    expect(hasDeploy(loadProject())).toBe(false);
+  });
+});
+
+describe('the --has-deploy CLI', () => {
+  it('prints false and exits non-zero against the committed project.json, which deploys nothing', () => {
+    const result = spawnSync('node', ['scripts/project.mjs', '--has-deploy'], { cwd: REPO_ROOT, encoding: 'utf8' });
+    expect(result.stdout.trim()).toBe('false');
+    expect(result.status).toBe(1);
+  });
 });
 
 describe('validate', () => {
@@ -81,8 +92,6 @@ describe('validate', () => {
   });
 
   it('names the field that is wrong', () => {
-    const noTeam = { ...minimal(), vercel: {} };
-    expect(() => validate(noTeam)).toThrow(/vercel\.team/);
     const badToolchain = minimal();
     (badToolchain.apps.svc as { toolchain: string }).toolchain = 'ruby';
     expect(() => validate(badToolchain)).toThrow(/apps\.svc\.toolchain/);
@@ -91,31 +100,46 @@ describe('validate', () => {
     expect(() => validate(absolute)).toThrow(/apps\.svc\.path/);
   });
 
-  it('refuses an empty Vercel project name', () => {
-    const empty = minimal();
-    empty.apps.ui!.vercelProject = '';
-    expect(() => validate(empty)).toThrow(/apps.ui.vercelProject/);
+  it('refuses an app with no deploy block at all: verify still runs it, nothing deploy-related touches it', () => {
+    expect(() => validate(minimal())).not.toThrow();
+    expect(deployed(minimal())).toEqual([['ui', minimal().apps.ui]]);
+    expect(deployed(minimal()).some(([name]) => name === 'svc')).toBe(false);
+  });
+
+  it('refuses an unknown deploy provider', () => {
+    const unknown = minimal();
+    unknown.apps.ui!.deploy!.provider = 'nope';
+    expect(() => validate(unknown)).toThrow(/apps\.ui\.deploy\.provider must be one of/);
+  });
+
+  it('refuses a deploy block that is not an object', () => {
+    const stray = minimal();
+    (stray.apps.svc as { deploy?: unknown }).deploy = 'vercel';
+    expect(() => validate(stray)).toThrow(/apps\.svc\.deploy must be an object/);
+  });
+
+  it('refuses an empty Vercel project name or team', () => {
+    const emptyProject = minimal();
+    emptyProject.apps.ui!.deploy!.project = '';
+    expect(() => validate(emptyProject)).toThrow(/apps\.ui\.deploy\.project/);
+    const emptyTeam = minimal();
+    emptyTeam.apps.ui!.deploy!.team = '';
+    expect(() => validate(emptyTeam)).toThrow(/apps\.ui\.deploy\.team/);
   });
 
   it('requires a deployed app to say where it answers and how it reports its commit', () => {
     const noUrl = minimal();
-    delete noUrl.apps.ui!.url;
-    expect(() => validate(noUrl)).toThrow(/apps\.ui\.url/);
+    delete (noUrl.apps.ui!.deploy as { url?: string }).url;
+    expect(() => validate(noUrl)).toThrow(/apps\.ui\.deploy\.url/);
     const withPath = minimal();
-    withPath.apps.ui!.url = 'https://thing.example/app';
+    withPath.apps.ui!.deploy!.url = 'https://thing.example/app';
     expect(() => validate(withPath)).toThrow(/https origin with no path/);
     const plain = minimal();
-    plain.apps.ui!.url = 'http://thing.example';
-    expect(() => validate(plain)).toThrow(/apps\.ui\.url/);
+    plain.apps.ui!.deploy!.url = 'http://thing.example';
+    expect(() => validate(plain)).toThrow(/apps\.ui\.deploy\.url/);
     const relative = minimal();
-    relative.apps.ui!.commitEndpoint = 'version.json';
-    expect(() => validate(relative)).toThrow(/apps\.ui\.commitEndpoint/);
-  });
-
-  it('refuses deployment fields on an app that is not deployed', () => {
-    const stray = minimal();
-    stray.apps.svc!.url = 'https://svc.example';
-    expect(() => validate(stray)).toThrow(/without a vercelProject/);
+    relative.apps.ui!.deploy!.commitEndpoint = 'version.json';
+    expect(() => validate(relative)).toThrow(/apps\.ui\.deploy\.commitEndpoint/);
   });
 
   it("keeps an app's smoke script inside that app, however the path is spelled", () => {
@@ -172,16 +196,20 @@ describe('appFor', () => {
 });
 
 describe('buildPathspecs', () => {
-  it("is the app's reads, the manifest and the ignore script, minus its ignores", () => {
+  it("is the app's reads, the manifest and its provider's ignore script, minus its ignores", () => {
     expect(buildPathspecs(minimal(), 'ui')).toEqual([
       'apps/ui',
       'docs',
       'project.json',
       'scripts/project.mjs',
-      'scripts/vercel-ignore.mjs',
+      'scripts/deploy/vercel/vercel-ignore.mjs',
       ':(exclude)apps/ui/e2e',
       ':(exclude,glob)**/*.test.ts',
     ]);
+  });
+
+  it('excludes the ignore script for an app with no deploy block: there is no ignore step to be wrong about', () => {
+    expect(buildPathspecs(minimal(), 'svc')).toEqual(['apps/svc', 'project.json', 'scripts/project.mjs']);
   });
 
   it('is null for an app that is not declared', () => {
@@ -223,8 +251,8 @@ describe('cli', () => {
 describe('the AI layer names no application', () => {
   it('has no app path, project name or hostname in the code this issue moved behind the manifest', () => {
     const files = [
-      'scripts/vercel-ignore.mjs',
-      'scripts/vercel-prune.mjs',
+      'scripts/deploy/vercel/vercel-ignore.mjs',
+      'scripts/deploy/vercel/vercel-prune.mjs',
       'scripts/bootstrap.mjs',
       'scripts/smoke.mjs',
       '.github/workflows/smoke.yml',
@@ -236,8 +264,7 @@ describe('the AI layer names no application', () => {
     const project = loadProject();
     const names = [
       project.name,
-      project.vercel.team,
-      ...apps(project).flatMap(([, app]) => [app.path, app.vercelProject, app.url].filter(Boolean)),
+      ...apps(project).flatMap(([, app]) => [app.path, app.deploy?.team, app.deploy?.project, app.deploy?.url].filter(Boolean)),
       'vercel.app',
     ] as string[];
     for (const file of files) {

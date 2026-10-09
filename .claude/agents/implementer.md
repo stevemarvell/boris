@@ -46,7 +46,7 @@ less than they claimed to, each with a green test suite at the time. SOP 3 in
 
 So: **a passing test is not evidence that a control works.** If your change
 adds or alters anything that is supposed to *prevent* something, exercise it
-where it runs. Each deployed app's production URL is its `url` in
+where it runs. Each deployed app's production URL is its `deploy.url` in
 `project.json`; a change to an app has its own Vercel preview too, at that
 pull request's branch alias (the `deployment` skill has the shape) — find or
 confirm the exact URL rather than guessing the slug. Put the real output in the pull request body.

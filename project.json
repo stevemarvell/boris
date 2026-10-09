@@ -1,9 +1,6 @@
 {
-  "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape.",
+  "$comment": "The one place the AI layer (.claude/, scripts/, .github/) learns about the application. Swap the app by editing apps/ and this file. scripts/project.mjs reads and validates it; its tests pin the shape. Nothing here is deployed by default; `npm run deploy:add` adds an app's `deploy` block.",
   "name": "boris",
-  "vercel": {
-    "team": "stevemarvell-team"
-  },
   "apps": {
     "api": {
       "path": "apps/api",
@@ -12,9 +9,6 @@
         "uv run ruff check .",
         "uv run pytest -q"
       ],
-      "vercelProject": "family-tree-api",
-      "url": "https://family-tree-api-stevemarvell-team.vercel.app",
-      "commitEndpoint": "/health",
       "smoke": "apps/api/smoke.sh",
       "reads": ["apps/api"],
       "ignores": [
@@ -31,9 +25,6 @@
         "npm run build",
         "npm run e2e"
       ],
-      "vercelProject": "family-tree-web",
-      "url": "https://family-tree-web-eta.vercel.app",
-      "commitEndpoint": "/docs/version.json",
       "smoke": "apps/web/smoke.sh",
       "reads": [
         "apps/web",

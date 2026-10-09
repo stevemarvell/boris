@@ -4,7 +4,6 @@ import { plan, run, type Step } from '../verify-apps.mjs';
 
 const project = (): Project => ({
   name: 'thing',
-  vercel: { team: 't' },
   apps: {
     back: { path: 'apps/back', toolchain: 'python', verify: ['uv run ruff check .', 'uv run pytest -q'], reads: ['apps/back'] },
     front: { path: 'apps/front', toolchain: 'node', verify: ['npm test'], reads: ['apps/front'] },

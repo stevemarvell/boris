@@ -1,10 +1,9 @@
-// This repository used to be the family tree application, and before that
-// nothing stopped its own name leaking into places a template has to be
-// neutral about. Both leave a trail: a hardcoded "boris" or "family-tree"
-// in a file that should have named nothing, or should have read
-// project.json instead. This test is that trail's detector, run as `git
-// grep` sees the repository rather than as a list anyone has to remember to
-// update by hand.
+// Nothing a template has to stay neutral about should be hardcoded anywhere
+// in it: not this repository's own name, not an application it once ran, not
+// a platform it once deployed to. Each leaves a trail wherever it leaks into
+// a file that should have named nothing, or should have read project.json
+// instead. This test is that trail's detector, run as `git grep` sees the
+// repository rather than as a list anyone has to remember to update by hand.
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { ROOT } from '../project.mjs';
@@ -16,12 +15,11 @@ interface Allowed {
 }
 
 /**
- * Every line this repository is allowed to still say "boris" or
- * "family-tree" on, and why. Matched by file and the line's own content,
- * never by line number — a reflow elsewhere in the file must not widen what
- * an entry hides. Keep this to exactly the lines that need it: a glob or a
- * whole-file entry here is the same shape of inert control this test exists
- * to catch everywhere else.
+ * Every line this repository is allowed to still say one of NAMES on, and
+ * why. Matched by file and the line's own content, never by line number — a
+ * reflow elsewhere in the file must not widen what an entry hides. Keep this
+ * to exactly the lines that need it: a glob or a whole-file entry here is
+ * the same shape of inert control this test exists to catch everywhere else.
  */
 const ALLOW: Allowed[] = [
   // The adoption ladder preserves the source document's own wording,
@@ -81,25 +79,27 @@ const ALLOW: Allowed[] = [
   { file: 'telemetry/grafana/provisioning/dashboards/dashboards.yml', pattern: /name: boris/, because: 'Grafana provisioning naming, out of this issue\'s scope' },
   { file: 'telemetry/grafana/provisioning/datasources/prometheus.yml', pattern: /uid: boris-prometheus/, because: 'Grafana datasource naming, out of this issue\'s scope' },
 
-  // #210 rewrites the deployment wiring. Its family-tree-named Vercel
-  // projects and URLs are left exactly as this issue's brief says to.
-  { file: 'project.json', pattern: /"vercelProject": "family-tree-(api|web)"/, because: 'removed by #210' },
-  { file: 'project.json', pattern: /"url": "https:\/\/family-tree-(api|web)[^"]*"/, because: 'removed by #210' },
-  { file: 'apps/CLAUDE.md', pattern: /family-tree-(api|web)/, because: 'removed by #210' },
-  { file: 'apps/.claude/skills/deployment/SKILL.md', pattern: /family-tree-api/, because: 'removed by #210' },
-  { file: 'docs/data-governance.md', pattern: /family-tree-(api|web)/, because: 'removed by #210' },
+  // #201 (human-owned: a Railway API token) is the only place this
+  // repository still names that platform — a Bash permission entry, not
+  // code, and not this issue's to touch.
+  { file: '.claude/settings.json', pattern: /Bash\(railway up\*\)/, because: 'removed by #201' },
 ];
 
+// Every name this repository has to stay neutral about, and that has leaked
+// in before: its own, an application it once ran, and a platform it once
+// deployed to.
+const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog', 'railway', 'vsme'];
+
 /**
- * `git grep -i -n -e boris -e family-tree` at the repository root, parsed
+ * `git grep -i -n` for every name in NAMES, at the repository root, parsed
  * into `{file, line, content}`. Excludes this file itself: a detector that
- * has to spell out both words, in patterns and in comments explaining them,
+ * has to spell every name out, in patterns and in comments explaining them,
  * cannot also be a hit against its own rule.
  */
 function grepHits() {
   const result = spawnSync(
     'git',
-    ['grep', '-i', '-n', '-e', 'boris', '-e', 'family-tree', '--', '.', ':(exclude)scripts/test/identity.test.ts'],
+    ['grep', '-i', '-n', ...NAMES.flatMap((name) => ['-e', name]), '--', '.', ':(exclude)scripts/test/identity.test.ts'],
     { cwd: ROOT, encoding: 'utf8' },
   );
   // Exit code 1 means no matches, which is a valid (if surprising) outcome
@@ -118,7 +118,7 @@ function grepHits() {
     });
 }
 
-describe('no leftover "boris" or "family-tree" outside the allowlist', () => {
+describe('no leftover name from NAMES outside the allowlist', () => {
   const hits = grepHits();
 
   it('finds at least one hit, so an empty result is not read as a pass', () => {
