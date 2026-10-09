@@ -54,6 +54,11 @@ const ALLOW: Allowed[] = [
   { file: 'README.md', pattern: /^# boris$/, because: "this repository's own name" },
   { file: 'README.md', pattern: /Boris Cherny/, because: "the adoption ladder's author" },
   {
+    file: 'scripts/labels.mjs',
+    pattern: /Every repository built from boris/,
+    because: 'naming boris as the master, the same convention sync-ai-layer documents',
+  },
+  {
     file: 'docs/data-governance.md',
     pattern: /stevemarvell\.github\.io\/boris/,
     because: 'the actual GitHub Pages URL for this repository',
@@ -85,12 +90,18 @@ const ALLOW: Allowed[] = [
   { file: 'docs/data-governance.md', pattern: /family-tree-(api|web)/, because: 'removed by #210' },
 ];
 
-/** `git grep -i -n -e boris -e family-tree` at the repository root, parsed into `{file, line, content}`. */
+/**
+ * `git grep -i -n -e boris -e family-tree` at the repository root, parsed
+ * into `{file, line, content}`. Excludes this file itself: a detector that
+ * has to spell out both words, in patterns and in comments explaining them,
+ * cannot also be a hit against its own rule.
+ */
 function grepHits() {
-  const result = spawnSync('git', ['grep', '-i', '-n', '-e', 'boris', '-e', 'family-tree', '--', '.'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
+  const result = spawnSync(
+    'git',
+    ['grep', '-i', '-n', '-e', 'boris', '-e', 'family-tree', '--', '.', ':(exclude)scripts/test/identity.test.ts'],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
   // Exit code 1 means no matches, which is a valid (if surprising) outcome
   // here, not a failure of the command itself.
   if (result.status !== 0 && result.status !== 1) {
