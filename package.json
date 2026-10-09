@@ -13,7 +13,8 @@
     "verify": "npm run verify:harness && npm run verify:apps",
     "verify:harness": "tsc -p scripts/test && eslint --config scripts/test/eslint.config.mjs scripts/test && vitest run --root scripts/test",
     "verify:apps": "node scripts/verify-apps.mjs",
-    "bootstrap": "node scripts/bootstrap.mjs"
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "labels": "node scripts/labels.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
