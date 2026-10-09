@@ -17,8 +17,8 @@ Copied verbatim, every file:
 - `.claude/agents/`, `.claude/commands/`, `.claude/hooks/`, `.claude/skills/`,
   `.claude/statusline.mjs`, `.claude/statusline.d.mts`
 - `docs/sops.md`
-- `scripts/*.mjs`, `scripts/*.d.mts`, and `scripts/test/` — including
-  `scripts/labels.mjs`
+- `scripts/*.mjs`, `scripts/*.d.mts`, `scripts/deploy/`, and `scripts/test/` —
+  including `scripts/labels.mjs`
 - `labels.json` at the repository root: the one source of truth for label
   names, colours and descriptions, applied by `scripts/labels.mjs`
 - `.github/workflows/`, except anything that names a repository or project

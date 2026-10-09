@@ -1,6 +1,6 @@
-// Add deployment to an app that doesn't have any. boris's default is
+// Add deployment to an app that doesn't have any. This base's default is
 // nothing deployed (project.json has no `deploy` block anywhere); this is
-// how a project built from boris opts one app at a time into a provider.
+// how a repository built from it opts one app at a time into a provider.
 //
 // Usage:
 //     npm run deploy:add -- vercel --app <app> [--team T --project P --url U --commit-endpoint /x]
@@ -103,7 +103,10 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, r
   const placeholders = { app, ...values };
   const appDir = join(root, target.path);
   mkdirSync(appDir, { recursive: true });
-  writeFileSync(join(appDir, 'vercel.json'), renderTemplate(readFileSync(join(templateDir, 'vercel.json'), 'utf8'), placeholders));
+  writeFileSync(
+    join(appDir, 'vercel.json'),
+    renderTemplate(readFileSync(join(templateDir, 'vercel.template.json'), 'utf8'), placeholders),
+  );
 
   const skillDir = join(root, 'apps/.claude/skills/deployment');
   mkdirSync(skillDir, { recursive: true });

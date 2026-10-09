@@ -81,6 +81,6 @@ age), and deletes nothing if the alias lookup fails. `docs/data-governance.md`
 should say why the token is safe to hold once this app serves anything real.
 
 This is not automatically a non-exposure: `docs/data-governance.md`'s
-decision about open previews was written for the placeholder shells boris
-ships with. Revisit it for whatever `<app>` actually serves before relying
-on it.
+decision about open previews was written for the placeholder shells this
+base ships with. Revisit it for whatever `<app>` actually serves before
+relying on it.
