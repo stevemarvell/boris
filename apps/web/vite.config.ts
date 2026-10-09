@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vitest/config';
+import { substituteAppName } from './scripts/app-name.mjs';
 
 // apps/web/vite.config.ts -> the repository root, two directories up.
 const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -17,7 +18,7 @@ function htmlAppName(): Plugin {
   return {
     name: 'html-app-name',
     transformIndexHtml(html) {
-      return html.replace(/%APP_NAME%/g, APP_NAME);
+      return substituteAppName(html, APP_NAME);
     },
   };
 }
