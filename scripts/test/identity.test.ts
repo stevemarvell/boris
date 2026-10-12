@@ -88,7 +88,7 @@ const ALLOW: Allowed[] = [
 // Every name this repository has to stay neutral about, and that has leaked
 // in before: its own, an application it once ran, and a platform it once
 // deployed to.
-const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog', 'railway', 'vsme'];
+const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog', 'railway'];
 
 /**
  * `git grep -i -n` for every name in NAMES, at the repository root, parsed

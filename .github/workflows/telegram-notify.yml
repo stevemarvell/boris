@@ -17,30 +17,34 @@ on:
     types: [closed]
 
 jobs:
-  notify:
+  # Whether project.json declares anything deployed, read on its own: no
+  # secret lives in this job's env, so it is safe to also run on a
+  # `pull_request` trigger where branch code (the checkout below) executes.
+  # The notify job below needs this one and only ever sees its output, never
+  # runs the checkout itself, which is the invariant worth keeping a separate
+  # job for.
+  check-deploy:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
-    # Read-only. The only reason this job touches the repository at all is to
-    # ask project.json whether anything is deployed, for the one line below
-    # that would otherwise claim a deploy that doesn't happen.
     permissions:
       contents: read
 
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    outputs:
+      has_deploy: ${{ steps.deploy.outputs.has-deploy }}
 
     steps:
+      # develop, explicitly — never the pull request's own ref — so the code
+      # that runs here is always this repository's, not whatever the PR
+      # branch contains.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         with:
+          ref: develop
           persist-credentials: false
 
       - name: Check whether anything is deployed
         id: deploy
-        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         run: |
           if node scripts/project.mjs --has-deploy; then
             echo "has-deploy=true" >> "$GITHUB_OUTPUT"
@@ -48,10 +52,25 @@ jobs:
             echo "has-deploy=false" >> "$GITHUB_OUTPUT"
           fi
 
+  notify:
+    needs: check-deploy
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # No checkout, and no permissions. This job reads the event payload and
+    # talks to Telegram; it has no business touching the repository.
+    permissions: {}
+
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
       - name: Send the merge notification
         if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         env:
-          HAS_DEPLOY: ${{ steps.deploy.outputs.has-deploy }}
+          HAS_DEPLOY: ${{ needs.check-deploy.outputs.has_deploy }}
           # Every one of these is attacker-controllable — a pull request title
           # is whatever the author typed. They are passed as environment
           # variables and never interpolated into the script below, because

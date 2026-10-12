@@ -55,13 +55,20 @@ export function parseArgs(argv) {
   return opts;
 }
 
-/** Fill in whatever wasn't given with an obvious placeholder, never a guess. */
-export function withPlaceholders({ team, project, url, commitEndpoint }) {
+/**
+ * Fill in whatever wasn't given from `existing` (the app's current `deploy`
+ * block, if it has one) and only then with an obvious placeholder, never a
+ * guess. This is what makes a partial re-run — passing only the one flag
+ * that changed — safe: the values nobody re-typed come from what's already
+ * in project.json, not from `<team>`-shaped placeholders overwriting real
+ * ones.
+ */
+export function withPlaceholders({ team, project, url, commitEndpoint, existing = {} }) {
   return {
-    team: team ?? '<team>',
-    project: project ?? '<project>',
-    url: url ?? 'https://<project>.vercel.app',
-    commitEndpoint: commitEndpoint ?? '/health',
+    team: team ?? existing.team ?? '<team>',
+    project: project ?? existing.project ?? '<project>',
+    url: url ?? existing.url ?? 'https://<project>.vercel.app',
+    commitEndpoint: commitEndpoint ?? existing.commitEndpoint ?? '/health',
   };
 }
 
@@ -94,7 +101,7 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, r
   const target = manifest.apps?.[app];
   if (!target) throw new Error(`no app named "${app}" in project.json`);
 
-  const values = withPlaceholders({ team, project, url, commitEndpoint });
+  const values = withPlaceholders({ team, project, url, commitEndpoint, existing: target.deploy ?? {} });
   target.deploy = { provider, ...values };
   validate(manifest); // throws, before anything is written, if the result is malformed
 

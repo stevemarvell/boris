@@ -46,6 +46,25 @@ describe('withPlaceholders', () => {
       commitEndpoint: '/h',
     });
   });
+
+  it('falls back to the existing values before reaching for a placeholder', () => {
+    const existing = { team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/h' };
+    expect(withPlaceholders({ commitEndpoint: '/health', existing })).toEqual({
+      team: 't',
+      project: 'p',
+      url: 'https://p.example',
+      commitEndpoint: '/health',
+    });
+  });
+
+  it('still falls back to a placeholder when existing has nothing for that key', () => {
+    expect(withPlaceholders({ team: 't', existing: {} })).toEqual({
+      team: 't',
+      project: '<project>',
+      url: 'https://<project>.vercel.app',
+      commitEndpoint: '/health',
+    });
+  });
 });
 
 describe('renderTemplate', () => {
@@ -125,6 +144,36 @@ describe('addDeploy', () => {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.apps.api.deploy.project).toBe('p2');
     expect(readFileSync(join(root, 'apps/api/vercel.json'), 'utf8')).not.toContain('p1');
+  });
+
+  it('a partial re-run keeps the real values it was not given, and only updates the flag it was', () => {
+    addDeploy({
+      provider: 'vercel',
+      app: 'api',
+      team: 'real-team',
+      project: 'real-project',
+      url: 'https://real-project.example',
+      commitEndpoint: '/old-health',
+      root,
+      manifestPath,
+    });
+
+    const { values } = addDeploy({ provider: 'vercel', app: 'api', commitEndpoint: '/health', root, manifestPath });
+
+    expect(values).toEqual({
+      team: 'real-team',
+      project: 'real-project',
+      url: 'https://real-project.example',
+      commitEndpoint: '/health',
+    });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    expect(manifest.apps.api.deploy).toEqual({
+      provider: 'vercel',
+      team: 'real-team',
+      project: 'real-project',
+      url: 'https://real-project.example',
+      commitEndpoint: '/health',
+    });
   });
 
   it('refuses an app project.json does not declare, before writing anything', () => {

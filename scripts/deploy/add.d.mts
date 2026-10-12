@@ -16,7 +16,7 @@ export interface AddDeployOptions {
 }
 
 export declare function parseArgs(argv: string[]): { provider: string; app: string } & Partial<DeployValues>;
-export declare function withPlaceholders(options: Partial<DeployValues>): DeployValues;
+export declare function withPlaceholders(options: Partial<DeployValues> & { existing?: Partial<DeployValues> }): DeployValues;
 export declare function renderTemplate(text: string, values: Record<string, string>): string;
 export declare function ownerSteps(options: { app: string; team: string; project: string }): string[];
 export declare function addDeploy(options: AddDeployOptions): { manifest: unknown; values: DeployValues };
