@@ -2,6 +2,7 @@ import type { Project } from './project.d.mts';
 
 export type RunResult = { status: number; stdout: string; stderr: string };
 export type Run = (cmd: string, args: string[]) => Promise<RunResult>;
+export type Spawn = (cmd: string, args: string[], options?: Record<string, unknown>) => { status: number | null };
 
 export interface CreateArgs {
   name: string;
@@ -72,6 +73,7 @@ export declare function needsTemplateIssue(openIssues: { labels?: string[] }[]):
 
 export declare function runCheck(options?: {
   repo?: string;
+  root?: string;
   dryRun?: boolean;
   skipVerify?: boolean;
   run?: Run;
@@ -81,5 +83,5 @@ export declare function runCheck(options?: {
 }): Promise<CheckResult>;
 
 export declare function ensureEmptyTarget(options: { run: Run; target: string }): Promise<{ exists: boolean }>;
-export declare function create(options: CreateArgs, deps?: { run?: Run }): Promise<CheckResult>;
+export declare function create(options: CreateArgs, deps?: { run?: Run; spawn?: Spawn }): Promise<number>;
 export declare function main(argv: string[]): Promise<number>;

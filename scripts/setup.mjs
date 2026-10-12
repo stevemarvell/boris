@@ -433,6 +433,7 @@ function runIdentityCensus() {
  */
 export async function runCheck({
   repo,
+  root = ROOT,
   dryRun = false,
   skipVerify = false,
   run = exec,
@@ -566,7 +567,7 @@ export async function runCheck({
   );
 
   // Deploy checks, one per app with a deploy block
-  const project = loadProject();
+  const project = loadProject(join(root, 'project.json'));
   const deployedApps = deployed(project);
   if (deployedApps.length === 0) {
     results.push({ mark: MARK.done, text: 'no app has a deploy block — nothing to check' });
@@ -591,7 +592,8 @@ export async function runCheck({
           ? { mark: MARK.done, text: 'VERCEL_TOKEN is set' }
           : { mark: MARK.owner, text: 'VERCEL_TOKEN is missing — add a team-scoped token before the next deploy' },
       );
-      const readme = existsSync('README.md') ? readFileSync('README.md', 'utf8') : '';
+      const readmePath = join(root, 'README.md');
+      const readme = existsSync(readmePath) ? readFileSync(readmePath, 'utf8') : '';
       const expiryRecorded = /VERCEL_TOKEN[^\n]*\d{4}-\d{2}-\d{2}/i.test(readme);
       results.push(
         expiryRecorded
@@ -659,10 +661,20 @@ export async function ensureEmptyTarget({ run, target }) {
  * above it (parseCreateArgs, preflight, renameIdentity and its parts) carry
  * this repository's own test coverage for it — the rest clones a few
  * hundred megabytes and pushes, which is the owner's call and not safe to
- * run from a test. `run` is injectable so a test can drive the guard above
- * without any of that.
+ * run from a test. `run` and `spawn` are both injectable, so a test can
+ * drive every step — including the final one below — without any of that.
+ *
+ * Returns `check`'s exit code, from the *clone's own copy* of this script,
+ * run as a separate process with `cwd: opts.dir`. It must not call
+ * `runCheck` in this process: this process's own `loadProject()`, the
+ * identity census, and the README read would all inspect this checkout —
+ * the base being cloned *from* — not the new repository `check` is meant to
+ * grade. A separate `node scripts/setup.mjs check` under the clone's own
+ * `cwd` resolves `project.json`, `README.md` and even `scripts/setup.mjs`
+ * itself from the clone, because that is where that process's own `ROOT`
+ * and relative reads land.
  */
-export async function create(opts, { run = exec } = {}) {
+export async function create(opts, { run = exec, spawn = spawnSync } = {}) {
   const results = await preflight({ run });
   const missing = missingPreflight(results);
   if (missing.length > 0) {
@@ -687,13 +699,13 @@ export async function create(opts, { run = exec } = {}) {
   const project = loadProject(join(opts.dir, 'project.json'));
   renameIdentity({ root: opts.dir, oldName: project.name, newName: opts.name, owner: opts.owner, project });
 
-  spawnSync('npx', ['npm@11', 'install'], { cwd: opts.dir, stdio: 'inherit' });
+  spawn('npx', ['npm@11', 'install'], { cwd: opts.dir, stdio: 'inherit' });
   for (const [, app] of apps(project, 'python')) {
-    spawnSync('uv', ['lock', '--directory', join(opts.dir, app.path)], { stdio: 'inherit' });
+    spawn('uv', ['lock', '--directory', join(opts.dir, app.path)], { stdio: 'inherit' });
   }
 
-  spawnSync('npm', ['run', 'bootstrap'], { cwd: opts.dir, stdio: 'inherit' });
-  const verify = spawnSync('npm', ['run', 'verify'], { cwd: opts.dir, stdio: 'inherit' });
+  spawn('npm', ['run', 'bootstrap'], { cwd: opts.dir, stdio: 'inherit' });
+  const verify = spawn('npm', ['run', 'verify'], { cwd: opts.dir, stdio: 'inherit' });
   if ((verify.status ?? 1) !== 0) throw new Error('setup create: npm run verify failed in the clone');
 
   await git(['add', '-A']);
@@ -702,7 +714,8 @@ export async function create(opts, { run = exec } = {}) {
   const push = await git(['push', '-u', 'origin', 'develop']);
   if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
 
-  return runCheck({ repo: target, run });
+  const check = spawn('node', ['scripts/setup.mjs', 'check'], { cwd: opts.dir, stdio: 'inherit' });
+  return check.status ?? 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -713,9 +726,10 @@ export async function main(argv) {
   const [command, ...rest] = argv;
   if (command === 'create') {
     const opts = parseCreateArgs(rest);
-    const result = await create(opts);
-    process.stdout.write(result.lines.join('\n') + '\n');
-    return result.exitCode;
+    // create() prints nothing of its own beyond here: every step's output,
+    // including the clone's own `check` at the end, is already streamed
+    // live via inherited stdio.
+    return await create(opts);
   }
   if (command === 'check') {
     const opts = parseCheckArgs(rest);

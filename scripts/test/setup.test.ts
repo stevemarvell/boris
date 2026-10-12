@@ -24,6 +24,7 @@ import {
   rewriteIdentityTestForClone,
   runCheck,
   type Run,
+  type Spawn,
 } from '../setup.mjs';
 import { ROOT } from '../project.mjs';
 
@@ -516,6 +517,53 @@ describe('runCheck', () => {
     const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.lines.some((l) => l.includes('work-backlog'))).toBe(true);
   });
+
+  it("reads project.json and README.md from the given root, not this repository's own", async () => {
+    // This is what create()'s own guard depends on: it must be possible to
+    // point runCheck at a clone without it quietly grading this checkout
+    // instead. A root with a deployed app and a real VERCEL_TOKEN expiry,
+    // where this repository's own project.json and README have neither,
+    // proves the read actually moved.
+    const root = mkdtempSync(join(tmpdir(), 'setup-root-'));
+    try {
+      writeFileSync(
+        join(root, 'project.json'),
+        JSON.stringify({
+          name: 'acme',
+          apps: {
+            web: {
+              path: 'apps/web',
+              toolchain: 'node',
+              reads: ['apps/web'],
+              deploy: { provider: 'vercel', team: 't', project: 'p', url: 'https://acme.example', commitEndpoint: '/health' },
+            },
+          },
+        }),
+      );
+      writeFileSync(join(root, 'README.md'), '| VERCEL_TOKEN | expires 2027-01-01 |\n');
+
+      const result = await runCheck({
+        run: run({
+          ...baseResponses,
+          'gh secret list': {
+            status: 0,
+            stdout: JSON.stringify([{ name: 'CLAUDE_CODE_OAUTH_TOKEN' }, { name: 'VERCEL_TOKEN' }]),
+            stderr: '',
+          },
+        }),
+        root,
+        skipVerify: true,
+        runIdentityTest: identityOk,
+        fetchUrl: async () => ({ status: 200, text: async () => 'hello' }) as unknown as Response,
+      });
+
+      expect(result.lines.some((l) => l.includes('web:') && l.includes('acme.example'))).toBe(true);
+      expect(result.lines.some((l) => l.includes("VERCEL_TOKEN's expiry is recorded"))).toBe(true);
+      expect(result.lines.some((l) => l.includes('no app has a deploy block'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('ensureEmptyTarget', () => {
@@ -653,5 +701,105 @@ describe('create', () => {
     );
     expect(calls.some((c) => c[0] === 'gh' && c[1] === 'repo' && c[2] === 'create')).toBe(true);
     expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
+  });
+
+  it("'s final step spawns the clone's own check, with cwd set to opts.dir, and returns its exit code", async () => {
+    // A real tmpdir standing in for "the clone": renameIdentity actually
+    // writes into it, so this exercises the whole pipeline up to (but not
+    // including) a real network clone or push, which `run` stubs out.
+    const dir = mkdtempSync(join(tmpdir(), 'setup-create-'));
+    try {
+      mkdirSync(join(dir, 'apps/api'), { recursive: true });
+      mkdirSync(join(dir, 'scripts/test'), { recursive: true });
+      for (const rel of TELEMETRY_FILES) mkdirSync(join(dir, rel, '..'), { recursive: true });
+
+      writeFileSync(
+        join(dir, 'project.json'),
+        JSON.stringify({ name: 'boris', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }),
+      );
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'boris', private: true }));
+      writeFileSync(join(dir, 'apps/api/pyproject.toml'), '[project]\nname = "api"\nversion = "0.1.0"\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[0]!), 'name: boris-telemetry\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[1]!), 'uid: boris-prometheus\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[2]!), '  - name: boris\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[3]!), '{"uid": "boris-claude-code", "tags": ["claude-code", "boris"]}\n');
+      writeFileSync(
+        join(dir, 'CLAUDE.md'),
+        ['# boris', '', '## Repository settings', '', 'Checked with `gh api repos/stevemarvell/boris`, not assumed:', '', '- a fact', ''].join(
+          '\n',
+        ),
+      );
+      writeFileSync(join(dir, 'scripts/test/identity.test.ts'), readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8'));
+
+      const target = 'acme-owner/acme';
+      const run: Run = async (cmd, args) => {
+        const key = `${cmd} ${args.join(' ')}`;
+        if (key === `gh repo view ${target} --json name`) return { status: 0, stdout: '{}', stderr: '' };
+        if (key === `gh repo view ${target} --json isEmpty`) return { status: 0, stdout: '{"isEmpty":true}', stderr: '' };
+        if (cmd === 'git' && args.includes('rev-parse')) return { status: 0, stdout: 'abc1234\n', stderr: '' };
+        return { status: 0, stdout: '', stderr: '' }; // clone, remote rename/set-url/add, add, commit, push
+      };
+
+      const spawnCalls: { cmd: string; args: string[]; options?: Record<string, unknown> }[] = [];
+      const spawn: Spawn = (cmd, args, options) => {
+        spawnCalls.push({ cmd, args, options });
+        return { status: 0 };
+      };
+
+      const exitCode = await create({ name: 'acme', owner: 'acme-owner', dir, public: false }, { run, spawn });
+
+      expect(exitCode).toBe(0);
+      const checkCall = spawnCalls.find((c) => c.cmd === 'node' && c.args[0] === 'scripts/setup.mjs' && c.args[1] === 'check');
+      expect(checkCall).toBeDefined();
+      expect(checkCall?.options?.cwd).toBe(dir);
+      expect(checkCall?.options?.stdio).toBe('inherit');
+
+      // And it is the clone's own copy run as a separate process, never
+      // this process's own runCheck inspecting this checkout.
+      expect(spawnCalls.filter((c) => c.cmd === 'node').length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('propagates a non-zero exit from the clone\'s own check', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'setup-create-'));
+    try {
+      mkdirSync(join(dir, 'apps/api'), { recursive: true });
+      mkdirSync(join(dir, 'scripts/test'), { recursive: true });
+      for (const rel of TELEMETRY_FILES) mkdirSync(join(dir, rel, '..'), { recursive: true });
+      writeFileSync(
+        join(dir, 'project.json'),
+        JSON.stringify({ name: 'boris', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }),
+      );
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'boris', private: true }));
+      writeFileSync(join(dir, 'apps/api/pyproject.toml'), '[project]\nname = "api"\nversion = "0.1.0"\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[0]!), 'name: boris-telemetry\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[1]!), 'uid: boris-prometheus\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[2]!), '  - name: boris\n');
+      writeFileSync(join(dir, TELEMETRY_FILES[3]!), '{"uid": "boris-claude-code", "tags": ["claude-code", "boris"]}\n');
+      writeFileSync(
+        join(dir, 'CLAUDE.md'),
+        ['# boris', '', '## Repository settings', '', 'Checked with `gh api repos/stevemarvell/boris`, not assumed:', '', '- a fact', ''].join(
+          '\n',
+        ),
+      );
+      writeFileSync(join(dir, 'scripts/test/identity.test.ts'), readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8'));
+
+      const target = 'acme-owner/acme';
+      const run: Run = async (cmd, args) => {
+        const key = `${cmd} ${args.join(' ')}`;
+        if (key === `gh repo view ${target} --json name`) return { status: 0, stdout: '{}', stderr: '' };
+        if (key === `gh repo view ${target} --json isEmpty`) return { status: 0, stdout: '{"isEmpty":true}', stderr: '' };
+        if (cmd === 'git' && args.includes('rev-parse')) return { status: 0, stdout: 'abc1234\n', stderr: '' };
+        return { status: 0, stdout: '', stderr: '' };
+      };
+      const spawn: Spawn = (cmd, args) => (cmd === 'node' && args[1] === 'check' ? { status: 1 } : { status: 0 });
+
+      const exitCode = await create({ name: 'acme', owner: 'acme-owner', dir, public: false }, { run, spawn });
+      expect(exitCode).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
