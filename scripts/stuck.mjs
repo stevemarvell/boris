@@ -37,7 +37,12 @@ export const MAX_MERGES_BEHIND = 2;
 
 export const WORKTREES_DIR = join(ROOT, '.claude', 'worktrees');
 
-const DEFAULT_LIMIT = 200;
+/**
+ * How many pull requests one `gh pr list` call will ask for. Generous on
+ * purpose: `allPullRequests` fails loudly rather than silently returning a
+ * partial list when the result actually reaches this many — see there.
+ */
+export const PR_FETCH_LIMIT = 500;
 
 const UNHEALTHY_MERGEABLE = new Set(['CONFLICTING', 'UNKNOWN']);
 
@@ -138,8 +143,19 @@ export async function worktreeList(run) {
 /**
  * Every pull request, open or closed, with the fields every finding below
  * needs — one `gh pr list --state all` call rather than one per branch.
+ *
+ * Deliberately **not** `gh api --paginate .../pulls`: the REST list endpoint
+ * does not carry `mergeable` at all (only a single-PR fetch does), and (c)
+ * needs it. `gh pr list --json` goes through the GraphQL API instead, which
+ * does carry it, and gh itself pages through that API to fill `--limit`.
+ *
+ * `limit` bounds the request, and a result that actually reaches it is not
+ * silently treated as the whole list — this is a diagnostic tool, and
+ * under-reporting "nothing stuck" because a list was truncated is worse
+ * than this call simply failing. Raise `limit`, or add real pagination
+ * here, rather than letting this check pass quietly on a partial list.
  */
-export async function allPullRequests(run, limit = DEFAULT_LIMIT) {
+export async function allPullRequests(run, limit = PR_FETCH_LIMIT) {
   const result = await run([
     'pr',
     'list',
@@ -151,7 +167,14 @@ export async function allPullRequests(run, limit = DEFAULT_LIMIT) {
     'number,title,state,headRefName,headRefOid,mergeable,statusCheckRollup',
   ]);
   if (result.status !== 0) throw new Error(`gh pr list failed: ${reason(result)}`);
-  return JSON.parse(result.stdout);
+  const prs = JSON.parse(result.stdout);
+  if (prs.length >= limit) {
+    throw new Error(
+      `gh pr list returned ${prs.length} pull requests, at the --limit of ${limit} — the listing may be truncated. ` +
+        'Raise PR_FETCH_LIMIT (or paginate) rather than let this check pass on a partial list.',
+    );
+  }
+  return prs;
 }
 
 /**
@@ -292,7 +315,14 @@ export async function find({
     const folder = join(dir, name);
     const entryCount = readDir(folder).length;
     const hasChanges = await gitStatus(folder);
-    untracked.push({ name, entryCount, hasChanges: hasChanges === true });
+    // Tri-state, kept all the way to rendering: `null` means `git status`
+    // itself failed — most likely because this folder, unregistered by
+    // `git worktree list`, is not a git checkout at all any more — and that
+    // is not the same thing as "checked, and clean". Collapsing it to
+    // `false` here previously turned "unknown" into a false claim of
+    // "no uncommitted changes", on exactly the folders this script exists
+    // to flag as unregistered.
+    untracked.push({ name, entryCount, hasChanges: hasChanges === null ? null : hasChanges === true });
   }
 
   const merged = mergedWorktrees(worktrees, prs);
@@ -324,9 +354,15 @@ export function renderFindings(findings) {
     );
   }
   for (const w of findings.untrackedWorktrees) {
-    const changes = w.hasChanges ? 'with uncommitted changes' : 'no uncommitted changes';
+    const entries = `${w.entryCount} entr${w.entryCount === 1 ? 'y' : 'ies'}`;
+    // Unknown (`git status` itself failed, most likely because this is not
+    // a git checkout any more) never gets the same "go ahead and remove"
+    // suggestion a known-clean folder gets — this is the one place that
+    // distinction has to survive to the actual words printed.
     lines.push(
-      `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${w.entryCount} entr${w.entryCount === 1 ? 'y' : 'ies'}, ${changes}) — inspect it, then remove the folder by hand.`,
+      w.hasChanges === null
+        ? `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${entries}, uncommitted changes: unknown — not a git checkout) — inspect before deleting.`
+        : `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${entries}, ${w.hasChanges ? 'with uncommitted changes' : 'no uncommitted changes'}) — inspect it, then remove the folder by hand.`,
     );
   }
   for (const w of findings.mergedWorktrees) {

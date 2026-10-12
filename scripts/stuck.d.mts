@@ -30,7 +30,8 @@ export interface Worktree {
 export interface UntrackedWorktree {
   name: string;
   entryCount: number;
-  hasChanges: boolean;
+  /** `null` means unknown — `git status` itself failed, most likely because this is not a git checkout any more. */
+  hasChanges: boolean | null;
 }
 
 export interface MergedWorktree {
@@ -55,6 +56,7 @@ export interface Findings {
 
 export declare const MAX_MERGES_BEHIND: number;
 export declare const WORKTREES_DIR: string;
+export declare const PR_FETCH_LIMIT: number;
 export declare function gh(args: string[]): Promise<RunResult>;
 export declare function git(args: string[]): Promise<RunResult>;
 export declare function localBranches(run: Run): Promise<string[]>;

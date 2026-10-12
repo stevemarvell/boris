@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_MERGES_BEHIND,
+  PR_FETCH_LIMIT,
   aheadCount,
   allPullRequests,
   behindMergeCount,
@@ -116,6 +117,34 @@ describe('allPullRequests', () => {
   it('throws with the injected stderr on failure', async () => {
     const run: Run = async () => ({ status: 1, stdout: '', stderr: 'HTTP 401' });
     await expect(allPullRequests(run)).rejects.toThrow(/HTTP 401/);
+  });
+
+  it('fails loudly rather than returning a silently truncated list when the result hits the limit', async () => {
+    const run: Run = async () => ({
+      status: 0,
+      stdout: JSON.stringify(Array.from({ length: 5 }, (_, i) => pr({ number: i + 1 }))),
+      stderr: '',
+    });
+    await expect(allPullRequests(run, 5)).rejects.toThrow(/truncated/);
+  });
+
+  it('does not throw when the result is comfortably under the limit', async () => {
+    const run: Run = async () => ({
+      status: 0,
+      stdout: JSON.stringify(Array.from({ length: 4 }, (_, i) => pr({ number: i + 1 }))),
+      stderr: '',
+    });
+    await expect(allPullRequests(run, 5)).resolves.toHaveLength(4);
+  });
+
+  it('uses PR_FETCH_LIMIT, which is comfortably above this repository\'s current pull request count, by default', async () => {
+    const calls: string[][] = [];
+    const run: Run = async (args) => {
+      calls.push(args);
+      return { status: 0, stdout: '[]', stderr: '' };
+    };
+    await allPullRequests(run);
+    expect(calls[0]).toContain(String(PR_FETCH_LIMIT));
   });
 });
 
@@ -299,6 +328,19 @@ describe('render / renderFindings', () => {
     expect(render(findings).trim().split('\n')).toHaveLength(5);
   });
 
+  it('reports an untracked folder with an unknown git status as unknown, and never suggests removing it', () => {
+    const findings = {
+      ...emptyFindings(),
+      untrackedWorktrees: [{ name: 'agent-leftover', entryCount: 3, hasChanges: null }],
+    };
+    const [line] = renderFindings(findings);
+    expect(line).toContain('agent-leftover');
+    expect(line).toContain('3 entries');
+    expect(line).toContain('unknown');
+    expect(line).toContain('not a git checkout');
+    expect(line).not.toContain('remove the folder by hand');
+  });
+
   it('never suggests deleting or removing anything itself: it only reports', () => {
     const findings = {
       orphanedBranches: [{ name: 'feat/orphan', ahead: 2, where: 'local' }],
@@ -380,6 +422,22 @@ describe('find', () => {
     const fakeGh: Run = async () => ({ status: 0, stdout: '[]', stderr: '' });
     const findings = await find({ gh: fakeGh, git: fakeGit, readDir: () => [], gitStatus: async () => false });
     expect(isEmpty(findings)).toBe(true);
+  });
+
+  it('keeps an untracked folder\'s git status as unknown end to end, when `git status` itself fails there', async () => {
+    const fakeGit: Run = async (args) => {
+      if (args[0] === 'for-each-ref') return { status: 0, stdout: '', stderr: '' };
+      if (args[0] === 'worktree') return { status: 0, stdout: 'worktree /repo\nbranch refs/heads/develop\n', stderr: '' };
+      return { status: 0, stdout: '0\n', stderr: '' };
+    };
+    const fakeGh: Run = async () => ({ status: 0, stdout: '[]', stderr: '' });
+    const readDir = (dir: string) => (dir.endsWith('worktrees') ? ['not-a-checkout'] : ['one.txt']);
+    // The real default `gitStatus` returns null exactly when `git status`
+    // itself fails — simulated here directly, the way a folder `git
+    // worktree list` no longer tracks is the likely real-world case.
+    const gitStatus = async () => null;
+    const findings = await find({ gh: fakeGh, git: fakeGit, readDir, gitStatus });
+    expect(findings.untrackedWorktrees).toEqual([{ name: 'not-a-checkout', entryCount: 1, hasChanges: null }]);
   });
 });
 
