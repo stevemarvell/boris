@@ -49,6 +49,7 @@ put an app on Vercel.
 Needs Node 22, [uv](https://docs.astral.sh/uv/) and Python 3.12.
 
 ```bash
+gh repo clone stevemarvell/boris     # or: npm run setup -- create --name <n> --owner <o>
 npm run bootstrap     # npm ci, uv sync per Python app, Playwright, the LSP servers
 npm run verify        # the whole contract: the AI layer's tests, then every app's checks
 npm run dev           # the web app on http://localhost:5173

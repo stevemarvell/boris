@@ -15,7 +15,8 @@
     "verify:apps": "node scripts/verify-apps.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
     "labels": "node scripts/labels.mjs",
-    "deploy:add": "node scripts/deploy/add.mjs"
+    "deploy:add": "node scripts/deploy/add.mjs",
+    "setup": "node scripts/setup.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
