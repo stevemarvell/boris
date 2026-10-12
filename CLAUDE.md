@@ -170,6 +170,13 @@ Checked with `gh api repos/stevemarvell/boris`, not assumed:
 
 ## Deployments and documentation
 
-What deploys where, and how the published docs are built, is application
-knowledge: `apps/CLAUDE.md`, and the `deployment` and `docs-site` skills in
-`apps/.claude/skills/`. The AI layer's view of it is `project.json`.
+Nothing is deployed by default — `project.json` has no app with a `deploy`
+block, and `npm run verify` is what keeps an undeployed app green.
+`npm run deploy:add -- vercel --app <app> ...` (`scripts/deploy/add.mjs`) adds
+one: it writes that app's `deploy` block, drops in the provider's template
+files (`scripts/deploy/vercel/template/`), and prints the steps that are a
+person's to do. What deploys where, once something does, is application
+knowledge: `apps/CLAUDE.md`, and the `docs-site` skill and (once added) the
+`deployment` skill in `apps/.claude/skills/`. The AI layer's view of it is
+`project.json`, read through `scripts/project.mjs`; provider code lives
+behind the registry in `scripts/deploy/index.mjs`.

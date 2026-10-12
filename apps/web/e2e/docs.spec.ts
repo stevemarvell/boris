@@ -41,7 +41,7 @@ test.describe('the docs Vercel serves', () => {
     await page.goto('/docs/data-governance.html');
     await expect(page.getByRole('heading', { name: 'Data governance' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'The trigger to revisit' })).toBeVisible();
-    await expect(page.locator('body')).toContainText('invented');
+    await expect(page.locator('body')).toContainText('deploy:add');
   });
 
   test('publishes the operating procedures', async ({ page }) => {

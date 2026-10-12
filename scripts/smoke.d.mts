@@ -19,6 +19,7 @@ export declare function waitForCommit(options: {
   log: (line: string) => void;
   attempts?: number;
 }): Promise<Result>;
+export declare function gateForEvent(eventName: string | undefined): boolean;
 export declare function smoke(options: {
   project: Project;
   sha: string | undefined;
@@ -27,4 +28,5 @@ export declare function smoke(options: {
   sleep: (ms: number) => Promise<void>;
   run: (script: string, urls: Record<string, string>) => number;
   log: (line: string) => void;
+  gate?: boolean;
 }): Promise<Result>;

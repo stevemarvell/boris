@@ -26,13 +26,16 @@ its own band; set `E2E_<NAME>_PORT` (e.g. `E2E_API_PORT`) to override one.
 
 ## Previews
 
-A branch gets a Vercel preview of each deployed app only when it changes what
-that app reads (`scripts/vercel-ignore.mjs`). Each app's preview is
+Nothing is deployed by default — `project.json` has no app with a `deploy`
+block until `npm run deploy:add` adds one — so by default a branch gets no
+preview at all. Once an app is deployed, a branch gets a Vercel preview of it
+only when it changes what that app reads
+(`scripts/deploy/vercel/vercel-ignore.mjs`). Each deployed app's preview is
 independent: nothing pairs a branch's web preview with its API preview, so
 which API a web preview calls is the application's business — its
-`deployment` skill under `apps/.claude/skills/` says. Vercel tears no preview
-down; the `preview-prune` workflow deletes a branch's previews when its pull
-request closes.
+`deployment` skill under `apps/.claude/skills/` says, once one exists. Vercel
+tears no preview down; the `preview-prune` workflow deletes a branch's
+previews when its pull request closes.
 
 ## Cleaning up
 

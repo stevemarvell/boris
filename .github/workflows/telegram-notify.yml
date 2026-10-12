@@ -1,8 +1,10 @@
 name: telegram-notify
 
-# One Telegram message per merged pull request. Merging is the moment that
-# matters here, because merging deploys — both Vercel projects move on a
-# push to develop — so this is the release notification, not a courtesy.
+# One Telegram message per merged pull request. Merging to develop is the
+# moment that matters here when something is actually deployed, because
+# merging then deploys it; when project.json declares nothing deployed —
+# this repository's own default — a merge to develop is just a merge, so the
+# message says so rather than claiming a deploy that doesn't happen.
 #
 # Needs two repository secrets:
 #   TELEGRAM_BOT_TOKEN  the bot that sends the message
@@ -15,7 +17,43 @@ on:
     types: [closed]
 
 jobs:
+  # Whether project.json declares anything deployed, read on its own: no
+  # secret lives in this job's env, so it is safe to also run on a
+  # `pull_request` trigger where branch code (the checkout below) executes.
+  # The notify job below needs this one and only ever sees its output, never
+  # runs the checkout itself, which is the invariant worth keeping a separate
+  # job for.
+  check-deploy:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    outputs:
+      has_deploy: ${{ steps.deploy.outputs.has-deploy }}
+
+    steps:
+      # develop, explicitly — never the pull request's own ref — so the code
+      # that runs here is always this repository's, not whatever the PR
+      # branch contains.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          persist-credentials: false
+
+      - name: Check whether anything is deployed
+        id: deploy
+        run: |
+          if node scripts/project.mjs --has-deploy; then
+            echo "has-deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   notify:
+    needs: check-deploy
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -32,6 +70,7 @@ jobs:
       - name: Send the merge notification
         if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         env:
+          HAS_DEPLOY: ${{ needs.check-deploy.outputs.has_deploy }}
           # Every one of these is attacker-controllable — a pull request title
           # is whatever the author typed. They are passed as environment
           # variables and never interpolated into the script below, because
@@ -63,9 +102,15 @@ jobs:
             "$PR_NUMBER" "$PR_BASE" "$PR_TITLE" "$PR_AUTHOR" \
             "$PR_FILES" "$PR_ADDITIONS" "$PR_DELETIONS" "$PR_URL")
 
-          # A merge to develop is a deployment, so say so.
+          # A merge to develop deploys only when something actually is;
+          # project.json's own answer (checked by the previous step) is what
+          # decides the wording, not just the branch.
           if [ "$PR_BASE" = "develop" ]; then
-            text=$(printf '%s\n\n%s' "$text" "Deploying. Smoke runs next.")
+            if [ "$HAS_DEPLOY" = "true" ]; then
+              text=$(printf '%s\n\n%s' "$text" "Deploying. Smoke runs next.")
+            else
+              text=$(printf '%s\n\n%s' "$text" "Nothing is deployed; no smoke run follows.")
+            fi
           fi
 
           # No --fail-with-body: Telegram answers 200 with ok:false for a bad

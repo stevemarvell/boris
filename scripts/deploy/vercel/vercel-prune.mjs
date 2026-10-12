@@ -5,11 +5,11 @@
 // `-git-<branch>-` alias outlive the merge and the branch (the `deployment`
 // skill has the measurement), and Deployment Retention is not on this plan.
 // .github/workflows/preview-prune.yml runs this with VERCEL_TOKEN, a token
-// scoped to the one team:
+// scoped to the one team the deployed apps name:
 //
-//     node scripts/vercel-prune.mjs branch <name>      # a pull request closed
-//     node scripts/vercel-prune.mjs stale <live-branches-file> [--dry-run]
-//     node scripts/vercel-prune.mjs history [--dry-run] # old production builds
+//     node scripts/deploy/vercel/vercel-prune.mjs branch <name>      # a pull request closed
+//     node scripts/deploy/vercel/vercel-prune.mjs stale <live-branches-file> [--dry-run]
+//     node scripts/deploy/vercel/vercel-prune.mjs history [--dry-run] # old production builds
 //
 // `branch` deletes that branch's previews. `stale` deletes every preview whose
 // branch is not in the file — the branches that still exist on origin — which
@@ -39,15 +39,23 @@
 // workflow defaults it to --dry-run.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deployed, loadProject } from './project.mjs';
+import { deployed, loadProject } from '../../project.mjs';
 
-// Which team and projects, from project.json: every app that names a
-// vercelProject.
+// Every app deployed to Vercel, from project.json: an app whose `deploy`
+// block names this provider.
 const PROJECT = loadProject();
-export const TEAM = PROJECT.vercel.team;
-export const PROJECTS = deployed(PROJECT).map(([, app]) => app.vercelProject);
+const VERCEL_APPS = deployed(PROJECT).filter(([, app]) => app.deploy.provider === 'vercel');
+
+// All of them have to share one team: a Vercel token is scoped to a team,
+// not a project, so there is exactly one TEAM to ask the API as.
+const TEAMS = new Set(VERCEL_APPS.map(([, app]) => app.deploy.team));
+if (TEAMS.size > 1) {
+  throw new Error(`vercel-prune.mjs: apps declare different Vercel teams (${[...TEAMS].join(', ')}); only one is supported`);
+}
+export const TEAM = [...TEAMS][0];
+export const PROJECTS = VERCEL_APPS.map(([, app]) => app.deploy.project);
 /** Each deployed app's Vercel project and the host its production alias answers on. */
-export const TARGETS = deployed(PROJECT).map(([, app]) => ({ project: app.vercelProject, host: new URL(app.url).host }));
+export const TARGETS = VERCEL_APPS.map(([, app]) => ({ project: app.deploy.project, host: new URL(app.deploy.url).host }));
 /** Built production deployments kept, newest first, for instant rollback; the live one is always kept too. */
 export const KEEP_PRODUCTION = 3;
 /** States a deployment is finished in; anything else is still in flight. */

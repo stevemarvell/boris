@@ -9,9 +9,29 @@ name: smoke
 # gate — the deployment is this commit, or one whose inputs match — and then
 # runs the checks that app owns (its `smoke` script, e.g. apps/api/smoke.sh).
 # Why the gate exists, and why each app's checks retry, is written there.
+#
+# This repository's own default is nothing deployed. This still runs — a
+# project with no deployment gets every workflow green, not a red one it has
+# to learn to ignore — but `node scripts/project.mjs --has-deploy` (exit code
+# 0 iff something is) gates the one step that would otherwise have nothing to
+# check against zero deployed apps.
+#
+# The schedule below is an uptime check: the same workflow, run against
+# whatever is live in production rather than waiting for a new commit. On
+# that trigger scripts/smoke.mjs skips the freshness gate (gateForEvent) and
+# checks whatever is currently deployed, still reporting which commit it
+# found. A manual dispatch behaves the same way, for the same reason: neither
+# names a commit the deployment is expected to match. Only a push does. It
+# costs nothing while nothing is deployed, since the check below is a no-op.
 on:
   push:
     branches: [develop]
+  schedule:
+    # Every 3 hours, offset from the hour so it doesn't pile onto :00 with
+    # everyone else's crons. The cadence is a deliberate cost decision
+    # against the repository's shared Actions minutes once something is
+    # actually deployed; it costs nothing while nothing is.
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 
 jobs:
@@ -31,5 +51,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check whether anything is deployed
+        id: deploy
+        run: |
+          if node scripts/project.mjs --has-deploy; then
+            echo "has-deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Gate and check every deployed app
+        if: steps.deploy.outputs.has-deploy == 'true'
         run: node scripts/smoke.mjs
+
+      - name: Nothing is deployed
+        if: steps.deploy.outputs.has-deploy != 'true'
+        run: echo "::notice::project.json declares nothing deployed; smoke has nothing to check."

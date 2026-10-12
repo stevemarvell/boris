@@ -167,7 +167,7 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
 
   // The commit this build is of, for smoke.yml's web freshness gate — the web
   // counterpart of the API's /health `commit`. Vercel's ignore step can skip a
-  // web build (scripts/vercel-ignore.mjs), so "is the deployed bundle one
+  // web build (scripts/deploy/vercel/vercel-ignore.mjs), so "is the deployed bundle one
   // whose inputs match this commit's?" needs something to ask. Empty outside
   // Vercel, where there is no deployment to ask about.
   const commit = env['VERCEL_GIT_COMMIT_SHA'] ?? '';

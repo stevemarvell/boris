@@ -2,7 +2,7 @@
 //
 // Everything under .claude/, scripts/ and .github/ that needs to know what
 // the application is — where its apps live, what toolchain each uses, what a
-// build reads, which Vercel project deploys it, where it answers and how to
+// build reads, whether and where it deploys, where it answers and how to
 // smoke-test it — asks
 // this module, which reads project.json at the repository root. Swapping in
 // another application means editing apps/ and project.json; nothing here
@@ -12,9 +12,15 @@
 // that reads it, loudly, rather than turning into a build that silently never
 // happens. A field is added when something reads it, not before.
 //
+// Deployment is an add-on, not the default: an app with no `deploy` block is
+// "not deployed" — `verify` still runs it, and everything deploy-related
+// (smoke, preview-prune, the ignore step) skips it. `npm run deploy:add`
+// (scripts/deploy/add.mjs) is how a `deploy` block gets added.
+//
 // CLI, for workflows and shells:
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
+//     node scripts/project.mjs --has-deploy       # true/false; exit 0 iff true
 import { readFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +34,14 @@ export const MANIFEST = join(ROOT, 'project.json');
 export const HARNESS_CODE = ['scripts', '.claude/hooks', '.claude/statusline.mjs', 'project.json'];
 
 const TOOLCHAINS = new Set(['python', 'node']);
+
+// Every deploy provider this layer knows, and the ignore script each one's
+// build-skip decision lives behind. scripts/deploy/index.mjs is the registry
+// that maps a provider name to its actual functions; this module only needs
+// to know a provider is real and which ignore script a change to it should
+// rebuild for — not how any of it works.
+const PROVIDER_IGNORE_SCRIPTS = { vercel: 'scripts/deploy/vercel/vercel-ignore.mjs' };
+const PROVIDERS = new Set(Object.keys(PROVIDER_IGNORE_SCRIPTS));
 
 /**
  * Whether `child` is strictly inside `parent`, both repository-relative. A
@@ -53,7 +67,6 @@ export function validate(project) {
   };
   if (!project || typeof project !== 'object') fail('is not an object');
   if (typeof project.name !== 'string' || !project.name) fail('"name" must be a non-empty string');
-  if (typeof project.vercel?.team !== 'string') fail('"vercel.team" must be a string');
   const apps = Object.entries(project.apps ?? {});
   if (apps.length === 0) fail('"apps" must declare at least one app');
   for (const [name, app] of apps) {
@@ -65,19 +78,23 @@ export function validate(project) {
     if (app.verify !== undefined && !(Array.isArray(app.verify) && app.verify.every((c) => typeof c === 'string' && c.trim()))) {
       fail(`${at}.verify must be a list of commands`);
     }
-    if (app.vercelProject !== undefined && (typeof app.vercelProject !== 'string' || !app.vercelProject)) {
-      fail(`${at}.vercelProject must be a non-empty string`);
-    }
-    // A deployed app must say where it answers and which endpoint reports the
-    // commit it was built from: smoke's freshness gate is what tells a
-    // deployment that happened from one that silently did not.
-    if (app.vercelProject !== undefined) {
-      if (typeof app.url !== 'string' || !/^https:\/\/[^/]+$/.test(app.url)) fail(`${at}.url must be an https origin with no path`);
-      if (typeof app.commitEndpoint !== 'string' || !app.commitEndpoint.startsWith('/')) {
-        fail(`${at}.commitEndpoint must be a path starting with /`);
+    // An app's `deploy` block is optional: without one, the app is "not
+    // deployed", and `verify` is the only thing that still runs it. With one,
+    // it has to say where it answers and which endpoint reports the commit it
+    // was built from — smoke's freshness gate is what tells a deployment that
+    // happened from one that silently did not.
+    if (app.deploy !== undefined) {
+      const deploy = app.deploy;
+      if (!deploy || typeof deploy !== 'object') fail(`${at}.deploy must be an object`);
+      if (!PROVIDERS.has(deploy.provider)) fail(`${at}.deploy.provider must be one of ${[...PROVIDERS].join(', ')}`);
+      if (typeof deploy.team !== 'string' || !deploy.team) fail(`${at}.deploy.team must be a non-empty string`);
+      if (typeof deploy.project !== 'string' || !deploy.project) fail(`${at}.deploy.project must be a non-empty string`);
+      if (typeof deploy.url !== 'string' || !/^https:\/\/[^/]+$/.test(deploy.url)) {
+        fail(`${at}.deploy.url must be an https origin with no path`);
       }
-    } else if (app.url !== undefined || app.commitEndpoint !== undefined) {
-      fail(`${at} sets url or commitEndpoint without a vercelProject`);
+      if (typeof deploy.commitEndpoint !== 'string' || !deploy.commitEndpoint.startsWith('/')) {
+        fail(`${at}.deploy.commitEndpoint must be a path starting with /`);
+      }
     }
     if (app.smoke !== undefined && !inside(app.path, app.smoke)) {
       fail(`${at}.smoke must be a script inside ${app.path}`);
@@ -95,9 +112,14 @@ export function apps(project, toolchain) {
   return Object.entries(project.apps).filter(([, app]) => !toolchain || app.toolchain === toolchain);
 }
 
-/** The apps Vercel deploys: those that name a vercelProject. */
+/** The apps that are deployed: those with a `deploy` block, whatever the provider. */
 export function deployed(project) {
-  return apps(project).filter(([, app]) => app.vercelProject);
+  return apps(project).filter(([, app]) => app.deploy);
+}
+
+/** Whether any app is deployed. What `--has-deploy` answers. */
+export function hasDeploy(project) {
+  return deployed(project).length > 0;
 }
 
 /** The app whose directory holds `relativePath`, or null. The deepest path wins. */
@@ -113,18 +135,21 @@ export function appFor(project, relativePath) {
 }
 
 /**
- * Git pathspecs for what a build of `name` reads. The manifest, this module
- * and the ignore script are always included: a change to any of them can
- * change what a build decides, so it rebuilds everything rather than guess.
+ * Git pathspecs for what a build of `name` reads. The manifest and this
+ * module are always included: a change to either can change what a build
+ * decides, so it rebuilds everything rather than guess. A deployed app's own
+ * provider ignore script is included too — not for an undeployed app, which
+ * has no ignore step to be wrong about.
  */
 export function buildPathspecs(project, name) {
   const app = project.apps[name];
   if (!app) return null;
+  const ignoreScript = app.deploy ? PROVIDER_IGNORE_SCRIPTS[app.deploy.provider] : undefined;
   return [
     ...app.reads,
     'project.json',
     'scripts/project.mjs',
-    'scripts/vercel-ignore.mjs',
+    ...(ignoreScript ? [ignoreScript] : []),
     ...(app.ignores ?? []).map((path) => (path.includes('*') ? `:(exclude,glob)${path}` : `:(exclude)${path}`)),
   ];
 }
@@ -142,12 +167,21 @@ export function verifiedPaths(project) {
 /** The CLI's answer as lines. Only subcommands something calls are here. */
 export function cli([command, ...args], project = loadProject()) {
   if (command === 'apps') return apps(project, args[0]).map(([, app]) => app.path);
-  throw new Error('usage: project.mjs apps [toolchain]');
+  throw new Error('usage: project.mjs apps [toolchain] | --has-deploy');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const argv = process.argv.slice(2);
+  // Its own path, ahead of cli(): a workflow step branches on this with
+  // `if node scripts/project.mjs --has-deploy; then …`, so the exit code is
+  // the contract, not just the printed word.
+  if (argv[0] === '--has-deploy') {
+    const has = hasDeploy(loadProject());
+    console.log(has ? 'true' : 'false');
+    process.exit(has ? 0 : 1);
+  }
   try {
-    process.stdout.write(cli(process.argv.slice(2)).join('\n') + '\n');
+    process.stdout.write(cli(argv).join('\n') + '\n');
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);

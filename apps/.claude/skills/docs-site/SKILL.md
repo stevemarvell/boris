@@ -1,25 +1,28 @@
 ---
 name: docs-site
-description: How this project's published documentation is built and served — what lives at /docs/ on Vercel, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, or the page list in apps/web/smoke.sh.
+description: How this project's documentation site is built, and what carries it once the web app is deployed — what lives at /docs/, and the files that must change together to add or remove a page. Read before editing docs/, apps/web/scripts/build-docs.mjs, scripts/markdown.mjs, or the page list in apps/web/smoke.sh.
 ---
 
 # The documentation site
 
 Adding one page touches six files. They are listed at the end; missing one
-means a page that builds locally and 404s on the deployment.
+means a page that builds locally and 404s wherever the web app is deployed.
 
 ## Documentation
 
-Everything this project publishes about itself is served by the web
-deployment. Nothing is hosted anywhere a private repository cannot reach.
+Everything this project publishes about itself builds into the web app's own
+bundle, at `/docs/`. It is reachable wherever that app is deployed —
+`npm run deploy:add` is what deploys it — and nowhere while it isn't; this
+repository's own default is nothing deployed. Nothing here is ever hosted
+anywhere a private repository cannot reach.
 
-| URL | Source | Carried by |
-| --- | --- | --- |
-| `/docs/` | `apps/web/scripts/build-docs.mjs` | Vercel |
-| `/docs/adoption.html` | `docs/adoption.md` | Vercel |
-| `/docs/data-governance.html` | `docs/data-governance.md` | Vercel |
-| `/docs/sops.html` | `docs/sops.md` | Vercel |
-| `/docs/step-0.html` | `index.html` | Vercel |
+| URL | Source |
+| --- | --- |
+| `/docs/` | `apps/web/scripts/build-docs.mjs` |
+| `/docs/adoption.html` | `docs/adoption.md` |
+| `/docs/data-governance.html` | `docs/data-governance.md` |
+| `/docs/sops.html` | `docs/sops.md` |
+| `/docs/step-0.html` | `index.html` |
 
 The web app's `prebuild` runs `apps/web/scripts/build-docs.mjs`, which renders the
 Markdown with `scripts/markdown.mjs` and writes `apps/web/public/docs/`. That

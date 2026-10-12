@@ -1,15 +1,14 @@
 # Data governance
 
-Everything this project deploys can be read by anyone who knows the URL. That
+Whatever this project deploys can be read by anyone who knows the URL. That
 is a decision rather than an oversight, and this page is the decision: what
 is exposed, why it is acceptable today, and the one fact that would change
 the answer.
 
-> Today's apps serve no data at all: a health check and this project's own
-> documentation. Nothing here needs authentication, because there is nothing
-> behind it to protect. The moment a real application replaces either
-> placeholder shell, this page has to be rewritten for what that application
-> actually exposes.
+> Nothing is deployed by default. `project.json` declares no app's `deploy`
+> block, so there is no URL for anyone to read — `npm run deploy:add` is what
+> adds one. The moment an app is actually deployed, this page has to be
+> rewritten for what it exposes.
 
 This is the *data governance* guardrail from step 0 of `docs/adoption.md`. It
 is written down so that it can be found and argued with, instead of being
@@ -24,36 +23,42 @@ for a written trigger.
 
 ## What is public
 
-With `curl`, sending no credentials, from outside every deployment:
+Nothing. `node scripts/project.mjs --has-deploy` says so, and anyone can run
+it: no app in `project.json` has a `deploy` block, so there is no URL `curl`
+could even be pointed at.
 
-| Request | Anonymous response |
-| --- | --- |
-| `GET family-tree-api-stevemarvell-team.vercel.app/health` | `200` — `{"ok":true,"commit":"<deployed sha>"}` |
-| `GET family-tree-web-eta.vercel.app/` | `200` — the placeholder shell |
-| `GET family-tree-web-eta.vercel.app/docs/` | `200` — the documentation, this page among it |
+This is not a decision in the same sense the rest of this page is: it is
+just the current, default state of a repository nothing has been deployed
+from yet. Once `npm run deploy:add` adds a real deployment, the table that
+used to live here — what's public, by request and response, measured with
+`curl` sending no credentials — has to come back, written against what that
+app actually serves.
 
-Vercel's preview deployments are open as well, and deliberately so: an agent
-reviewing a pull request has to be able to load one.
-
-So: a health check and a set of static documentation pages, to anyone.
+Vercel's preview deployments are open by design wherever anything is
+deployed through it: an agent reviewing a pull request has to be able to
+load one. That stays true the day deployment comes back, and is recorded
+here so it isn't re-discovered as a surprise.
 
 ## Why that is acceptable
 
-Neither app holds or serves any data. The API reports only whether it is up
-and which commit built it; the web app serves this repository's own
-documentation and shows no application. There is nothing here to protect,
-so there is nothing to authenticate.
+Nothing is exposed because nothing is deployed. There is nothing to protect,
+so there is nothing to authenticate. The moment that stops being true —
+`npm run deploy:add` run for real, against a real Vercel project — this
+section has to be rewritten for what the newly deployed app actually holds
+and serves, not left to describe a state that no longer exists.
 
 ## What is deliberately absent
 
-Authentication, a data store, and any endpoint that reads or writes anything
-beyond the deployed commit's own identity.
+Any deployment at all, by default. A project built from this one adds one
+deliberately, app by app, with `npm run deploy:add` — never by inheriting
+whatever the base repository happened to have running.
 
 ## The trigger to revisit
 
-Any real application replacing either shell. The moment `apps/` serves
-actual data — invented or real — this page has to be rewritten for what
-that application exposes, and the decision above stops holding by default.
+`npm run deploy:add` run for real — any app, even one of the placeholder
+shells `apps/` ships with today. The moment anything is actually deployed,
+this page has to be rewritten for what that app exposes, and the decision
+above stops holding by default.
 
 ## What CI holds, and what voids that
 
@@ -148,14 +153,18 @@ a job missing from the inventory is a job nobody remembers to fix.
 
 ### A fourth credential, held the other way round
 
-`.github/workflows/preview-prune.yml` holds `VERCEL_TOKEN`, scoped to the
-`stevemarvell-team` Vercel team, and deletes preview deployments: a branch's
-own when its pull request closes, and — run by hand — every preview whose
-branch no longer exists. It also trims production history (`history`): Vercel
-keeps a production deployment per merge, forever, and this keeps only the one
-serving each app — found from the app's alias, never inferred — and the newest
-few built ones; a built deployment newer than the live one, or one still building, is left, and cancelled or failed records, which never served, go. A Vercel token cannot be narrowed below the team, so
-the token could do anything the team can, including delete production.
+`.github/workflows/preview-prune.yml` holds `VERCEL_TOKEN`, scoped to whatever
+Vercel team a deployed app's `deploy.team` names, and deletes preview
+deployments: a branch's own when its pull request closes, and — run by hand —
+every preview whose branch no longer exists. It also trims production history
+(`history`): Vercel keeps a production deployment per merge, forever, and this
+keeps only the one serving each app — found from the app's alias, never
+inferred — and the newest few built ones; a built deployment newer than the
+live one, or one still building, is left, and cancelled or failed records,
+which never served, go. A Vercel token cannot be narrowed below the team, so
+the token could do anything the team can, including delete production. While
+`node scripts/project.mjs --has-deploy` says nothing is deployed, the job
+checks that first and does none of this.
 
 It is not in the class above, because no branch code runs beside it. The
 trigger is `pull_request_target`, so the workflow file is `develop`'s; the
@@ -163,7 +172,8 @@ checkout is `develop`, explicitly; and the pull request's branch name is the
 only thing read from it, passed through `env:` as data. Fork pull requests are
 skipped outright. So a second person with write access does not change this
 job — their branch cannot rewrite it or run in it. What bounds it instead is
-`scripts/vercel-prune.mjs` itself, reviewed on its way into `develop`: the
+`scripts/deploy/vercel/vercel-prune.mjs` itself, reviewed on its way into
+`develop`: the
 preview modes refuse production deployments and anything built from `develop`
 per deployment, whatever the query returned, and refuse an empty live-branch
 list rather than read it as "every preview is stale"; the `history` mode never
@@ -180,9 +190,11 @@ that no longer exists, including one pushed and deleted without a pull request
 ever being opened, whose commit nothing keeps. So that run is started by a
 person and defaults to a dry run that lists what it would delete.
 
-The token expires 2027-09-23. On that day the job fails loudly and nothing
-else is affected: deploys go through Vercel's Git integration, not this
-token.
+Whichever `VERCEL_TOKEN` is current — `npm run deploy:add`'s owner steps are
+what add one, and record its expiry in this file and README.md's secrets
+table — bounds this by that recorded date. On that day the job fails loudly
+and nothing else is affected: deploys go through Vercel's Git integration,
+not this token.
 
 ### The trigger
 

@@ -13,7 +13,7 @@ export type FetchJson = (
   url: string,
 ) => Promise<{ deployments: Deployment[]; pagination?: { next?: number | null }; deploymentId?: string }>;
 
-export declare const TEAM: string;
+export declare const TEAM: string | undefined;
 export declare const PROJECTS: string[];
 export declare const PRODUCTION_BRANCH: string;
 export declare const MAX_PAGES: number;
