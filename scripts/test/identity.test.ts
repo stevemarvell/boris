@@ -73,16 +73,33 @@ const ALLOW: Allowed[] = [
   { file: 'project.json', pattern: /"name": "boris"/, because: "this repository's own name, which project.json declares" },
 
   // telemetry/ is shared AI-layer infra naming, unrelated to the application
-  // this issue purges family-tree from, and not in its scope.
+  // and out of scope for identity work that isn't about telemetry itself.
   { file: 'telemetry/docker-compose.yml', pattern: /name: boris-telemetry/, because: 'local compose project namespace, out of this issue\'s scope' },
   { file: 'telemetry/grafana/dashboards/claude-code.json', pattern: /boris/, because: 'Grafana dashboard/datasource naming, out of this issue\'s scope' },
   { file: 'telemetry/grafana/provisioning/dashboards/dashboards.yml', pattern: /name: boris/, because: 'Grafana provisioning naming, out of this issue\'s scope' },
   { file: 'telemetry/grafana/provisioning/datasources/prometheus.yml', pattern: /uid: boris-prometheus/, because: 'Grafana datasource naming, out of this issue\'s scope' },
 
-  // #201 (human-owned: a Railway API token) is the only place this
-  // repository still names that platform — a Bash permission entry, not
+  // #201 (human-owned) is the only place this repository still names that
+  // platform — a dead Bash permission entry in .claude/settings.json, not
   // code, and not this issue's to touch.
   { file: '.claude/settings.json', pattern: /Bash\(railway up\*\)/, because: 'removed by #201' },
+
+  // The setup instructions clone this repository by its real path, so
+  // README.md's Quick start names it literally.
+  { file: 'README.md', pattern: /gh repo clone stevemarvell\/boris/, because: 'the setup instructions clone this repository by its real path' },
+
+  // `create`'s clone keeps "boris" as the remote name for this base, so a
+  // clone can still fetch upstream without ever pushing to it by accident —
+  // the literal remote name the script sets up, not this repository naming
+  // itself.
+  { file: 'scripts/setup.mjs', pattern: /BASE_REMOTE = 'boris'/, because: "the literal remote name create's clone sets up, not this repository naming itself" },
+
+  // The real clone source: `create` clones this base by its actual path.
+  { file: 'scripts/setup.mjs', pattern: /git@github\.com:stevemarvell\/boris\.git/, because: 'the actual GitHub path create clones from' },
+
+  // The commit message CLAUDE.md's own #211 spells out verbatim: "Start <n>
+  // from boris@<short-sha>".
+  { file: 'scripts/setup.mjs', pattern: /from boris@/, because: 'the commit message create makes, naming the base it started from' },
 ];
 
 // Every name this repository has to stay neutral about, and that has leaked
@@ -94,12 +111,24 @@ const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog',
  * `git grep -i -n` for every name in NAMES, at the repository root, parsed
  * into `{file, line, content}`. Excludes this file itself: a detector that
  * has to spell every name out, in patterns and in comments explaining them,
- * cannot also be a hit against its own rule.
+ * cannot also be a hit against its own rule. Also excludes
+ * scripts/test/setup.test.ts, which tests the rename functions against
+ * literal old-name fixtures by design — proving a rename works needs a
+ * "boris" to rename, the same way this file needs one to detect.
  */
 function grepHits() {
   const result = spawnSync(
     'git',
-    ['grep', '-i', '-n', ...NAMES.flatMap((name) => ['-e', name]), '--', '.', ':(exclude)scripts/test/identity.test.ts'],
+    [
+      'grep',
+      '-i',
+      '-n',
+      ...NAMES.flatMap((name) => ['-e', name]),
+      '--',
+      '.',
+      ':(exclude)scripts/test/identity.test.ts',
+      ':(exclude)scripts/test/setup.test.ts',
+    ],
     { cwd: ROOT, encoding: 'utf8' },
   );
   // Exit code 1 means no matches, which is a valid (if surprising) outcome
