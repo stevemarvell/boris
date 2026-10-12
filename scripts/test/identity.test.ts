@@ -100,11 +100,6 @@ const ALLOW: Allowed[] = [
   // The commit message CLAUDE.md's own #211 spells out verbatim: "Start <n>
   // from boris@<short-sha>".
   { file: 'scripts/setup.mjs', pattern: /from boris@/, because: 'the commit message create makes, naming the base it started from' },
-
-  // The identity census hunts for the base's own name in whatever repository
-  // `check` runs in — shared behaviour, the same everywhere, like
-  // identity.test.ts's own NAMES list.
-  { file: 'scripts/setup.mjs', pattern: /'-e', 'boris'/, because: "the identity census's own search term; shared and the same in every repository built from this one" },
 ];
 
 // Every name this repository has to stay neutral about, and that has leaked

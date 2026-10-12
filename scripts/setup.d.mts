@@ -77,7 +77,9 @@ export declare function runCheck(options?: {
   run?: Run;
   fetchUrl?: typeof fetch;
   runVerify?: () => number;
+  runIdentityTest?: () => { ok: boolean; output: string };
 }): Promise<CheckResult>;
 
-export declare function create(options: CreateArgs): Promise<CheckResult>;
+export declare function ensureEmptyTarget(options: { run: Run; target: string }): Promise<{ exists: boolean }>;
+export declare function create(options: CreateArgs, deps?: { run?: Run }): Promise<CheckResult>;
 export declare function main(argv: string[]): Promise<number>;

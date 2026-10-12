@@ -7,6 +7,8 @@ import {
   OWNER_ISSUES,
   TELEMETRY_FILES,
   branchProtectionDecision,
+  create,
+  ensureEmptyTarget,
   missingOwnerIssues,
   missingPreflight,
   needsTemplateIssue,
@@ -394,6 +396,12 @@ describe('runCheck', () => {
 
   type RunResultLike = { status: number; stdout: string; stderr: string };
 
+  // runCheck's own real default for this spawns `npx vitest run
+  // scripts/test/identity.test.ts`, which is exactly right in production and
+  // exactly wrong recursed into from inside this test run — every test below
+  // stubs it unless it is itself testing this path.
+  const identityOk = () => ({ ok: true, output: '' });
+
   const baseResponses: Record<string, RunResultLike> = {
     'gh label list': { status: 0, stdout: JSON.stringify([]), stderr: '' },
     'gh label create': { status: 0, stdout: '', stderr: '' },
@@ -401,11 +409,10 @@ describe('runCheck', () => {
     'gh secret list': { status: 0, stdout: JSON.stringify([{ name: 'CLAUDE_CODE_OAUTH_TOKEN' }]), stderr: '' },
     'gh issue list --state all': { status: 0, stdout: JSON.stringify(OWNER_ISSUES.map((i) => ({ title: i.title }))), stderr: '' },
     'gh issue list --state open': { status: 0, stdout: JSON.stringify([{ labels: ['template'] }]), stderr: '' },
-    'git grep': { status: 1, stdout: '', stderr: '' }, // exit 1: no hits
   };
 
   it('exits 0 when every check is already satisfied', async () => {
-    const result = await runCheck({ run: run(baseResponses), skipVerify: true });
+    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.exitCode).toBe(0);
     expect(result.lines.some((l) => l.startsWith(MARK.owner))).toBe(false);
   });
@@ -414,6 +421,7 @@ describe('runCheck', () => {
     const result = await runCheck({
       run: run({ ...baseResponses, 'gh secret list': { status: 0, stdout: '[]', stderr: '' } }),
       skipVerify: true,
+      runIdentityTest: identityOk,
     });
     expect(result.exitCode).toBe(1);
     expect(result.lines.some((l) => l.includes('CLAUDE_CODE_OAUTH_TOKEN') && l.startsWith(MARK.owner))).toBe(true);
@@ -432,6 +440,7 @@ describe('runCheck', () => {
       },
       dryRun: true,
       skipVerify: true,
+      runIdentityTest: identityOk,
     });
     expect(result.exitCode).toBe(1);
     expect(result.lines.some((l) => l.includes('delete_branch_on_merge') && l.startsWith(MARK.owner))).toBe(true);
@@ -450,41 +459,199 @@ describe('runCheck', () => {
         return run(baseResponses)(cmd, args);
       },
       skipVerify: true,
+      runIdentityTest: identityOk,
     });
-    const create = calls.find((c) => c[1] === 'issue' && c[2] === 'create' && c.includes(OWNER_ISSUES[0]!.title));
-    expect(create).toBeDefined();
-    expect(create).toContain('human');
-    expect(create).toContain('do not automate');
+    const createCall = calls.find((c) => c[1] === 'issue' && c[2] === 'create' && c.includes(OWNER_ISSUES[0]!.title));
+    expect(createCall).toBeDefined();
+    expect(createCall).toContain('human');
+    expect(createCall).toContain('do not automate');
     expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title) && l.startsWith(MARK.fixed))).toBe(true);
   });
 
-  it('reports the identity census as an owner action when a tracked file outside the allowlist still names the base', async () => {
-    const result = await runCheck({
-      run: run({ ...baseResponses, 'git grep': { status: 0, stdout: 'apps/web/src/leftover.ts\n', stderr: '' } }),
-      skipVerify: true,
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.lines.some((l) => l.includes('leftover.ts') && l.startsWith(MARK.owner))).toBe(true);
+  it('reports the identity census done when scripts/test/identity.test.ts passes', async () => {
+    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
+    expect(result.lines.some((l) => l.includes('identity census') && l.startsWith(MARK.done))).toBe(true);
   });
 
-  it('skips npm run verify under --skip-verify, and reports it fixed/done rather than owner', async () => {
+  it('reports the identity census as an owner action, with the trimmed failure output, when the real test fails', async () => {
+    const result = await runCheck({
+      run: run(baseResponses),
+      skipVerify: true,
+      runIdentityTest: () => ({ ok: false, output: 'FAIL scripts/test/identity.test.ts\napps/web/src/leftover.ts names the base' }),
+    });
+    expect(result.exitCode).toBe(1);
+    const line = result.lines.find((l) => l.includes('identity census'));
+    expect(line).toBeDefined();
+    expect(line).toMatch(new RegExp(`^${MARK.owner}`));
+    expect(line).toContain('apps/web/src/leftover.ts names the base');
+  });
+
+  it('runs the real identity test by default, not a re-derived allowlist', async () => {
+    // No runIdentityTest override: this exercises the real default, which
+    // spawns scripts/test/identity.test.ts itself via vitest — proving the
+    // census is the actual test, not a second copy of what it allows.
     const result = await runCheck({ run: run(baseResponses), skipVerify: true });
+    const line = result.lines.find((l) => l.includes('identity census'));
+    expect(line).toBeDefined();
+    expect(line).toMatch(new RegExp(`^${MARK.done}`));
+  }, 30_000);
+
+  it('skips npm run verify under --skip-verify, and reports it fixed/done rather than owner', async () => {
+    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.lines.some((l) => l.includes('verify') && l.includes('skipped'))).toBe(true);
   });
 
   it('reports npm run verify as an owner action when it fails', async () => {
-    const result = await runCheck({ run: run(baseResponses), skipVerify: false, runVerify: () => 1 });
+    const result = await runCheck({ run: run(baseResponses), skipVerify: false, runVerify: () => 1, runIdentityTest: identityOk });
     expect(result.exitCode).toBe(1);
     expect(result.lines.some((l) => l.includes('verify') && l.startsWith(MARK.owner))).toBe(true);
   });
 
   it('reports no deployed app to check when project.json deploys nothing, which is this repository today', async () => {
-    const result = await runCheck({ run: run(baseResponses), skipVerify: true });
+    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.lines.some((l) => l.includes('no app has a deploy block'))).toBe(true);
   });
 
   it('always prints the closing next-steps section', async () => {
-    const result = await runCheck({ run: run(baseResponses), skipVerify: true });
+    const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.lines.some((l) => l.includes('work-backlog'))).toBe(true);
+  });
+});
+
+describe('ensureEmptyTarget', () => {
+  function run(responses: Record<string, { status: number; stdout: string; stderr: string }>): Run {
+    return async (cmd, args) => {
+      const key = `${cmd} ${args.join(' ')}`;
+      for (const [prefix, result] of Object.entries(responses)) {
+        if (key.startsWith(prefix)) return result;
+      }
+      throw new Error(`unexpected call: ${key}`);
+    };
+  }
+
+  it('reports "does not exist" when gh repo view fails, without checking emptiness', async () => {
+    const calls: string[] = [];
+    const result = await ensureEmptyTarget({
+      run: async (cmd, args) => {
+        calls.push(`${cmd} ${args.join(' ')}`);
+        return { status: 1, stdout: '', stderr: 'not found' };
+      },
+      target: 'o/n',
+    });
+    expect(result).toEqual({ exists: false });
+    expect(calls).toHaveLength(1); // only the existence check; no isEmpty call
+  });
+
+  it('proceeds when the repository exists and gh reports it isEmpty', async () => {
+    const result = await ensureEmptyTarget({
+      run: run({
+        'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+        'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":true}', stderr: '' },
+      }),
+      target: 'o/n',
+    });
+    expect(result).toEqual({ exists: true });
+  });
+
+  it('refuses an existing, non-empty repository', async () => {
+    await expect(
+      ensureEmptyTarget({
+        run: run({
+          'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+          'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":false}', stderr: '' },
+        }),
+        target: 'o/n',
+      }),
+    ).rejects.toThrow(/already exists and is not empty/);
+  });
+
+  it('fails closed, with gh\'s own stderr, when the emptiness check itself errors — never falling through to "assume empty"', async () => {
+    await expect(
+      ensureEmptyTarget({
+        run: run({
+          'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+          'gh repo view o/n --json isEmpty': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
+        }),
+        target: 'o/n',
+      }),
+    ).rejects.toThrow(/API rate limit exceeded/);
+  });
+
+  it('fails closed when the emptiness check returns unparseable JSON', async () => {
+    await expect(
+      ensureEmptyTarget({
+        run: run({
+          'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+          'gh repo view o/n --json isEmpty': { status: 0, stdout: 'not json', stderr: '' },
+        }),
+        target: 'o/n',
+      }),
+    ).rejects.toThrow(/unparseable JSON/);
+  });
+});
+
+describe('create', () => {
+  function stubRun(overrides: Record<string, { status: number; stdout: string; stderr: string }>): { run: Run; calls: string[][] } {
+    const calls: string[][] = [];
+    const run: Run = async (cmd, args) => {
+      calls.push([cmd, ...args]);
+      const key = `${cmd} ${args.join(' ')}`;
+      for (const [prefix, result] of Object.entries(overrides)) {
+        if (key.startsWith(prefix)) return result;
+      }
+      // Preflight passes by default, so every test only has to override what it cares about.
+      return { status: 0, stdout: 'ok', stderr: '' };
+    };
+    return { run, calls };
+  }
+
+  it('a hard failure checking emptiness stops create before any clone or push', async () => {
+    const { run, calls } = stubRun({
+      'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+      'gh repo view o/n --json isEmpty': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
+    });
+    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
+      /API rate limit exceeded/,
+    );
+    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(false);
+    expect(calls.some((c) => c[0] === 'git' && c[1] === 'push')).toBe(false);
+  });
+
+  it('refuses an existing, non-empty target before any clone or push', async () => {
+    const { run, calls } = stubRun({
+      'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+      'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":false}', stderr: '' },
+    });
+    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
+      /already exists and is not empty/,
+    );
+    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(false);
+  });
+
+  it('an empty repository proceeds past the guard and attempts the clone', async () => {
+    const { run, calls } = stubRun({
+      'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
+      'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":true}', stderr: '' },
+      // Deliberately fails the clone itself, so the test stops there rather
+      // than reaching the real filesystem/bootstrap/verify/push pipeline.
+      'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
+    });
+    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
+      /git clone failed/,
+    );
+    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
+  });
+
+  it('a brand-new target (gh repo view fails) creates the repository and proceeds to clone', async () => {
+    const { run, calls } = stubRun({
+      'gh repo view o/n --json name': { status: 1, stdout: '', stderr: 'not found' },
+      'gh repo create': { status: 0, stdout: '', stderr: '' },
+      'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
+    });
+    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
+      /git clone failed/,
+    );
+    expect(calls.some((c) => c[0] === 'gh' && c[1] === 'repo' && c[2] === 'create')).toBe(true);
+    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
   });
 });

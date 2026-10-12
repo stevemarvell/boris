@@ -16,7 +16,7 @@
 // to do, never more, and never creates a second copy of anything it already
 // made. It exits 0 only when every line is done (✔) or just fixed (✚); any
 // ✋ line is something only the owner can do, with the exact command.
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile, execSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -395,17 +395,51 @@ async function ghJson(run, args) {
   return JSON.parse(result.stdout);
 }
 
+/** `text`, capped to `maxLen` characters from the end — the failure is in the
+ * last lines of a test run, not the first — with a note that it was cut. */
+function trimOutput(text, maxLen = 3000) {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `… (truncated)\n${trimmed.slice(-maxLen)}`;
+}
+
+/**
+ * Runs the real `scripts/test/identity.test.ts`, rather than re-deriving a
+ * second copy of what it allows: a duplicate list is exactly how the two
+ * would quietly drift apart and start disagreeing with each other, which is
+ * what the first live run of this check actually did (docs/sops.md SOP 3).
+ */
+function runIdentityCensus() {
+  try {
+    // Through a shell on purpose, like verify-apps.mjs's own npm/uv
+    // invocations: npx is a .cmd shim on Windows.
+    const output = execSync('npx vitest run --root scripts/test identity.test.ts', { cwd: ROOT, encoding: 'utf8' });
+    return { ok: true, output };
+  } catch (error) {
+    const output = `${error.stdout ?? ''}${error.stderr ?? ''}`.trim() || error.message;
+    return { ok: false, output };
+  }
+}
+
 /**
  * Runs `check` for real: every line `npm run setup -- check` prints, and the
  * exit code. `run` defaults to the real `gh`/`git`; `fetchUrl` to the real
- * `fetch`; `runVerify` to actually spawning `npm run verify`. Each is
- * injectable so a test can drive this without the network — though this
- * repository's own test list only asks for the pure pieces above; this
- * function is exercised for real, with `--dry-run`, and its output goes in
- * the pull request body (docs/sops.md SOP 3: a control is verified where it
- * runs, not only in a unit test).
+ * `fetch`; `runVerify` and `runIdentityTest` to actually spawning `npm run
+ * verify` and the identity test. Each is injectable so a test can drive this
+ * without the network — though this repository's own test list only asks
+ * for the pure pieces above; this function is exercised for real, with
+ * `--dry-run`, and its output goes in the pull request body (docs/sops.md
+ * SOP 3: a control is verified where it runs, not only in a unit test).
  */
-export async function runCheck({ repo, dryRun = false, skipVerify = false, run = exec, fetchUrl = fetch, runVerify } = {}) {
+export async function runCheck({
+  repo,
+  dryRun = false,
+  skipVerify = false,
+  run = exec,
+  fetchUrl = fetch,
+  runVerify,
+  runIdentityTest = runIdentityCensus,
+} = {}) {
   const results = [];
   const repoArg = (args) => (repo ? [...args, '--repo', repo] : args);
 
@@ -523,28 +557,12 @@ export async function runCheck({ repo, dryRun = false, skipVerify = false, run =
     );
   }
 
-  // Identity census: any tracked file outside the set scripts/test/
-  // identity.test.ts's own ALLOW list already excuses. Read from that file
-  // rather than hand-duplicated here — a second copy is exactly how this
-  // list and that test's would drift apart, each insisting the other is
-  // wrong. scripts/test/setup.test.ts is excused too: it is this script's
-  // own test fixtures, not tracked product content.
-  const CENSUS_ALLOWED = new Set([
-    ...[...readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8').matchAll(/file:\s*'([^']+)'/g)].map((m) => m[1]),
-    // Excluded from identity.test.ts's own grep for the same reason it
-    // excludes itself: a detector that has to spell every name out cannot
-    // also be a hit against its own rule. scripts/test/setup.test.ts is
-    // this script's own test fixtures, not tracked product content.
-    'scripts/test/identity.test.ts',
-    'scripts/test/setup.test.ts',
-  ]);
-  const grep = await run('git', ['grep', '-il', '-e', 'boris', '--', '.']);
-  const hits = grep.status === 0 ? grep.stdout.split('\n').filter(Boolean) : [];
-  const unexplained = hits.filter((file) => !CENSUS_ALLOWED.has(file));
+  // Identity census: the real test, not a second copy of what it allows.
+  const census = await runIdentityTest();
   results.push(
-    unexplained.length === 0
-      ? { mark: MARK.done, text: 'identity census: nothing outside the allowlist still names the base' }
-      : { mark: MARK.owner, text: `identity census: still names the base in ${unexplained.join(', ')} — rename or allowlist them` },
+    census.ok
+      ? { mark: MARK.done, text: 'identity census: scripts/test/identity.test.ts passes' }
+      : { mark: MARK.owner, text: `identity census: scripts/test/identity.test.ts failed —\n${trimOutput(census.output)}` },
   );
 
   // Deploy checks, one per app with a deploy block
@@ -612,35 +630,56 @@ export async function runCheck({ repo, dryRun = false, skipVerify = false, run =
 // ---------------------------------------------------------------------------
 
 /**
- * `create`, run for real. Not exercised by this repository's own test suite
- * — it creates a GitHub repository and clones a few hundred megabytes, which
- * is the owner's call and not safe to run from a test. The pieces above
- * (parseCreateArgs, preflight, renameIdentity and its parts) are what carry
- * the test coverage instead.
+ * Whether `target` is safe for `create` to clone into: either it doesn't
+ * exist yet, or `gh repo view` reports it `isEmpty`. Fails closed: any
+ * non-zero status or unparseable JSON from the emptiness check itself
+ * throws with `gh`'s own stderr, rather than falling through to "assume
+ * empty" the way a `gh api .../commits` call failing used to. Proceeds only
+ * on the positive answer `isEmpty === true` — not "no commits found", which
+ * a failed call can also look like.
  */
-export async function create(opts) {
-  const results = await preflight();
+export async function ensureEmptyTarget({ run, target }) {
+  const view = await run('gh', ['repo', 'view', target, '--json', 'name']);
+  if (view.status !== 0) return { exists: false }; // does not exist yet; create() will create it
+
+  const empty = await run('gh', ['repo', 'view', target, '--json', 'isEmpty']);
+  if (empty.status !== 0) throw new Error(`gh repo view ${target} --json isEmpty failed: ${reason(empty)}`);
+  let isEmpty;
+  try {
+    isEmpty = JSON.parse(empty.stdout).isEmpty;
+  } catch {
+    throw new Error(`gh repo view ${target} --json isEmpty returned unparseable JSON: ${empty.stdout}`);
+  }
+  if (isEmpty !== true) throw new Error(`setup create: ${target} already exists and is not empty`);
+  return { exists: true };
+}
+
+/**
+ * `create`, run for real. Only `ensureEmptyTarget` (above) and the pieces
+ * above it (parseCreateArgs, preflight, renameIdentity and its parts) carry
+ * this repository's own test coverage for it — the rest clones a few
+ * hundred megabytes and pushes, which is the owner's call and not safe to
+ * run from a test. `run` is injectable so a test can drive the guard above
+ * without any of that.
+ */
+export async function create(opts, { run = exec } = {}) {
+  const results = await preflight({ run });
   const missing = missingPreflight(results);
   if (missing.length > 0) {
     throw new Error(`setup create: missing ${missing.map((m) => m.name).join(', ')}`);
   }
 
   const target = `${opts.owner}/${opts.name}`;
-  const view = await exec('gh', ['repo', 'view', target, '--json', 'name']);
-  if (view.status === 0) {
-    const commits = await exec('gh', ['api', `repos/${target}/commits`, '--jq', 'length']);
-    if (commits.status === 0 && Number(commits.stdout.trim()) > 0) {
-      throw new Error(`setup create: ${target} already exists and is not empty`);
-    }
-  } else {
-    const created = await exec('gh', ['repo', 'create', target, opts.public ? '--public' : '--private']);
+  const { exists } = await ensureEmptyTarget({ run, target });
+  if (!exists) {
+    const created = await run('gh', ['repo', 'create', target, opts.public ? '--public' : '--private']);
     if (created.status !== 0) throw new Error(`gh repo create ${target} failed: ${reason(created)}`);
   }
 
-  const clone = await exec('git', ['clone', '--branch', 'develop', 'git@github.com:stevemarvell/boris.git', opts.dir]);
+  const clone = await run('git', ['clone', '--branch', 'develop', 'git@github.com:stevemarvell/boris.git', opts.dir]);
   if (clone.status !== 0) throw new Error(`git clone failed: ${reason(clone)}`);
 
-  const git = (args) => exec('git', ['-C', opts.dir, ...args]);
+  const git = (args) => run('git', ['-C', opts.dir, ...args]);
   await git(['remote', 'rename', 'origin', BASE_REMOTE]);
   await git(['remote', 'set-url', '--push', BASE_REMOTE, 'DISABLED']);
   await git(['remote', 'add', 'origin', `git@github.com:${target}.git`]);
@@ -658,11 +697,12 @@ export async function create(opts) {
   if ((verify.status ?? 1) !== 0) throw new Error('setup create: npm run verify failed in the clone');
 
   await git(['add', '-A']);
-  await git(['commit', '-m', `Start ${opts.name} from boris@${(await exec('git', ['-C', opts.dir, 'rev-parse', '--short', `${BASE_REMOTE}/develop`])).stdout.trim()}`]);
+  const sha = await run('git', ['-C', opts.dir, 'rev-parse', '--short', `${BASE_REMOTE}/develop`]);
+  await git(['commit', '-m', `Start ${opts.name} from boris@${sha.stdout.trim()}`]);
   const push = await git(['push', '-u', 'origin', 'develop']);
   if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
 
-  return runCheck({ repo: target });
+  return runCheck({ repo: target, run });
 }
 
 // ---------------------------------------------------------------------------
