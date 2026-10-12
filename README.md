@@ -6,6 +6,111 @@ Adoption* (Boris Cherny, Jul 2026). The thing being built is the loop that
 builds software — not any particular application it happens to be running
 against.
 
+## Start a new project from this base
+
+Two commands get a new project from an empty folder to picking its first
+issue. Steps marked **[you]** need a person: an agent may not handle
+credentials, money, or a dashboard behind a login.
+
+**Before you start:** Node 22, [uv](https://docs.astral.sh/uv/), Python 3.12,
+`gh` logged in (`gh auth status`), and a Claude subscription to pay for CI
+reviews.
+
+1. **Create the project.** From a clone of this repository:
+
+   ```bash
+   gh repo clone stevemarvell/boris
+   npm run bootstrap
+   npm run setup -- create --name <project> --owner <github-owner> [--dir <path>] [--public]
+   ```
+
+   `create` does the following:
+   - creates the GitHub repository (private unless `--public`), stopping if
+     it already has content;
+   - clones this base's `develop` into `--dir` (default `../<project>`);
+   - keeps this base as a fetch-only remote, so you can pull updates but
+     never push to it;
+   - renames the project's identity and relocks both lockfiles;
+   - runs `verify`, makes one commit, and pushes it;
+   - finishes by running `check` inside the new repository.
+
+2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
+   Run `claude setup-token`, then
+   `gh secret set CLAUDE_CODE_OAUTH_TOKEN`. It is an OAuth token, not an API
+   key. Without it, every pull request's code and security review posts
+   "Claude encountered an error".
+
+3. **Run `check` until nothing is left for you.** From the new repository:
+
+   ```bash
+   npm run setup -- check          # --dry-run to change nothing, --skip-verify to skip the tests
+   ```
+
+   Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
+   exact command or click-path). It exits 0 only when no ✋ remains. It can be
+   re-run as often as you like and never duplicates anything. It:
+   - creates the labels from [`labels.json`](labels.json);
+   - turns on delete-branch-on-merge;
+   - protects `develop` if the repository is public. A private repository on
+     GitHub's free plan can't protect a branch, so "PRs only" is a rule
+     people follow there;
+   - files your own work as issues labelled `human` + `do not automate`:
+     the token above, Dependabot's first PR, rewriting the README and
+     `CLAUDE.md` around the product, and Telegram and Grafana, each optional
+     and in its own issue;
+   - adds the story template issue;
+   - runs the name check, which fails if this base's name is left anywhere;
+   - runs `verify`.
+
+4. **File the backlog.** Give every issue a rank label
+   (`critical`/`high`/`medium`), a `Depends on #<n>` line where it has one,
+   and acceptance criteria. Triage is only as good as that data.
+
+5. **Ship one small PR end to end** before trusting the loop. Check that both
+   reviews post real verdicts rather than errors.
+
+6. **Start the work:** `node scripts/triage.mjs`, or the `work-backlog`
+   skill.
+
+### Adding deployment (optional)
+
+Nothing is deployed by default, and every check passes without it. When an
+app should go live on Vercel:
+
+```bash
+npm run deploy:add -- vercel --app <app> [--team T --project P --url U --commit-endpoint /health]
+```
+
+This writes the app's `deploy` block into `project.json`, adds its
+`vercel.json` and `deployment` skill, and prints the steps that are yours:
+
+1. **[you]** Create the Vercel project with Root Directory `apps/<app>`.
+2. **[you]** Turn off Vercel Authentication under Deployment Protection, or
+   smoke checks and agents get a login page instead of the app.
+3. **[you]** Copy the production URL from the project's domain list. Don't
+   guess it: the short alias isn't guaranteed.
+4. **[you]** Add a team-scoped `VERCEL_TOKEN` secret before the first PR
+   closes, or preview cleanup fails on every closed PR. Record its expiry
+   under *Repository secrets* below.
+
+Re-run `check` afterwards. It then also checks that each deployed app
+answers, that the token is present, and that its expiry is recorded.
+
+### Things to know
+
+- **Agents write the code.** The session you talk to triages, briefs,
+  reviews and merges green pull requests without asking (`CLAUDE.md`).
+- **Check each change on its deployed preview**, not just in CI. Green CI
+  has missed real bugs that the preview showed.
+- **Data an app reads must sit inside its Vercel Root Directory**, or it
+  never reaches the deployment.
+- **Force-push is denied.** Bring a branch up to date by merging `develop`
+  into it, not by rebasing.
+- **Parallel pull requests often edit the same files.** Resolve those
+  conflicts by keeping both sides, and choose by hand which issues can run
+  side by side.
+- **Pull later improvements from this base** with the `sync-ai-layer` skill.
+
 ## Two layers
 
 ```mermaid
@@ -49,7 +154,6 @@ put an app on Vercel.
 Needs Node 22, [uv](https://docs.astral.sh/uv/) and Python 3.12.
 
 ```bash
-gh repo clone stevemarvell/boris     # or: npm run setup -- create --name <n> --owner <o>
 npm run bootstrap     # npm ci, uv sync per Python app, Playwright, the LSP servers
 npm run verify        # the whole contract: the AI layer's tests, then every app's checks
 npm run dev           # the web app on http://localhost:5173
@@ -139,11 +243,15 @@ own manual reachable, once there is a deployment for them to live on.
 
 ## Repository secrets
 
-| Secret | Used by |
-| --- | --- |
-| `CLAUDE_CODE_OAUTH_TOKEN` | The code and security reviews, and `@claude` in issues and PRs. |
-| `VERCEL_TOKEN` | Preview cleanup, once `npm run deploy:add` adds a Vercel deployment. Not set today — nothing is deployed. Team-scoped; record its expiry here once it is added. |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Merge notifications. |
-| `GRAFANA_CLOUD_OTLP_ENDPOINT`, `GRAFANA_CLOUD_OTLP_AUTH` | Telemetry from the Claude CI jobs ([`telemetry/`](telemetry/README.md)). |
+A clone carries none of these. The owner adds each one with
+`gh secret set <name>`; an agent never handles them. `npm run setup -- check`
+reports which are missing by name only.
+
+| Secret | Used by | Add it |
+| --- | --- | --- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | The code and security reviews, and `@claude` in issues and PRs. | **Before the first pull request.** `claude setup-token`. |
+| `VERCEL_TOKEN` | Preview cleanup for apps that `npm run deploy:add` put on Vercel. | **Before the first pull request closes** after a Vercel project exists. Team-scoped, with an expiry recorded here. Not needed while nothing is deployed. |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Merge notifications. | Optional, whenever wanted. |
+| `GRAFANA_CLOUD_OTLP_ENDPOINT`, `GRAFANA_CLOUD_OTLP_AUTH` | Telemetry from the Claude CI jobs ([`telemetry/`](telemetry/README.md)). | Optional, whenever wanted. |
 
 Deploys don't use a token: they run through Vercel's Git integration.
