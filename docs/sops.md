@@ -30,6 +30,10 @@ left — so the next attempt, by a person or another agent, starts informed.
 
 Reaching a ceiling is not a failure to hide. It is the procedure working.
 
+Every ceiling here bounds cost — attempts, polls, rounds — not wall-clock
+time; nothing in this repository enforces a time limit on a running agent,
+so a loop under its attempt ceiling can still run long.
+
 ### The declared ceilings
 
 | Loop | Ceiling | Where it is declared |

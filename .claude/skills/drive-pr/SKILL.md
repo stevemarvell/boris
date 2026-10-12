@@ -20,6 +20,32 @@ a docs-only pull request the driver opened itself).
 
 ### 1. Poll checks until settled — ceiling: 40 polls × 30s
 
+**If checks never register at all** — the bucket list stays empty well past
+when `claude-code-review.yml` and CI normally start — check why before
+polling blind:
+
+```bash
+gh pr view <n> --json mergeable,mergeStateStatus
+```
+
+`mergeable: CONFLICTING` or a `mergeStateStatus` of `DIRTY`/`BEHIND` is the
+usual reason: GitHub does not register new checks against a head it cannot
+test against the base. Fix it by merging `develop` into the branch — **not**
+by rebasing, and never by force-pushing, which this repository's commands
+deny:
+
+```bash
+git fetch origin develop
+git -C <worktree-or-checkout> merge origin/develop   # resolve conflicts per SOP 8: union, not a choice, on tests
+git -C <worktree-or-checkout> push
+```
+
+An `implementer` does this push, same as any other fix in step 3 — the
+driver reads and reports, it does not commit to the branch itself (the
+docs-only exception below still applies). Once the merge lands, `mergeable`
+and `mergeStateStatus` clear and checks register normally; resume the poll
+below.
+
 "Settled" is a fact read from each check's `bucket`, not a guess from reading
 output, and **not the exit code**. With `--json`, `gh pr checks` exits `0`
 while checks are still pending: exit `8` only happens without `--json`, and
