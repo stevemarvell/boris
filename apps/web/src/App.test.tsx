@@ -2,28 +2,37 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
+/**
+ * <ion-app>'s own componentDidLoad schedules a real timer (ion-app.js's
+ * `rIC` helper falls back to `setTimeout(fn, 32)` because jsdom has no
+ * requestIdleCallback) from an async lifecycle that runs on a later frame,
+ * not synchronously inside render(). `vi.runAllTimersAsync()` does not
+ * cancel that timer — it runs it to completion right now, while the
+ * element is still connected and jsdom is still alive, instead of leaving
+ * it scheduled to fire later. Unmounting only after that flush means
+ * componentDidLoad has already run its course before disconnectedCallback
+ * gets a turn, so nothing is left pending for it to orphan. Unmount first
+ * and the opposite happens: componentDidLoad fires *after* the element is
+ * already disconnected and schedules a brand-new timer that nothing will
+ * ever clear (disconnectedCallback only runs once per removal) — it then
+ * fires later, possibly after Vitest has torn the jsdom environment down
+ * for this file, raising "ReferenceError: window is not defined" from
+ * Timeout._onTimeout (issue #217).
+ */
+async function settleThenUnmount(unmount: () => void): Promise<void> {
+  await vi.runAllTimersAsync();
+  unmount();
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
 
 afterEach(async () => {
-  // <ion-app>'s own componentDidLoad schedules a real timer (ion-app.js's
-  // `rIC` helper falls back to `setTimeout(fn, 32)` because jsdom has no
-  // requestIdleCallback) from an async lifecycle that runs on a later
-  // frame, not synchronously inside render(). If cleanup() unmounts before
-  // that lifecycle has run, the timer gets scheduled on the now-
-  // disconnected element anyway, and nothing is left to cancel it -
-  // ion-app's disconnectedCallback only clears a timer it already knows
-  // about. The orphaned timer then fires once Vitest tears the jsdom
-  // environment down for this file, raising "ReferenceError: window is not
-  // defined" from Timeout._onTimeout (issue #217). Flushing every pending
-  // timer, and the microtasks they drive, before cleanup gives that
-  // lifecycle a chance to finish - and its disconnectedCallback a chance to
-  // cancel the timer - while jsdom is still alive.
-  await vi.runAllTimersAsync();
-  cleanup();
+  await settleThenUnmount(cleanup);
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('App', () => {
@@ -52,40 +61,62 @@ describe('App', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     render(<App />);
     expect(fetchSpy).not.toHaveBeenCalled();
-    fetchSpy.mockRestore();
   });
 
-  it('cancels the timer ion-app schedules instead of leaving it to fire after teardown', async () => {
-    // Regression test for issue #217. Spy on the real setTimeout so we can
-    // see whether anything still schedules ion-app's 32ms timer *after*
-    // the element is unmounted — that is exactly the leak: a timer with
-    // nothing left able to cancel it, which fires once jsdom is gone.
+  /**
+   * Spies on the real setTimeout (captured before spying, so the spy still
+   * delegates to whichever implementation is live — the fake-timers one
+   * installed by beforeEach) to see whether anything schedules ion-app's
+   * 32ms timer *after* a given unmount — that is exactly the issue #217
+   * leak: a timer scheduled on a disconnected element, with nothing left
+   * able to cancel it.
+   */
+  function spyOnSchedulingAfter(markUnmounted: () => boolean): {
+    scheduledAfterUnmount: unknown[];
+  } {
     const scheduledAfterUnmount: unknown[] = [];
     const realSetTimeout = globalThis.setTimeout;
-    let unmounted = false;
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
       handler: TimerHandler,
       timeout?: number,
       ...args: unknown[]
     ) => {
-      if (unmounted && timeout === 32) {
+      if (markUnmounted() && timeout === 32) {
         scheduledAfterUnmount.push(timeout);
       }
       return realSetTimeout(handler as VoidFunction, timeout, ...args);
     }) as typeof setTimeout);
+    return { scheduledAfterUnmount };
+  }
+
+  it('(control) unmounting without settling schedules the timer after unmount', async () => {
+    // Proves the spy below can actually see the bug: unmounting with no
+    // settle is the pre-fix behaviour, and it does schedule ion-app's 32ms
+    // timer after the element is gone.
+    let unmounted = false;
+    const { scheduledAfterUnmount } = spyOnSchedulingAfter(() => unmounted);
 
     const { unmount } = render(<App />);
-    // Let ion-app's own componentDidLoad lifecycle - and the setTimeout it
-    // schedules - run while the element is still connected, exactly as the
-    // afterEach above does before it calls cleanup().
-    await vi.runAllTimersAsync();
     unmount();
     unmounted = true;
+    await vi.runAllTimersAsync();
+
+    expect(scheduledAfterUnmount).toEqual([32]);
+  });
+
+  it('settling before unmount schedules nothing after unmount', async () => {
+    let unmounted = false;
+    const { scheduledAfterUnmount } = spyOnSchedulingAfter(() => unmounted);
+
+    const { unmount } = render(<App />);
+    await settleThenUnmount(() => {
+      unmount();
+      unmounted = true;
+    });
     // Give anything still in flight a chance to (mis)schedule more work on
     // the disconnected element, so a regression here would be caught.
     await vi.runAllTimersAsync();
 
-    setTimeoutSpy.mockRestore();
     expect(scheduledAfterUnmount).toEqual([]);
   });
 });
