@@ -12,6 +12,16 @@ counterpart to `drive-pr`, which runs a known recipe.
 
 ## The loop — ceiling: 3 issues per run (`MAX_ISSUES_PER_RUN`)
 
+0. **Check for stuck work first.** Run `node scripts/stuck.mjs`. It lists
+   branches ahead of `develop` with no pull request, worktree folders
+   nothing tracks any more, worktrees registered for a branch that already
+   merged, and open pull requests that are conflicting, stale, or have no
+   checks registered — the discovery step this loop otherwise never does on
+   its own. Handle every finding before picking new work: open the pull
+   request a branch is missing, clean up a worktree finding per the
+   `worktrees` skill, or drive a stuck pull request per `drive-pr`
+   (`mergeStateStatus` first, per its step 1). Only once `stuck.mjs` exits
+   `0` does step 1 below start.
 1. **Triage.** Run `node scripts/triage.mjs`. It prints what to work, in
    order, what is deferred over the ceiling, and what is skipped and why.
    - Skipped means skipped. An issue labelled `human`, `do not automate`,

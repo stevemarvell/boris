@@ -43,6 +43,12 @@ Every worktree here was made by a Claude session or one of its agents —
 `.claude/worktrees/*` and any `../<repo>-*` sibling alike. None is someone
 else's to leave alone. Audit them all, then remove what is finished.
 
+**Never decide a worktree folder is empty from `ls -la`.** On this project's
+Windows setup `ls -la` has read a folder that genuinely held files as empty —
+see the note below. Use `find <dir> -mindepth 1 | head` or
+`git -C <dir> status --short` to settle it instead; `stuck.mjs` already does
+this (`fs.readdirSync`, never `ls`) for the folders it flags.
+
 Before removing one, establish it is recoverable — by command, not by eye
 (SOP 6):
 
@@ -60,6 +66,33 @@ git worktree list                 # confirm
 ```
 
 On Windows `git worktree remove` can unregister the worktree and still fail
-with "Permission denied" on its directory or on `.git/worktrees/<name>`. Once
-nothing holds files there, plain `rm -rf` on both finishes the job;
-`git worktree prune` alone often hits the same error.
+with "Permission denied" on its directory or on `.git/worktrees/<name>`. Git
+has already unregistered it by the time this happens, so the removal is not
+retried as `git worktree remove` again — a process (an editor, an indexer, a
+leftover `node`/`uv` child) still holds a file open underneath. Wait for that
+process to exit, then retry the *directory* deletion
+(`rm -rf <dir> .git/worktrees/<name>`), not the git command. `git worktree
+prune` alone often hits the same error, for the same reason.
+
+### Sweep: `node scripts/stuck.mjs`
+
+Run it as the last step of any cleanup pass, and whenever `work-backlog`
+calls for it (its step 0). It lists, among other things, two things this
+section is about directly: folders under `.claude/worktrees/` that
+`git worktree list --porcelain` no longer tracks (an untracked leftover,
+reported with its real entry count and whether it holds uncommitted
+changes — never guessed from `ls`), and registered worktrees whose branch's
+pull request has already merged. It only reports; acting on a finding is
+this skill's procedure above, not something the sweep does itself.
+
+### An unverified guess about why folders read as empty
+
+**Unverified — flagged as a guess, not established.** The folders that
+prompted this section read as empty under `ls -la` while still holding real
+files underneath. One candidate explanation, never confirmed: this
+project's checkout lives on a synced `M:` drive (a cloud-sync mount, not a
+local disk), and a sync client can present a directory listing before the
+sync has finished materializing every entry underneath it. Nothing here has
+reproduced that mechanism directly — it is recorded so a future session does
+not re-discover the same symptom and waste time assuming `ls` is simply
+right.
