@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FETCH_LIMIT,
   MAX_ISSUES_PER_RUN,
+  MAX_PAGES,
+  PAGE_SIZE,
   claimedIssues,
+  fetchOpen,
   openDependencies,
   render,
   triage,
@@ -137,5 +141,88 @@ describe('claimedIssues', () => {
 describe('openDependencies', () => {
   it('returns only the dependencies still open', () => {
     expect(openDependencies(issue(1, [], 'Depends on #2 and depends on #3'), new Set([2]))).toEqual([2]);
+  });
+});
+
+describe('fetchOpen', () => {
+  const rest = (number: number, extra: Record<string, unknown> = {}) => ({
+    number,
+    title: `item ${number}`,
+    body: `body ${number}`,
+    labels: [{ name: 'high' }],
+    ...extra,
+  });
+
+  it('reads REST, never a GraphQL-backed subcommand, and splits issues from pull requests', () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => {
+      calls.push(args);
+      return JSON.stringify([rest(1), rest(2, { pull_request: {}, body: 'Closes #1' })]);
+    };
+    const { issues, pullRequests, truncated } = fetchOpen(run);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('api');
+    expect(calls[0]![1]).toMatch(/^repos\/\{owner\}\/\{repo\}\/issues\?state=open&per_page=100&page=1$/);
+    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', labels: ['high'] }]);
+    expect(pullRequests).toEqual([{ number: 2, body: 'Closes #1' }]);
+    expect(truncated).toBe(false);
+  });
+
+  it('feeds triage: an issue a listed pull request closes is in flight', () => {
+    const run = () => JSON.stringify([rest(1), rest(2, { pull_request: {}, body: 'Closes #1' })]);
+    const { issues, pullRequests } = fetchOpen(run);
+    expect(triage(issues, pullRequests).skip).toEqual([{ number: 1, title: 'item 1', reason: 'in flight in #2' }]);
+  });
+
+  it('follows pages until a short one', () => {
+    const pages = [
+      Array.from({ length: PAGE_SIZE }, (_, i) => rest(i + 1)),
+      [rest(PAGE_SIZE + 1)],
+    ];
+    const seen: string[] = [];
+    const run = (args: string[]) => {
+      seen.push(args[1]!);
+      return JSON.stringify(pages[seen.length - 1]);
+    };
+    const { issues, truncated } = fetchOpen(run);
+    expect(issues).toHaveLength(PAGE_SIZE + 1);
+    expect(seen.map((r) => r.slice(-6))).toEqual(['page=1', 'page=2']);
+    expect(truncated).toBe(false);
+  });
+
+  const fullPage = (from: number) => JSON.stringify(Array.from({ length: PAGE_SIZE }, (_, i) => rest(from + i)));
+
+  it('stops at its page ceiling and says the listing was truncated when an item lies beyond it', () => {
+    const routes: string[] = [];
+    const run = (args: string[]) => {
+      routes.push(args[1]!);
+      // The probe past the ceiling asks for one item and finds one.
+      return args[1]!.includes('per_page=1&') ? JSON.stringify([rest(99999)]) : fullPage(routes.length * 1000);
+    };
+    const { issues, truncated } = fetchOpen(run);
+    expect(routes).toHaveLength(MAX_PAGES + 1);
+    expect(routes.at(-1)).toBe(`repos/{owner}/{repo}/issues?state=open&per_page=1&page=${FETCH_LIMIT + 1}`);
+    expect(issues).toHaveLength(FETCH_LIMIT);
+    expect(truncated).toBe(true);
+    expect(render(triage(issues, []), { truncated })).toContain('WARNING');
+  });
+
+  it('is not truncated when the ceiling page is full but nothing lies beyond it', () => {
+    let calls = 0;
+    const run = (args: string[]) => {
+      calls += 1;
+      return args[1]!.includes('per_page=1&') ? '[]' : fullPage(calls * 1000);
+    };
+    const { issues, truncated } = fetchOpen(run);
+    expect(calls).toBe(MAX_PAGES + 1);
+    expect(issues).toHaveLength(FETCH_LIMIT);
+    expect(truncated).toBe(false);
+  });
+
+  it('lets a failure from gh through, rather than planning from nothing', () => {
+    const run = () => {
+      throw new Error('gh api failed: HTTP 403');
+    };
+    expect(() => fetchOpen(run)).toThrow(/HTTP 403/);
   });
 });

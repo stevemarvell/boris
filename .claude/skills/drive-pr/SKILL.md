@@ -11,6 +11,13 @@ sequence. This skill is that sequence, fixed, with every decision point
 written as a rule rather than left to judgement, and every ceiling from
 `docs/sops.md` SOP 1 declared up front.
 
+**Cloud sessions refuse GraphQL**, and `gh pr …`, `gh issue …` and
+`gh repo …` are GraphQL (#225). Every step below therefore uses the GitHub
+MCP tools (`mcp__github__…`) first, with `gh api` (REST) as the fallback, in
+a cloud session and a local one alike. `gh run …` is REST and is fine. If a
+`gh` subcommand answers `HTTP 403: GitHub GraphQL is not available`, it is
+this, not a permissions problem: use the REST route instead.
+
 Takes one argument: the pull request number, `<n>`. The driver reads,
 replies and merges; it does not commit to the pull request's branch. Fixes
 in step 3 are committed and pushed by an `implementer` (the one exception is
@@ -25,12 +32,14 @@ when `claude-code-review.yml` and CI normally start — check why before
 polling blind:
 
 ```bash
-gh pr view <n> --json mergeable,mergeStateStatus
+gh api repos/{owner}/{repo}/pulls/<n> --jq '{mergeable, mergeable_state}'
 ```
 
-`mergeable: CONFLICTING` or a `mergeStateStatus` of `DIRTY`/`BEHIND` is the
-usual reason: GitHub does not register new checks against a head it cannot
-test against the base. Fix it by merging `develop` into the branch — **not**
+(or `pull_request_read` with method `get`). `mergeable: false`, or a
+`mergeable_state` of `dirty` or `behind`, is the usual reason: GitHub does
+not register new checks against a head it cannot test against the base.
+(`mergeable: null` only means GitHub has not worked it out yet; read it
+again in a few seconds.) Fix it by merging `develop` into the branch — **not**
 by rebasing, and never by force-pushing, which this repository's commands
 deny:
 
@@ -43,32 +52,41 @@ git -C <worktree-or-checkout> push
 An `implementer` does this push, same as any other fix in step 3 — the
 driver reads and reports, it does not commit to the branch itself (the
 docs-only exception below still applies). Once the merge lands, `mergeable`
-and `mergeStateStatus` clear and checks register normally; resume the poll
+and `mergeable_state` clear and checks register normally; resume the poll
 below.
 
-"Settled" is a fact read from each check's `bucket`, not a guess from reading
-output, and **not the exit code**. With `--json`, `gh pr checks` exits `0`
-while checks are still pending: exit `8` only happens without `--json`, and
-trusting the exit code alone will settle on a poll with checks still
-pending.
+"Settled" is a fact read from each check run's `status` and `conclusion`, not
+a guess from reading output. Read them with `pull_request_read` and method
+`get_check_runs` (the head commit's check runs), or with `gh api`, which this
+loop does. The head is re-read on every attempt, because a fix pushed during
+the wait changes it:
 
 ```bash
 for attempt in $(seq 1 40); do
-  buckets=$(gh pr checks <n> --json bucket --jq '[.[].bucket] | join(" ")' 2>&1)
+  sha=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha) || { echo "attempt $attempt: could not read the head"; sleep 30; continue; }
+  # A run that has not completed is "pending"; a completed one is "pass" for
+  # success, skipped or neutral, and "fail" for anything else.
+  if ! buckets=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs?per_page=100" --jq \
+      '[.check_runs[] | if .status != "completed" then "pending"
+        elif (.conclusion == "success" or .conclusion == "skipped" or .conclusion == "neutral") then "pass"
+        else "fail" end] | join(" ")' 2>&1); then
+    echo "attempt $attempt: gh failed: $buckets"; sleep 30; continue
+  fi
   echo "attempt $attempt: $buckets"
-  # Right after a push GitHub has registered nothing yet: gh says "no checks
-  # reported", or the list is empty. Both mean not yet settled.
+  # Right after a push GitHub has registered nothing yet: the list is empty.
+  # That means not yet settled.
   case " $buckets " in
-    *" pending "*|"  "|*"no checks reported"*) sleep 30; continue;;
+    *" pending "*|"  ") sleep 30; continue;;
   esac
   break
 done
 ```
 
-- Any `pending` bucket, an empty list, or "no checks reported" means not
-  settled. These are the only states this loop treats as "keep waiting".
-- Otherwise it is settled: all `pass`/`skipping` means green, and any `fail`
-  or `cancel` means at least one failed. Either way, stop polling and move to
+- Any `pending` bucket, an empty list, or a failed `gh` call means not
+  settled. These are the only states this loop treats as "keep waiting"; a
+  failed call counts against the 40 attempts like any other.
+- Otherwise it is settled: all `pass` means green, and any `fail` means at
+  least one failed (a cancelled or timed-out run is a `fail`). Either way, stop polling and move to
   step 2.
 - This runs longer than a single command should block for (40 × 30s = 20
   minutes) — launch it with `run_in_background` and wait for it, rather than
@@ -129,16 +147,22 @@ One round is: read every open finding from step 2, then for each one:
   itself are the exception.
 - **A finding the implementer reports as needing a person** (a credential, a
   dashboard, money, an open decision) usually has no issue behind it. Open
-  one with `gh issue create --body-file <file>`, rank it, label it
-  `human` + `do not automate`, assign it, and link it in the reply to the
-  finding. Write the body with a quoted heredoc, as for replies below: it
-  quotes the implementer's report. A reply alone is not enough to clear
+  one (`issue_write` with method `create`, or `gh api
+  repos/{owner}/{repo}/issues -f title=… -F body=@<file> -f 'labels[]=<rank>'
+  -f 'labels[]=human' -f 'labels[]=do not automate' -f 'assignees[]=<login>'`),
+  rank it, label it `human` + `do not automate`, assign it, and link it in
+  the reply to the finding. Write the body with a quoted heredoc, as for
+  replies below: it quotes the implementer's report. A reply alone is not enough to clear
   step 4's merge gate.
 - **Reply to every finding, fixed or not**, with what was done or why not:
-  - Inline finding → reply in its own thread:
-    `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment_id>/replies -F body=@/tmp/reply.md`
-  - Top-level verdict comment → `gh pr comment <n> --body-file /tmp/reply.md`
-    referencing which point it answers.
+  - Inline finding → reply in its own thread
+    (`add_reply_to_pull_request_comment`, or
+    `gh api repos/{owner}/{repo}/pulls/<n>/comments/<comment_id>/replies -F body=@/tmp/reply.md`).
+  - Top-level verdict comment → a pull request comment referencing which
+    point it answers (`add_issue_comment`, or
+    `gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@/tmp/reply.md`).
+  - A thread, once answered, can be resolved: `resolve_review_thread`, or in
+    a cloud session `POST /repos/{owner}/{repo}/pulls/<n>/ccr/comments/<comment_id>/resolve`.
   - Write the body to the file with a quoted heredoc (`cat > /tmp/reply.md
     <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
     replies quote CI and review output, and `$(…)` or a backtick in that text
@@ -169,8 +193,10 @@ Merge only when **both** are true, checked, not assumed:
   and every one that needs a person has its own `human` issue linked in
   that reply.
 
+Use `merge_pull_request` with `merge_method: squash`, or the REST route:
+
 ```bash
-gh pr merge <n> --squash
+gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=squash
 ```
 
 The user's standing instruction is merge without asking once checks are
@@ -180,7 +206,7 @@ Then prune locally (the remote branch is deleted automatically —
 `delete_branch_on_merge` is a repository setting, see `CLAUDE.md`):
 
 ```bash
-if [ "$(gh pr view <n> --json state --jq .state)" = MERGED ]; then
+if [ "$(gh api repos/{owner}/{repo}/pulls/<n> --jq .merged)" = true ]; then
   git worktree remove <path-to-this-worktree>   # if this PR was driven from its own worktree
   git -C <main-checkout> fetch origin --prune
   git -C <main-checkout> branch -D <branch-name>
@@ -209,11 +235,12 @@ drive-pr stopped: <which ceiling>, after <n> attempts/rounds.
 <what was still failing>
 <what is left to do>
 MD
-gh pr comment <n> --body-file /tmp/drive-pr-stopped.md
+gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@/tmp/drive-pr-stopped.md
 ```
 
 The quoted heredoc is the point: the failure text is CI output, and it must
-reach the comment as text, not be expanded by the shell.
+reach the comment as text, not be expanded by the shell. (`add_issue_comment`
+posts the same comment without the shell.)
 
 Then report the same thing back. This is the record SOP 1 asks for: what was
 attempted, what failed, what is left — on the pull request, where the next
@@ -227,7 +254,7 @@ Once step 4 has merged, `smoke.yml` fires on the push to `develop`. Confirm
 it, rather than assuming the merge was fine because `verify` was:
 
 ```bash
-sha=$(gh pr view <n> --json mergeCommit --jq .mergeCommit.oid)
+sha=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .merge_commit_sha)
 for attempt in $(seq 1 30); do
   # One call per attempt, filtered by gh's own --jq rather than a jq binary:
   # jq is not installed on every machine this runs on, and without it every
@@ -267,13 +294,16 @@ explicitly, since the command does not decide for you:
 labels=medium            # or: labels=critical,security  -- see above
 # $id is the run the loop above settled on -- no second query.
 gh run view "$id" --log-failed > /tmp/smoke-failure.log
-gh issue create \
-  --title "smoke failed after merging #<n>" \
-  --body "$(printf '%s\n\n```\n%s\n```\n' \
-    "Refs #<n>. Failing step's log tail:" \
-    "$(tail -n 60 /tmp/smoke-failure.log)")" \
-  --label "$labels"
+printf '%s\n\n```\n%s\n```\n' "Refs #<n>. Failing step's log tail:" "$(tail -n 60 /tmp/smoke-failure.log)" \
+  > /tmp/smoke-failure.md
+args=(); for l in ${labels//,/ }; do args+=(-f "labels[]=$l"); done
+gh api repos/{owner}/{repo}/issues \
+  -f title="smoke failed after merging #<n>" \
+  -F body=@/tmp/smoke-failure.md \
+  "${args[@]}"
 ```
+
+(`issue_write` with method `create` does the same without the shell.)
 
 This loop is deliberately separate from steps 1–5 above: it starts only
 after a merge has actually happened, so a ceiling hit here never blocks or

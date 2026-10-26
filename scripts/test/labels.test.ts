@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { apply, gh, listLabels, loadManifest, main, plan, validate, type Label, type Run } from '../labels.mjs';
+import {
+  LABEL_PAGE_SIZE,
+  MAX_LABEL_PAGES,
+  apply,
+  gh,
+  listLabels,
+  loadManifest,
+  main,
+  plan,
+  validate,
+  writeArgs,
+  type Label,
+  type Run,
+} from '../labels.mjs';
 
 const label = (name: string, color = 'b60205', description = 'd'): Label => ({ name, color, description });
 
@@ -105,23 +118,59 @@ describe('plan', () => {
 });
 
 describe('listLabels', () => {
-  it('parses gh label list output', async () => {
+  const restLabel = (name: string, description: string | null = 'x') => ({ id: 1, name, color: 'd73a4a', description, default: false });
+
+  it('parses the REST labels listing, reading a null description as empty', async () => {
     const run: Run = async () => ({
       status: 0,
-      stdout: JSON.stringify([{ name: 'bug', color: 'd73a4a', description: 'x' }]),
+      stdout: JSON.stringify([restLabel('bug'), restLabel('plain', null)]),
       stderr: '',
     });
-    expect(await listLabels(run)).toEqual([{ name: 'bug', color: 'd73a4a', description: 'x' }]);
+    expect(await listLabels(run)).toEqual([
+      { name: 'bug', color: 'd73a4a', description: 'x' },
+      { name: 'plain', color: 'd73a4a', description: '' },
+    ]);
   });
 
-  it('passes --repo through when given', async () => {
+  it('reads REST, never gh label (GraphQL, refused from cloud sessions)', async () => {
+    const calls: string[][] = [];
+    const run: Run = async (args) => {
+      calls.push(args);
+      return { status: 0, stdout: '[]', stderr: '' };
+    };
+    await listLabels(run);
+    expect(calls[0]![0]).toBe('api');
+    expect(calls[0]![1]).toBe(`repos/{owner}/{repo}/labels?per_page=${LABEL_PAGE_SIZE}&page=1`);
+  });
+
+  it('puts --repo in the path when given', async () => {
     const calls: string[][] = [];
     const run: Run = async (args) => {
       calls.push(args);
       return { status: 0, stdout: '[]', stderr: '' };
     };
     await listLabels(run, 'owner/name');
-    expect(calls[0]).toContain('owner/name');
+    expect(calls[0]![1]).toMatch(/^repos\/owner\/name\/labels\?/);
+  });
+
+  it('follows pages until a short one', async () => {
+    const full = Array.from({ length: LABEL_PAGE_SIZE }, (_, i) => restLabel(`l${i}`));
+    const pages = [full, [restLabel('last')]];
+    let n = 0;
+    const run: Run = async () => ({ status: 0, stdout: JSON.stringify(pages[n++]), stderr: '' });
+    expect(await listLabels(run)).toHaveLength(LABEL_PAGE_SIZE + 1);
+    expect(n).toBe(2);
+  });
+
+  it('fails at its page ceiling rather than planning from a partial list', async () => {
+    const full = Array.from({ length: LABEL_PAGE_SIZE }, (_, i) => restLabel(`l${i}`));
+    let n = 0;
+    const run: Run = async () => {
+      n += 1;
+      return { status: 0, stdout: JSON.stringify(full), stderr: '' };
+    };
+    await expect(listLabels(run)).rejects.toThrow(/more pages remain/);
+    expect(n).toBe(MAX_LABEL_PAGES);
   });
 
   it('throws with the injected stderr, rather than treating empty as no labels', async () => {
@@ -135,25 +184,55 @@ describe('listLabels', () => {
   });
 });
 
+describe('writeArgs', () => {
+  const create = { ...label('critical', 'b60205', 'Do first'), action: 'create' as const };
+  const update = { ...label('do not automate', 'b60205', 'Needs: a person'), action: 'update' as const };
+
+  it('POSTs a new label to the collection', () => {
+    expect(writeArgs(create)).toEqual([
+      'api', 'repos/{owner}/{repo}/labels', '-X', 'POST', '-f', 'name=critical', '-f', 'color=b60205', '-f', 'description=Do first',
+    ]);
+  });
+
+  it('PATCHes an existing label by its URL-encoded name, so a name with spaces or a colon is addressed correctly', () => {
+    const args = writeArgs(update, 'o/n');
+    expect(args.slice(0, 4)).toEqual(['api', 'repos/o/n/labels/do%20not%20automate', '-X', 'PATCH']);
+    expect(args).not.toContain('name=do not automate');
+  });
+});
+
 describe('apply', () => {
   const manifest = [label('critical', 'b60205', 'Do first')];
 
-  it('calls gh label create for each planned change, and reports it', async () => {
+  it('POSTs each label missing from the repository, and reports it', async () => {
     const calls: string[][] = [];
     const run: Run = async (args) => {
       calls.push(args);
-      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+      if (args.length === 2) return { status: 0, stdout: '[]', stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
     };
     const lines: string[] = [];
     const actions = await apply({ run, manifest, log: (l) => lines.push(l) });
     expect(actions).toEqual([{ ...manifest[0], action: 'create' }]);
-    const create = calls.find((c) => c[1] === 'create');
-    expect(create).toEqual(['label', 'create', 'critical', '--color', 'b60205', '--description', 'Do first', '--force']);
+    const write = calls.find((c) => c.includes('-X'));
+    expect(write).toEqual(writeArgs({ ...manifest[0]!, action: 'create' }));
     expect(lines.some((l) => l.includes('create critical'))).toBe(true);
   });
 
-  it('under --dry-run, never calls gh label create', async () => {
+  it('PATCHes a label whose colour differs, rather than re-creating it', async () => {
+    const calls: string[][] = [];
+    const run: Run = async (args) => {
+      calls.push(args);
+      if (args.length === 2) {
+        return { status: 0, stdout: JSON.stringify([{ name: 'critical', color: '000000', description: 'Do first' }]), stderr: '' };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    await apply({ run, manifest, log: () => {} });
+    expect(calls.find((c) => c.includes('-X'))).toContain('PATCH');
+  });
+
+  it('under --dry-run, writes nothing', async () => {
     const calls: string[][] = [];
     const run: Run = async (args) => {
       calls.push(args);
@@ -161,23 +240,23 @@ describe('apply', () => {
     };
     const actions = await apply({ run, manifest, dryRun: true, log: () => {} });
     expect(actions).toEqual([{ ...manifest[0], action: 'create' }]);
-    expect(calls.some((c) => c[1] === 'create')).toBe(false);
+    expect(calls.some((c) => c.includes('-X'))).toBe(false);
   });
 
-  it('throws with the injected stderr when gh label create fails, naming the label', async () => {
+  it('throws with the injected stderr when a write fails, naming the label', async () => {
     const run: Run = async (args) => {
-      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
-      return { status: 1, stdout: '', stderr: 'HTTP 422: already exists on a different colour' };
+      if (args.length === 2) return { status: 0, stdout: '[]', stderr: '' };
+      return { status: 1, stdout: '', stderr: 'HTTP 422: already_exists' };
     };
     await expect(apply({ run, manifest, log: () => {} })).rejects.toThrow(/critical/);
-    await expect(apply({ run, manifest, log: () => {} })).rejects.toThrow(/already exists on a different colour/);
+    await expect(apply({ run, manifest, log: () => {} })).rejects.toThrow(/already_exists/);
   });
 
   it('makes no network calls of its own: everything goes through the injected run', async () => {
     let invoked = 0;
     const run: Run = async (args) => {
       invoked += 1;
-      if (args[0] === 'label' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+      if (args.length === 2) return { status: 0, stdout: '[]', stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
     };
     await apply({ run, manifest, log: () => {} });
@@ -191,7 +270,7 @@ describe('gh', () => {
     // before it would otherwise need the network, so this is deterministic
     // without talking to GitHub — and it is this suite's one real exercise
     // of the execFile wiring the mocked `run` in every other test replaces.
-    const result = await gh(['label', 'list', '--repo', 'no/such/repo-x', '--bogus-flag']);
+    const result = await gh(['api', '--bogus-flag']);
     expect(result.status).not.toBe(0);
     expect(result.stderr.trim()).not.toBe('');
   });

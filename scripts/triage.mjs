@@ -20,6 +20,11 @@
 // after each merge — so a merge that closes an issue, or a smoke failure that
 // opens one, changes what comes next.
 //
+// Reads GitHub through REST (`gh api`), never `gh issue list` or `gh pr list`:
+// those go through GraphQL, which Claude Code cloud sessions refuse (#225).
+// REST's issues listing carries open pull requests too (an entry with a
+// `pull_request` key), so one paged listing yields both lists.
+//
 // Usage: node scripts/triage.mjs [--json]   (prints the plan; changes nothing)
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -27,8 +32,14 @@ import { pathToFileURL } from 'node:url';
 /** Issues one run of `work-backlog` may take on. Declared in docs/sops.md. */
 export const MAX_ISSUES_PER_RUN = 3;
 
-/** How many issues and pull requests are fetched. Hitting it is reported. */
-export const FETCH_LIMIT = 200;
+/** Items per REST page; GitHub's maximum. */
+export const PAGE_SIZE = 100;
+
+/** Pages of open issues and pull requests read before stopping. Hitting it is reported (SOP 1). */
+export const MAX_PAGES = 4;
+
+/** The most open issues and pull requests, together, one run reads. Hitting it is reported. */
+export const FETCH_LIMIT = PAGE_SIZE * MAX_PAGES;
 
 const RANK = { critical: 0, high: 1, medium: 2 };
 const UNRANKED = 3;
@@ -125,19 +136,57 @@ export function render({ work, deferred, skip }, { truncated = false } = {}) {
   return lines.join('\n') + '\n';
 }
 
-function gh(args) {
-  return JSON.parse(execFileSync('gh', args, { encoding: 'utf8' }));
+/** Runs `gh` and returns its stdout; throws with gh's own message on failure. */
+export function gh(args) {
+  try {
+    return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    throw new Error(`gh ${args.join(' ')} failed: ${String(error.stderr ?? '').trim() || error.message}`);
+  }
+}
+
+/**
+ * Every open issue and open pull request, read from REST's issues listing a
+ * page at a time. `run(args)` returns gh's stdout and throws on failure; it
+ * is injected so a test makes no network calls. Stops at `maxPages` and says
+ * so in `truncated` rather than passing a partial list off as the whole one.
+ *
+ * @returns {{ issues, pullRequests, truncated }}
+ */
+export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
+  const issues = [];
+  const pullRequests = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const items = JSON.parse(run(['api', `repos/{owner}/{repo}/issues?state=open&per_page=${PAGE_SIZE}&page=${page}`]));
+    for (const item of items) {
+      if (item.pull_request) {
+        pullRequests.push({ number: item.number, body: item.body });
+      } else {
+        issues.push({
+          number: item.number,
+          title: item.title,
+          body: item.body,
+          labels: (item.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)),
+        });
+      }
+    }
+    if (items.length < PAGE_SIZE) return { issues, pullRequests, truncated: false };
+  }
+  // The last allowed page was full. Truncated only if one more item exists
+  // beyond it: ask for exactly the next one.
+  const beyond = JSON.parse(run(['api', `repos/{owner}/{repo}/issues?state=open&per_page=1&page=${maxPages * PAGE_SIZE + 1}`]));
+  return { issues, pullRequests, truncated: beyond.length > 0 };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const limit = String(FETCH_LIMIT);
-  const issues = gh(['issue', 'list', '--state', 'open', '--limit', limit, '--json', 'number,title,labels,body']).map(
-    (i) => ({ ...i, labels: i.labels.map((l) => l.name) }),
-  );
-  const prs = gh(['pr', 'list', '--state', 'open', '--limit', limit, '--json', 'number,body']);
-  const truncated = issues.length >= FETCH_LIMIT || prs.length >= FETCH_LIMIT;
-  const plan = triage(issues, prs);
-  process.stdout.write(
-    process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
-  );
+  try {
+    const { issues, pullRequests, truncated } = fetchOpen();
+    const plan = triage(issues, pullRequests);
+    process.stdout.write(
+      process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
+    );
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(1);
+  }
 }

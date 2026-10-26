@@ -11,8 +11,14 @@ Ship the current working-tree changes:
 2. Branch off `develop` if not already on a feature branch.
 3. Commit. The subject is imperative and under 72 characters; the body says
    *why* the change exists, not what it does.
-4. Push and open a PR against `develop` with `gh pr create`.
-5. Report the PR URL. Merge once CI is green; stop and ask for anything
-   destructive, outward-facing, or beyond what was asked.
+4. Push and open a PR against `develop` with `create_pull_request` (the
+   GitHub MCP tool). The fallback is `gh api -X POST
+   repos/{owner}/{repo}/pulls -f title=… -F body=@<file> -f head=<branch> -f
+   base=develop`. Not `gh pr create`: it is GraphQL, which Claude Code cloud
+   sessions refuse (#225).
+5. Report the PR URL. Merge once CI is green (`merge_pull_request`, or `gh
+   api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=squash`);
+   stop and ask for anything destructive, outward-facing, or beyond what was
+   asked.
 
 $ARGUMENTS

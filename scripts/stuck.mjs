@@ -37,12 +37,24 @@ export const MAX_MERGES_BEHIND = 2;
 
 export const WORKTREES_DIR = join(ROOT, '.claude', 'worktrees');
 
+/** Pull requests per REST page; GitHub's maximum. */
+export const PR_PAGE_SIZE = 100;
+
 /**
- * How many pull requests one `gh pr list` call will ask for. Generous on
- * purpose: `allPullRequests` fails loudly rather than silently returning a
- * partial list when the result actually reaches this many — see there.
+ * Pages of pull requests `allPullRequests` reads. Generous on purpose: it
+ * fails loudly rather than silently returning a partial list when it runs
+ * out of pages — see there. 5 pages is 500 pull requests (SOP 1: a declared
+ * ceiling, reported when hit).
  */
-export const PR_FETCH_LIMIT = 500;
+export const MAX_PR_PAGES = 5;
+
+/**
+ * Times a pull request's `mergeable` is read while GitHub is still working
+ * it out (REST answers `null` until it has), and how long to wait between
+ * reads. After the last, it is reported as UNKNOWN, not guessed.
+ */
+export const MERGEABLE_ATTEMPTS = 3;
+export const MERGEABLE_WAIT_MS = 2000;
 
 const UNHEALTHY_MERGEABLE = new Set(['CONFLICTING', 'UNKNOWN']);
 
@@ -141,40 +153,78 @@ export async function worktreeList(run) {
 }
 
 /**
- * Every pull request, open or closed, with the fields every finding below
- * needs — one `gh pr list --state all` call rather than one per branch.
+ * Every pull request, open or closed, from REST's pull request listing —
+ * `gh pr list` is GraphQL, which Claude Code cloud sessions refuse (#225).
+ * The shape is the one the findings below read: `state` is OPEN, MERGED or
+ * CLOSED (REST says `closed` for both of the last two; `merged_at` tells
+ * them apart). The listing carries neither `mergeable` nor the checks on a
+ * head commit; `openPullRequestDetail` fetches those for the open ones.
  *
- * Deliberately **not** `gh api --paginate .../pulls`: the REST list endpoint
- * does not carry `mergeable` at all (only a single-PR fetch does), and (c)
- * needs it. `gh pr list --json` goes through the GraphQL API instead, which
- * does carry it, and gh itself pages through that API to fill `--limit`.
- *
- * `limit` bounds the request, and a result that actually reaches it is not
+ * Bounded at `maxPages` pages, and a listing that runs out of pages is not
  * silently treated as the whole list — this is a diagnostic tool, and
  * under-reporting "nothing stuck" because a list was truncated is worse
- * than this call simply failing. Raise `limit`, or add real pagination
- * here, rather than letting this check pass quietly on a partial list.
+ * than this call simply failing. Raise `MAX_PR_PAGES` rather than let this
+ * check pass quietly on a partial list.
  */
-export async function allPullRequests(run, limit = PR_FETCH_LIMIT) {
-  const result = await run([
-    'pr',
-    'list',
-    '--state',
-    'all',
-    '--limit',
-    String(limit),
-    '--json',
-    'number,title,state,headRefName,headRefOid,mergeable,statusCheckRollup',
-  ]);
-  if (result.status !== 0) throw new Error(`gh pr list failed: ${reason(result)}`);
-  const prs = JSON.parse(result.stdout);
-  if (prs.length >= limit) {
-    throw new Error(
-      `gh pr list returned ${prs.length} pull requests, at the --limit of ${limit} — the listing may be truncated. ` +
-        'Raise PR_FETCH_LIMIT (or paginate) rather than let this check pass on a partial list.',
-    );
+export async function allPullRequests(run, maxPages = MAX_PR_PAGES) {
+  const prs = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const result = await run(['api', `repos/{owner}/{repo}/pulls?state=all&per_page=${PR_PAGE_SIZE}&page=${page}`]);
+    if (result.status !== 0) throw new Error(`gh api pulls failed: ${reason(result)}`);
+    const batch = JSON.parse(result.stdout);
+    for (const pr of batch) {
+      prs.push({
+        number: pr.number,
+        title: pr.title,
+        state: pr.merged_at ? 'MERGED' : pr.state === 'open' ? 'OPEN' : 'CLOSED',
+        headRefName: pr.head?.ref,
+        headRefOid: pr.head?.sha,
+      });
+    }
+    if (batch.length < PR_PAGE_SIZE) return prs;
   }
-  return prs;
+  throw new Error(
+    `gh api pulls returned ${maxPages * PR_PAGE_SIZE} pull requests and more pages remain — the listing may be truncated. ` +
+      'Raise MAX_PR_PAGES rather than let this check pass on a partial list.',
+  );
+}
+
+/** Runs a `gh api ... --jq` call and returns its trimmed stdout, or throws with gh's own message. */
+async function ghValue(run, route, jq) {
+  const result = await run(['api', route, '--jq', jq]);
+  if (result.status !== 0) throw new Error(`gh api ${route} failed: ${reason(result)}`);
+  return result.stdout.trim();
+}
+
+/** The default wait between `mergeable` reads. */
+const realSleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+
+/**
+ * What the REST listing leaves out about one open pull request:
+ * `mergeable` (MERGEABLE, CONFLICTING or UNKNOWN) and `checks`, how many
+ * check runs and commit statuses its head commit has. REST answers
+ * `mergeable: null` until GitHub has worked it out, so it is read up to
+ * `MERGEABLE_ATTEMPTS` times. Throws, rather than guessing, when a call fails.
+ */
+export async function openPullRequestDetail(run, pr, { sleep = realSleep, attempts = MERGEABLE_ATTEMPTS } = {}) {
+  // One failing call aborts the whole run on purpose: a diagnostic that must not under-report fails rather than skip a pull request.
+  let mergeable = 'UNKNOWN';
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const value = await ghValue(run, `repos/{owner}/{repo}/pulls/${pr.number}`, '.mergeable');
+    if (value === 'true') mergeable = 'MERGEABLE';
+    else if (value === 'false') mergeable = 'CONFLICTING';
+    if (mergeable !== 'UNKNOWN') break;
+    if (attempt < attempts) await sleep(MERGEABLE_WAIT_MS);
+  }
+  const count = async (route) => {
+    const n = Number(await ghValue(run, route, '.total_count'));
+    if (!Number.isFinite(n)) throw new Error(`gh api ${route} returned no total_count`);
+    return n;
+  };
+  const checks =
+    (await count(`repos/{owner}/{repo}/commits/${pr.headRefOid}/check-runs`)) +
+    (await count(`repos/{owner}/{repo}/commits/${pr.headRefOid}/status`));
+  return { mergeable, checks };
 }
 
 /**
@@ -241,9 +291,13 @@ export function staleOrConflicting(prs, behind = new Map()) {
     .filter((pr) => pr.reasons.length > 0);
 }
 
-/** Open pull requests with no checks registered on their head commit at all — (d) in the issue. */
+/**
+ * Open pull requests with no checks registered on their head commit at all —
+ * (d) in the issue. `checks` is the number of check runs plus commit
+ * statuses; a pull request without it is unknown, not clean, and not reported.
+ */
 export function noChecksRegistered(prs) {
-  return (prs ?? []).filter((pr) => pr.state === 'OPEN' && (!pr.statusCheckRollup || pr.statusCheckRollup.length === 0));
+  return (prs ?? []).filter((pr) => pr.state === 'OPEN' && pr.checks === 0);
 }
 
 /** Whether `findings` (the shape `find` returns) has nothing to report. */
@@ -282,13 +336,19 @@ export async function find({
   worktreesDir,
   readDir = defaultReadDir,
   gitStatus = defaultGitStatus,
+  sleep,
 } = {}) {
-  const [local, remoteNames, worktrees, prs] = await Promise.all([
+  const [local, remoteNames, worktrees, listed] = await Promise.all([
     localBranches(gitRun),
     remoteBranches(gitRun),
     worktreeList(gitRun),
     allPullRequests(ghRun),
   ]);
+  const prs = await Promise.all(
+    listed.map(async (pr) =>
+      pr.state === 'OPEN' ? { ...pr, ...(await openPullRequestDetail(ghRun, pr, sleep ? { sleep } : {})) } : pr,
+    ),
+  );
 
   const localWithAhead = await Promise.all(
     local.map(async (name) => ({ name, ahead: await aheadCount(gitRun, develop, name) })),
@@ -377,7 +437,7 @@ export function renderFindings(findings) {
   }
   for (const pr of findings.noChecksRegistered) {
     lines.push(
-      `pull request #${pr.number} "${pr.title}": no checks have registered on its head commit — check \`mergeStateStatus\` first; if it is behind or conflicting, merge develop in, otherwise push again to retrigger.`,
+      `pull request #${pr.number} "${pr.title}": no checks have registered on its head commit — check the pull request's \`mergeable_state\` first; if it is behind or conflicting, merge develop in, otherwise push again to retrigger.`,
     );
   }
   return lines;

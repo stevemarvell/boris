@@ -90,7 +90,7 @@ describe('preflight', () => {
     const run: Run = async () => ({ status: 0, stdout: 'x', stderr: '' });
     const results = await preflight({ run, nodeVersion: 'v22.1.0' });
     expect(missingPreflight(results)).toEqual([]);
-    expect(results.map((r) => r.name)).toEqual(['gh auth status', 'git', 'node >= 22', 'uv', 'npx npm@11']);
+    expect(results.map((r) => r.name)).toEqual(['gh api user', 'git', 'node >= 22', 'uv', 'npx npm@11']);
   });
 
   it('names what failed when a command fails, with its stderr', async () => {
@@ -403,13 +403,27 @@ describe('runCheck', () => {
   // stubs it unless it is itself testing this path.
   const identityOk = () => ({ ok: true, output: '' });
 
+  const restIssue = (title: string, labels: string[] = []) => ({ title, labels: labels.map((name) => ({ name })) });
+  const repoJson = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({ private: true, delete_branch_on_merge: true, html_url: 'https://x', ...over });
+
+  // Prefix-matched in insertion order, so the specific routes come before the
+  // bare repository route they all begin with.
   const baseResponses: Record<string, RunResultLike> = {
-    'gh label list': { status: 0, stdout: JSON.stringify([]), stderr: '' },
-    'gh label create': { status: 0, stdout: '', stderr: '' },
-    'gh repo view': { status: 0, stdout: JSON.stringify({ isPrivate: true, deleteBranchOnMerge: true, url: 'https://x' }), stderr: '' },
+    'gh api repos/{owner}/{repo}/labels': { status: 0, stdout: JSON.stringify([]), stderr: '' },
+    'gh api repos/{owner}/{repo}/issues?state=all': {
+      status: 0,
+      stdout: JSON.stringify(OWNER_ISSUES.map((i) => restIssue(i.title))),
+      stderr: '',
+    },
+    'gh api repos/{owner}/{repo}/issues?state=open': {
+      status: 0,
+      stdout: JSON.stringify([restIssue('Template: User story', ['template'])]),
+      stderr: '',
+    },
+    'gh api user': { status: 0, stdout: 'octocat\n', stderr: '' },
     'gh secret list': { status: 0, stdout: JSON.stringify([{ name: 'CLAUDE_CODE_OAUTH_TOKEN' }]), stderr: '' },
-    'gh issue list --state all': { status: 0, stdout: JSON.stringify(OWNER_ISSUES.map((i) => ({ title: i.title }))), stderr: '' },
-    'gh issue list --state open': { status: 0, stdout: JSON.stringify([{ labels: ['template'] }]), stderr: '' },
+    'gh api repos/{owner}/{repo}': { status: 0, stdout: repoJson(), stderr: '' },
   };
 
   it('exits 0 when every check is already satisfied', async () => {
@@ -432,7 +446,7 @@ describe('runCheck', () => {
     const calls: string[] = [];
     const dryRun = run({
       ...baseResponses,
-      'gh repo view': { status: 0, stdout: JSON.stringify({ isPrivate: true, deleteBranchOnMerge: false, url: 'https://x' }), stderr: '' },
+      'gh api repos/{owner}/{repo}': { status: 0, stdout: repoJson({ delete_branch_on_merge: false }), stderr: '' },
     });
     const result = await runCheck({
       run: async (cmd, args) => {
@@ -445,7 +459,7 @@ describe('runCheck', () => {
     });
     expect(result.exitCode).toBe(1);
     expect(result.lines.some((l) => l.includes('delete_branch_on_merge') && l.startsWith(MARK.owner))).toBe(true);
-    expect(calls.some((c) => c.includes('repo edit --delete-branch-on-merge'))).toBe(false);
+    expect(calls.some((c) => c.includes('delete_branch_on_merge=true'))).toBe(false);
   });
 
   it('files a missing owner issue, labelled human and do not automate, and reports it fixed', async () => {
@@ -453,20 +467,43 @@ describe('runCheck', () => {
     const result = await runCheck({
       run: async (cmd, args) => {
         calls.push([cmd, ...args]);
-        if (cmd === 'gh' && args[0] === 'issue' && args[1] === 'list' && args.includes('all')) {
-          return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => ({ title: i.title }))), stderr: '' };
+        if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
+          return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
         }
-        if (cmd === 'gh' && args[0] === 'issue' && args[1] === 'create') return { status: 0, stdout: '', stderr: '' };
+        if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
         return run(baseResponses)(cmd, args);
       },
       skipVerify: true,
       runIdentityTest: identityOk,
     });
-    const createCall = calls.find((c) => c[1] === 'issue' && c[2] === 'create' && c.includes(OWNER_ISSUES[0]!.title));
+    const createCall = calls.find((c) => c.includes('POST') && c.includes(`title=${OWNER_ISSUES[0]!.title}`));
     expect(createCall).toBeDefined();
-    expect(createCall).toContain('human');
-    expect(createCall).toContain('do not automate');
+    expect(createCall!.slice(0, 3)).toEqual(['gh', 'api', 'repos/{owner}/{repo}/issues']);
+    expect(createCall).toContain('labels[]=human');
+    expect(createCall).toContain('labels[]=do not automate');
+    expect(createCall).toContain('assignees[]=octocat');
+    // REST, never `gh issue create` (GraphQL, refused from cloud sessions).
+    expect(calls.some((c) => c[1] === 'issue')).toBe(false);
     expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title) && l.startsWith(MARK.fixed))).toBe(true);
+  });
+
+  it('refuses to file owner issues unassigned: a failed login lookup is a failure, not a quiet filing', async () => {
+    const calls: string[][] = [];
+    await expect(
+      runCheck({
+        run: async (cmd, args) => {
+          calls.push([cmd, ...args]);
+          if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
+            return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
+          }
+          if (cmd === 'gh' && args[1] === 'user') return { status: 1, stdout: '', stderr: 'HTTP 403' };
+          return run(baseResponses)(cmd, args);
+        },
+        skipVerify: true,
+        runIdentityTest: identityOk,
+      }),
+    ).rejects.toThrow(/gh api user failed: HTTP 403/);
+    expect(calls.some((c) => c.includes('POST') && c.some((a) => a.endsWith('/issues')))).toBe(false);
   });
 
   it('reports the identity census done when scripts/test/identity.test.ts passes', async () => {
@@ -577,24 +614,61 @@ describe('ensureEmptyTarget', () => {
     };
   }
 
-  it('reports "does not exist" when gh repo view fails, without checking emptiness', async () => {
+  it('reports "does not exist" when the repository lookup fails, without checking emptiness', async () => {
     const calls: string[] = [];
     const result = await ensureEmptyTarget({
       run: async (cmd, args) => {
         calls.push(`${cmd} ${args.join(' ')}`);
-        return { status: 1, stdout: '', stderr: 'not found' };
+        return { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' };
       },
       target: 'o/n',
     });
     expect(result).toEqual({ exists: false });
-    expect(calls).toHaveLength(1); // only the existence check; no isEmpty call
+    expect(calls).toHaveLength(1); // only the existence check; no branches call
   });
 
-  it('proceeds when the repository exists and gh reports it isEmpty', async () => {
+  it('treats only a 404 as "does not exist": a 403, a rate limit or a network error throws', async () => {
+    for (const stderr of ['HTTP 403: Forbidden', 'API rate limit exceeded (HTTP 429)', 'dial tcp: connection refused']) {
+      await expect(
+        ensureEmptyTarget({ run: async () => ({ status: 1, stdout: '', stderr }), target: 'o/n' }),
+      ).rejects.toThrow(/repos\/o\/n failed/);
+    }
+  });
+
+  it('treats GitHub\'s 409 "Git Repository is empty." as empty', async () => {
     const result = await ensureEmptyTarget({
       run: run({
-        'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-        'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":true}', stderr: '' },
+        'gh api repos/o/n --jq .name': { status: 0, stdout: 'n', stderr: '' },
+        'gh api repos/o/n/branches': {
+          status: 1,
+          stdout: '{"message":"Git Repository is empty."}',
+          stderr: 'gh: Git Repository is empty. (HTTP 409)',
+        },
+      }),
+      target: 'o/n',
+    });
+    expect(result).toEqual({ exists: true });
+  });
+
+  it('keeps every other 409, and every other failure of the emptiness check, fail-closed', async () => {
+    for (const stderr of ['gh: Conflict (HTTP 409)', 'gh: Git Repository is empty.', 'HTTP 403: Forbidden']) {
+      await expect(
+        ensureEmptyTarget({
+          run: run({
+            'gh api repos/o/n --jq .name': { status: 0, stdout: 'n', stderr: '' },
+            'gh api repos/o/n/branches': { status: 1, stdout: '', stderr },
+          }),
+          target: 'o/n',
+        }),
+      ).rejects.toThrow(/branches failed/);
+    }
+  });
+
+  it('proceeds when the repository exists and it has no branches', async () => {
+    const result = await ensureEmptyTarget({
+      run: run({
+        'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+        'gh api repos/o/n/branches': { status: 0, stdout: '[]', stderr: '' },
       }),
       target: 'o/n',
     });
@@ -605,8 +679,8 @@ describe('ensureEmptyTarget', () => {
     await expect(
       ensureEmptyTarget({
         run: run({
-          'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-          'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":false}', stderr: '' },
+          'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+          'gh api repos/o/n/branches': { status: 0, stdout: '[{"name":"develop"}]', stderr: '' },
         }),
         target: 'o/n',
       }),
@@ -617,8 +691,8 @@ describe('ensureEmptyTarget', () => {
     await expect(
       ensureEmptyTarget({
         run: run({
-          'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-          'gh repo view o/n --json isEmpty': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
+          'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+          'gh api repos/o/n/branches': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
         }),
         target: 'o/n',
       }),
@@ -629,8 +703,8 @@ describe('ensureEmptyTarget', () => {
     await expect(
       ensureEmptyTarget({
         run: run({
-          'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-          'gh repo view o/n --json isEmpty': { status: 0, stdout: 'not json', stderr: '' },
+          'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+          'gh api repos/o/n/branches': { status: 0, stdout: 'not json', stderr: '' },
         }),
         target: 'o/n',
       }),
@@ -655,8 +729,8 @@ describe('create', () => {
 
   it('a hard failure checking emptiness stops create before any clone or push', async () => {
     const { run, calls } = stubRun({
-      'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-      'gh repo view o/n --json isEmpty': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
+      'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+      'gh api repos/o/n/branches': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
     });
     await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
       /API rate limit exceeded/,
@@ -667,8 +741,8 @@ describe('create', () => {
 
   it('refuses an existing, non-empty target before any clone or push', async () => {
     const { run, calls } = stubRun({
-      'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-      'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":false}', stderr: '' },
+      'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+      'gh api repos/o/n/branches': { status: 0, stdout: '[{"name":"develop"}]', stderr: '' },
     });
     await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
       /already exists and is not empty/,
@@ -678,8 +752,8 @@ describe('create', () => {
 
   it('an empty repository proceeds past the guard and attempts the clone', async () => {
     const { run, calls } = stubRun({
-      'gh repo view o/n --json name': { status: 0, stdout: '{}', stderr: '' },
-      'gh repo view o/n --json isEmpty': { status: 0, stdout: '{"isEmpty":true}', stderr: '' },
+      'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
+      'gh api repos/o/n/branches': { status: 0, stdout: '[]', stderr: '' },
       // Deliberately fails the clone itself, so the test stops there rather
       // than reaching the real filesystem/bootstrap/verify/push pipeline.
       'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
@@ -690,17 +764,40 @@ describe('create', () => {
     expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
   });
 
-  it('a brand-new target (gh repo view fails) creates the repository and proceeds to clone', async () => {
+  it('a brand-new target (the repository lookup fails) creates the repository and proceeds to clone', async () => {
     const { run, calls } = stubRun({
-      'gh repo view o/n --json name': { status: 1, stdout: '', stderr: 'not found' },
-      'gh repo create': { status: 0, stdout: '', stderr: '' },
+      'gh api repos/o/n --jq .name': { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' },
+      'gh api orgs/o/repos': { status: 0, stdout: '', stderr: '' },
       'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
     });
     await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
       /git clone failed/,
     );
-    expect(calls.some((c) => c[0] === 'gh' && c[1] === 'repo' && c[2] === 'create')).toBe(true);
+    const createCall = calls.find((c) => c.includes('orgs/o/repos'));
+    expect(createCall).toEqual(['gh', 'api', 'orgs/o/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=true']);
+    // REST, never `gh repo create` (GraphQL, refused from cloud sessions).
+    expect(calls.some((c) => c[0] === 'gh' && c[1] === 'repo')).toBe(false);
     expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
+  });
+
+  it('creates the repository under the authenticated account when it is the owner, publicly if asked', async () => {
+    const { run, calls } = stubRun({
+      'gh api user': { status: 0, stdout: 'O\n', stderr: '' },
+      'gh api repos/o/n --jq .name': { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' },
+      'gh api user/repos': { status: 0, stdout: '', stderr: '' },
+      'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
+    });
+    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: true }, { run })).rejects.toThrow(/git clone failed/);
+    expect(calls.find((c) => c.includes('user/repos'))).toEqual(['gh', 'api', 'user/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=false']);
+  });
+
+  it('stops before cloning when creating the repository fails', async () => {
+    const { run, calls } = stubRun({
+      'gh api repos/o/n --jq .name': { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' },
+      'gh api orgs/o/repos': { status: 1, stdout: '', stderr: 'HTTP 403' },
+    });
+    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(/HTTP 403/);
+    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(false);
   });
 
   it("'s final step spawns the clone's own check, with cwd set to opts.dir, and returns its exit code", async () => {
@@ -734,8 +831,8 @@ describe('create', () => {
       const target = 'acme-owner/acme';
       const run: Run = async (cmd, args) => {
         const key = `${cmd} ${args.join(' ')}`;
-        if (key === `gh repo view ${target} --json name`) return { status: 0, stdout: '{}', stderr: '' };
-        if (key === `gh repo view ${target} --json isEmpty`) return { status: 0, stdout: '{"isEmpty":true}', stderr: '' };
+        if (key === `gh api repos/${target} --jq .name`) return { status: 0, stdout: '{}', stderr: '' };
+        if (key === `gh api repos/${target}/branches?per_page=1`) return { status: 0, stdout: '[]', stderr: '' };
         if (cmd === 'git' && args.includes('rev-parse')) return { status: 0, stdout: 'abc1234\n', stderr: '' };
         return { status: 0, stdout: '', stderr: '' }; // clone, remote rename/set-url/add, add, commit, push
       };
@@ -789,8 +886,8 @@ describe('create', () => {
       const target = 'acme-owner/acme';
       const run: Run = async (cmd, args) => {
         const key = `${cmd} ${args.join(' ')}`;
-        if (key === `gh repo view ${target} --json name`) return { status: 0, stdout: '{}', stderr: '' };
-        if (key === `gh repo view ${target} --json isEmpty`) return { status: 0, stdout: '{"isEmpty":true}', stderr: '' };
+        if (key === `gh api repos/${target} --jq .name`) return { status: 0, stdout: '{}', stderr: '' };
+        if (key === `gh api repos/${target}/branches?per_page=1`) return { status: 0, stdout: '[]', stderr: '' };
         if (cmd === 'git' && args.includes('rev-parse')) return { status: 0, stdout: 'abc1234\n', stderr: '' };
         return { status: 0, stdout: '', stderr: '' };
       };

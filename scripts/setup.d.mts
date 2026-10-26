@@ -41,6 +41,7 @@ export declare const TELEMETRY_FILES: string[];
 export declare const MARK: { done: string; fixed: string; owner: string };
 export declare const OWNER_ISSUES: OwnerIssue[];
 export declare const TEMPLATE_ISSUE_TITLE: string;
+export declare const MAX_ISSUE_PAGES: number;
 
 export declare function exec(cmd: string, args: string[]): Promise<RunResult>;
 
