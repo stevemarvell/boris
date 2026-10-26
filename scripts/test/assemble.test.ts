@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { LIMITS, ROOT, assemble, loadCatalogue, parseArgs, plan, sharedBlock, under, type Catalogue } from '../assemble.mjs';
 import { loadProject } from '../project.mjs';
@@ -42,7 +42,8 @@ function listing(dir: string, rel = ''): string[] {
 
 const catalogue = loadCatalogue();
 const project = loadProject();
-const gitFiles = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: ROOT, encoding: 'utf8' })
+// Committed files only, as assemble reads them: an untracked file is never part of a product.
+const gitFiles = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
   .split('\n')
   .filter(Boolean);
 
@@ -112,7 +113,18 @@ describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
   });
 
   it("replaces the base's own documents with the product's", () => {
-    expect(readFileSync(join(target, 'docs/data-governance.md'), 'utf8')).toMatch(/^# Data governance\n\nA stub/);
+    const governance = readFileSync(join(target, 'docs/data-governance.md'), 'utf8');
+    expect(governance).toMatch(/^# Data governance\n\nA stub/);
+    // The engine ships credentialed workflows, so the stub says what they read and what voids the posture.
+    expect(governance).toContain('## What CI holds, and what voids that');
+    expect(governance).toContain('a second person gets write access');
+    // …and it names every secret the shipped workflows actually read, found by reading them.
+    const used = new Set<string>();
+    for (const file of readdirSync(join(target, '.github/workflows'))) {
+      for (const match of readFileSync(join(target, '.github/workflows', file), 'utf8').matchAll(/secrets\.([A-Z_]+)/g)) used.add(match[1]!);
+    }
+    expect(used.size).toBeGreaterThan(0);
+    expect([...used].filter((secret) => !governance.includes(secret))).toEqual([]);
     expect(readFileSync(join(target, 'docs/data-governance.md'), 'utf8')).not.toBe(readFileSync(join(ROOT, 'docs/data-governance.md'), 'utf8'));
     if (chosen.includes('node-react')) {
       expect(readFileSync(join(target, 'docs/adoption.md'), 'utf8')).not.toBe(readFileSync(join(ROOT, 'docs/adoption.md'), 'utf8'));
@@ -205,7 +217,7 @@ function fakeCatalogue(): Catalogue {
   };
 }
 
-function fakeRepo(change: (c: Catalogue) => void = () => undefined): { root: string; catalogue: Catalogue } {
+function fakeRepo(change: (c: Catalogue) => void = () => undefined, git = true): { root: string; catalogue: Catalogue } {
   const root = scratch();
   const put = (path: string, text: string) => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -240,6 +252,11 @@ function fakeRepo(change: (c: Catalogue) => void = () => undefined): { root: str
   const catalogue = fakeCatalogue();
   change(catalogue);
   writeFileSync(join(root, 'catalogue.json'), JSON.stringify(catalogue));
+  if (git) {
+    // Local only: the index is all assemble reads.
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['add', '-A', '--force'], { cwd: root });
+  }
   return { root, catalogue };
 }
 
@@ -283,6 +300,31 @@ describe('assemble in a small repository', () => {
     expect(JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')).name).toBe('prod');
   });
 
+  it('copies committed files only: an untracked file in an engine path or a starter never reaches a product', () => {
+    const { root, target, run } = build();
+    for (const path of ['tools/.env.production', 'tools/stray.pem', 'tools/deep/notes.txt', 'apps/svc/key.pem']) {
+      writeFileSync(join(root, path), 'untracked');
+    }
+    run();
+    expect(listing(target).filter((f) => /env\.production|\.pem|notes\.txt/.test(f))).toEqual([]);
+    expect(listing(target)).toContain('tools/a.mjs');
+  });
+
+  it('keeps the name filter as a second guard: a committed local override is still not copied', () => {
+    const { root, target, run } = build();
+    writeFileSync(join(root, 'tools/.env.local'), 'x');
+    execFileSync('git', ['add', '--force', 'tools/.env.local'], { cwd: root });
+    run();
+    expect(listing(target).filter((f) => f.includes('.env'))).toEqual([]);
+  });
+
+  it('says so when the source is not a git checkout, rather than guess at its files', () => {
+    const { root, catalogue } = fakeRepo(undefined, false);
+    const target = join(scratch(), 'out');
+    expect(() => assemble({ root, catalogue, target, name: 'p', starters: ['svc'] })).toThrow(/is not a git checkout/);
+    expect(existsSync(target)).toBe(false);
+  });
+
   it('refuses a target that has anything in it, and leaves it as it was', () => {
     const { target, run } = build();
     mkdirSync(target, { recursive: true });
@@ -304,6 +346,31 @@ describe('assemble in a small repository', () => {
     expect(() => assemble({ root: inside.root, catalogue: inside.catalogue, target: join(inside.root, 'out'), name: 'p', starters: ['svc'] })).toThrow(
       /inside the source tree/,
     );
+  });
+
+  it('refuses a target in a directory whose name merely starts with two dots, and one reached through a symbolic link', () => {
+    const odd = fakeRepo();
+    mkdirSync(join(odd.root, '..x'));
+    expect(() => assemble({ root: odd.root, catalogue: odd.catalogue, target: join(odd.root, '..x', 'out'), name: 'p', starters: ['svc'] })).toThrow(
+      /inside the source tree/,
+    );
+    expect(existsSync(join(odd.root, '..x', 'out'))).toBe(false);
+
+    const linked = fakeRepo();
+    mkdirSync(join(linked.root, 'sub'));
+    const elsewhere = scratch();
+    symlinkSync(join(linked.root, 'sub'), join(elsewhere, 'link'));
+    expect(() => assemble({ root: linked.root, catalogue: linked.catalogue, target: join(elsewhere, 'link', 'out'), name: 'p', starters: ['svc'] })).toThrow(
+      /inside the source tree/,
+    );
+    expect(existsSync(join(linked.root, 'sub', 'out'))).toBe(false);
+  });
+
+  it('accepts a target beside the source whose own name starts with two dots', () => {
+    const { root, catalogue } = fakeRepo();
+    const target = join(dirname(root), `..${basename(root)}-product`);
+    made.push(target);
+    expect(() => assemble({ root, catalogue, target, name: 'p', starters: ['svc'] })).not.toThrow();
   });
 
   it('refuses before writing anything: an unknown starter, none, a repeat, or a bad name', () => {
@@ -334,6 +401,7 @@ describe('assemble in a small repository', () => {
   it('refuses a symbolic link rather than follow it', () => {
     const { root, target, run } = build();
     symlinkSync('/etc', join(root, 'tools/link'));
+    execFileSync('git', ['add', 'tools/link'], { cwd: root });
     expect(run).toThrow(/"tools\/link" is a symbolic link/);
     expect(existsSync(target)).toBe(false);
   });

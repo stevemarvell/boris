@@ -6,33 +6,37 @@
 // the product's own) and the providers (code that ships with the engine).
 // This module reads that catalogue and writes a tree into an empty directory.
 //
-// It is a pure file-tree builder. It runs no git, no network, no install and
-// no other program, so `npm run verify` can assemble every starter on each
-// run and stay fast; creating the repository, relocking and the first commit
+// It is a pure file-tree builder. It takes its file list from `git ls-files`
+// in the source root, so only committed files can reach a product: an
+// untracked `.env.production` or key file is never copied. That one read-only
+// local command is all it runs: no network, no install, no other git, so
+// `npm run verify` can assemble every starter on each run and stay fast; creating the repository, relocking and the first commit
 // are the caller's (`setup create`). It never writes anywhere but `target`,
 // and refuses a target that already has anything in it.
 //
-// Bounded, because it walks directories: no symlink is followed (one is an
-// error), a tree deeper than LIMITS.depth levels or holding more than
-// LIMITS.files files is an error, and a name in the catalogue's
-// `ignoredNames` is never entered. A directory tree is finite, so the walk
-// ends; the limits turn a surprise (a stray link, a generated tree) into a
-// message instead of a long wait.
+// Bounded: the file list is finite, no symlink is followed (one is an error),
+// a path deeper than LIMITS.depth levels under its catalogue entry or more
+// than LIMITS.files files in all is an error, and a name in the catalogue's
+// `ignoredNames` is never copied, tracked or not. The limits turn a surprise
+// (a stray link, a generated tree committed by mistake) into a message.
 //
 // CLI:
 //
 //     node scripts/assemble.mjs --list
 //     node scripts/assemble.mjs --target <dir> --name <name> --starter <s> [--starter <s> ...]
+import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT, inside, loadProject, validate } from './project.mjs';
 
@@ -168,6 +172,32 @@ A stub. Nothing here serves, stores or exposes data yet.
 
 Rewrite this page before anything that serves, stores or exposes data ships:
 what is exposed, to whom, why that is deliberate, and what would change it.
+
+## What CI holds, and what voids that
+
+The engine ships workflows that read repository secrets. A new product has
+none set; the owner sets each with \`gh secret set\`, and until then the
+workflows that read it have nothing to read.
+
+| Secret | Read by |
+| --- | --- |
+| \`CLAUDE_CODE_OAUTH_TOKEN\` | \`.github/workflows/claude-code-review.yml\`, \`claude.yml\` |
+| \`GRAFANA_CLOUD_OTLP_ENDPOINT\`, \`GRAFANA_CLOUD_OTLP_AUTH\` | the same two workflows |
+| \`VERCEL_TOKEN\` | \`.github/workflows/preview-prune.yml\` |
+| \`TELEGRAM_BOT_TOKEN\`, \`TELEGRAM_CHAT_ID\` | \`.github/workflows/telegram-notify.yml\` |
+
+The review jobs check out a pull request and run a script from that checkout
+while a credential is live, so a pull request can run its own code with it.
+Two things bound that: the trigger is \`pull_request\`, not
+\`pull_request_target\`, so a fork gets no secrets; and one person has write
+access, so that code is the owner's own, run with the owner's own credential.
+The second holds only while it is true: it is a fact about membership, not
+something in the configuration.
+
+**The trigger that voids it: a second person gets write access once any of
+these secrets is set.** Before that, move branch-code steps out of the
+credentialed jobs or pass the secrets only to the action's own step, and
+rewrite this section.
 `;
 
 const ADOPTION = `# Adoption
@@ -228,28 +258,51 @@ const RENAMED = {
 // Planning
 // ---------------------------------------------------------------------------
 
-/** Every file under `rel` (or `rel` itself), as repository-relative paths, sorted. */
-function walk(root, rel, { skip, limits, count }, depth = 0, out = []) {
-  const abs = join(root, ...rel.split('/'));
-  if (!existsSync(abs)) throw new Error(`assemble: "${rel}" does not exist in ${root}`);
-  const info = statSync(abs);
-  if (info.isFile()) {
-    if (++count.n > limits.files) throw new Error(`assemble: more than ${limits.files} files; something that should be skipped is not`);
-    out.push(rel);
-    return out;
+/**
+ * The committed files of the checkout at `root`, as repository-relative paths.
+ * `GIT_CEILING_DIRECTORIES` stops git finding a repository above `root`, so a
+ * source tree that is not itself a checkout fails instead of listing some
+ * other repository's files.
+ */
+export function trackedFiles(root) {
+  const result = spawnSync('git', ['ls-files', '-z'], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(resolve(root)) },
+  });
+  if (result.error || result.status !== 0) {
+    const why = (result.error?.message ?? result.stderr ?? '').trim();
+    throw new Error(`assemble: ${root} is not a git checkout (git ls-files failed: ${why}); a product is built from committed files`);
   }
-  if (depth > limits.depth) throw new Error(`assemble: "${rel}" is nested deeper than ${limits.depth} levels`);
-  const children = readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  for (const child of children) {
-    if (NEVER(child.name) || skip.names.has(child.name)) continue;
-    const path = posix.join(rel, child.name);
+  return result.stdout.split('\0').filter(Boolean);
+}
+
+/**
+ * Every committed file under `rel` (or `rel` itself), sorted, without what
+ * `skip` or the catalogue's ignored names exclude. Files deleted from the
+ * working tree since the last commit are left out.
+ */
+function walk(root, rel, { tracked, skip, limits, count }) {
+  const found = tracked.filter((path) => under(rel, path));
+  if (found.length === 0) throw new Error(`assemble: "${rel}" does not exist, or has no committed files, in ${root}`);
+  const out = [];
+  for (const path of found.sort()) {
+    const parts = path.split('/');
+    const levels = path === rel ? 0 : path.slice(rel.length + 1).split('/').length - 1;
+    if (levels > limits.depth) throw new Error(`assemble: "${path}" is nested deeper than ${limits.depth} levels under "${rel}"`);
+    if (parts.some((part) => NEVER(part) || skip.names.has(part))) continue;
     if (skip.paths.some((p) => under(p, path))) continue;
-    if (child.isSymbolicLink()) throw new Error(`assemble: "${path}" is a symbolic link; nothing is followed`);
-    if (child.isDirectory()) walk(root, path, { skip, limits, count }, depth + 1, out);
-    else if (child.isFile()) {
-      if (++count.n > limits.files) throw new Error(`assemble: more than ${limits.files} files; something that should be skipped is not`);
-      out.push(path);
-    } else throw new Error(`assemble: "${path}" is neither a file nor a directory`);
+    let info;
+    try {
+      info = lstatSync(join(root, ...parts));
+    } catch {
+      continue;
+    }
+    if (info.isSymbolicLink()) throw new Error(`assemble: "${path}" is a symbolic link; nothing is followed`);
+    if (!info.isFile()) throw new Error(`assemble: "${path}" is neither a file nor a symbolic link`);
+    if (++count.n > limits.files) throw new Error(`assemble: more than ${limits.files} files; something that should be skipped is not`);
+    out.push(path);
   }
   return out;
 }
@@ -317,14 +370,15 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
     }
   };
   const count = { n: 0 };
+  const tracked = trackedFiles(root);
 
   for (const path of catalogue.engine.paths) {
-    copy(walk(root, path, { skip: { names, paths: elsewhere }, limits, count }), 'engine');
+    copy(walk(root, path, { tracked, skip: { names, paths: elsewhere }, limits, count }), 'engine');
   }
-  for (const path of catalogue.seeded.paths) copy(walk(root, path, { skip: { names, paths: [] }, limits, count }), 'seeded');
+  for (const path of catalogue.seeded.paths) copy(walk(root, path, { tracked, skip: { names, paths: [] }, limits, count }), 'seeded');
   for (const starter of chosen) {
     for (const path of [starter.path, ...starter.files]) {
-      copy(walk(root, path, { skip: { names, paths: starter.build }, limits, count }), `starter ${starter.key}`);
+      copy(walk(root, path, { tracked, skip: { names, paths: starter.build }, limits, count }), `starter ${starter.key}`);
     }
   }
   for (const path of [...catalogue.generated.paths, ...chosen.flatMap((s) => s.stubs)]) {
@@ -349,10 +403,30 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
 // Writing
 // ---------------------------------------------------------------------------
 
+/** `path` with its nearest existing ancestor resolved through any symbolic links. */
+function resolvedPath(path) {
+  const rest = [];
+  let here = resolve(path);
+  // Ends: each pass moves one level up, and the filesystem root exists.
+  for (;;) {
+    try {
+      return join(realpathSync(here), ...rest);
+    } catch (error) {
+      const parent = dirname(here);
+      if (error.code !== 'ENOENT' || parent === here) throw error;
+      rest.unshift(basename(here));
+      here = parent;
+    }
+  }
+}
+
 /** Throws unless `target` is absent or an empty directory outside `root`. */
 function checkTarget(target, root) {
-  const rel = relative(resolve(root), target);
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) throw new Error(`assemble: target ${target} is inside the source tree ${root}`);
+  const rel = relative(realpathSync(resolve(root)), resolvedPath(target));
+  // `..x` is a sibling name inside the root; only `..` itself, or `..` as a
+  // whole leading segment, climbs out.
+  const climbsOut = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  if (!climbsOut) throw new Error(`assemble: target ${target} is inside the source tree ${root}`);
   if (!existsSync(target)) return;
   if (!statSync(target).isDirectory()) throw new Error(`assemble: target ${target} exists and is not a directory`);
   if (readdirSync(target).length > 0) throw new Error(`assemble: target ${target} is not empty`);
