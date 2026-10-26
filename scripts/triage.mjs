@@ -172,7 +172,10 @@ export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
     }
     if (items.length < PAGE_SIZE) return { issues, pullRequests, truncated: false };
   }
-  return { issues, pullRequests, truncated: true };
+  // The last allowed page was full. Truncated only if one more item exists
+  // beyond it: ask for exactly the next one.
+  const beyond = JSON.parse(run(['api', `repos/{owner}/{repo}/issues?state=open&per_page=1&page=${maxPages * PAGE_SIZE + 1}`]));
+  return { issues, pullRequests, truncated: beyond.length > 0 };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

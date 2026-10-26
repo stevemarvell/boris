@@ -584,8 +584,11 @@ export async function runCheck({
       continue;
     }
     if (assignee === undefined) {
+      // Owner issues must be assigned (SOP 2), so a failed lookup stops the run
+      // rather than filing them unassigned and reporting them filed.
       const me = await run('gh', ['api', 'user', '--jq', '.login']);
-      assignee = me.status === 0 ? me.stdout.trim() : '';
+      if (me.status !== 0 || !me.stdout.trim()) throw new Error(`gh api user failed: ${reason(me)}`);
+      assignee = me.stdout.trim();
     }
     const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body, labels: label, assignee }));
     results.push(
@@ -695,10 +698,21 @@ export async function runCheck({
  */
 export async function ensureEmptyTarget({ run, target }) {
   const view = await run('gh', ['api', `repos/${target}`, '--jq', '.name']);
-  if (view.status !== 0) return { exists: false }; // does not exist yet; create() will create it
+  if (view.status !== 0) {
+    // Only a 404 means absent; a 403 from the proxy, a rate limit or a network
+    // error says nothing about whether the repository exists.
+    if (/HTTP 404/.test(`${view.stderr}\n${view.stdout}`)) return { exists: false }; // create() will create it
+    throw new Error(`gh api repos/${target} failed: ${reason(view)}`);
+  }
 
   const branches = await run('gh', ['api', `repos/${target}/branches?per_page=1`]);
-  if (branches.status !== 0) throw new Error(`gh api repos/${target}/branches failed: ${reason(branches)}`);
+  if (branches.status !== 0) {
+    // GitHub answers some endpoints for a repository with no commits with
+    // exactly this 409. Unverified against a real empty repository.
+    const text = `${branches.stderr}\n${branches.stdout}`;
+    if (/HTTP 409/.test(text) && /Git Repository is empty\./.test(text)) return { exists: true };
+    throw new Error(`gh api repos/${target}/branches failed: ${reason(branches)}`);
+  }
   let list;
   try {
     list = JSON.parse(branches.stdout);

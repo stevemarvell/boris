@@ -190,17 +190,33 @@ describe('fetchOpen', () => {
     expect(truncated).toBe(false);
   });
 
-  it('stops at its page ceiling and says the listing was truncated, rather than paging on', () => {
-    let calls = 0;
-    const run = () => {
-      calls += 1;
-      return JSON.stringify(Array.from({ length: PAGE_SIZE }, (_, i) => rest(calls * 1000 + i)));
+  const fullPage = (from: number) => JSON.stringify(Array.from({ length: PAGE_SIZE }, (_, i) => rest(from + i)));
+
+  it('stops at its page ceiling and says the listing was truncated when an item lies beyond it', () => {
+    const routes: string[] = [];
+    const run = (args: string[]) => {
+      routes.push(args[1]!);
+      // The probe past the ceiling asks for one item and finds one.
+      return args[1]!.includes('per_page=1&') ? JSON.stringify([rest(99999)]) : fullPage(routes.length * 1000);
     };
     const { issues, truncated } = fetchOpen(run);
-    expect(calls).toBe(MAX_PAGES);
+    expect(routes).toHaveLength(MAX_PAGES + 1);
+    expect(routes.at(-1)).toBe(`repos/{owner}/{repo}/issues?state=open&per_page=1&page=${FETCH_LIMIT + 1}`);
     expect(issues).toHaveLength(FETCH_LIMIT);
     expect(truncated).toBe(true);
     expect(render(triage(issues, []), { truncated })).toContain('WARNING');
+  });
+
+  it('is not truncated when the ceiling page is full but nothing lies beyond it', () => {
+    let calls = 0;
+    const run = (args: string[]) => {
+      calls += 1;
+      return args[1]!.includes('per_page=1&') ? '[]' : fullPage(calls * 1000);
+    };
+    const { issues, truncated } = fetchOpen(run);
+    expect(calls).toBe(MAX_PAGES + 1);
+    expect(issues).toHaveLength(FETCH_LIMIT);
+    expect(truncated).toBe(false);
   });
 
   it('lets a failure from gh through, rather than planning from nothing', () => {

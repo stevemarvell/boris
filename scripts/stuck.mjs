@@ -207,6 +207,7 @@ const realSleep = (ms) => new Promise((resolvePromise) => setTimeout(resolveProm
  * `MERGEABLE_ATTEMPTS` times. Throws, rather than guessing, when a call fails.
  */
 export async function openPullRequestDetail(run, pr, { sleep = realSleep, attempts = MERGEABLE_ATTEMPTS } = {}) {
+  // One failing call aborts the whole run on purpose: a diagnostic that must not under-report fails rather than skip a pull request.
   let mergeable = 'UNKNOWN';
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const value = await ghValue(run, `repos/{owner}/{repo}/pulls/${pr.number}`, '.mergeable');
