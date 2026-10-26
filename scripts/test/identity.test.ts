@@ -5,6 +5,8 @@
 // instead. This test is that trail's detector, run as `git grep` sees the
 // repository rather than as a list anyone has to remember to update by hand.
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ROOT } from '../project.mjs';
 
@@ -12,7 +14,24 @@ interface Allowed {
   file: string;
   pattern: RegExp;
   because: string;
+  /**
+   * The line exists only in boris itself: the file is not part of a product
+   * (it is generated, or listed in catalogue.json's `base`), or the line is
+   * the base's own and the product's copy says something else. Such an entry
+   * is neither applied nor required to match in a product.
+   */
+  base?: true;
 }
+
+/**
+ * This test ships to every product with the rest of scripts/test/, and
+ * catalogue.json does not (it is listed in the catalogue's own `base`), so its
+ * presence is how a checkout tells boris from a product built from it. In a
+ * product the engine must stay as neutral as it does here, and every entry
+ * not marked `base` is a line the engine itself carries, so those still have
+ * to match a real hit. The entries marked `base` describe boris's own files.
+ */
+const IN_BASE = existsSync(join(ROOT, 'catalogue.json'));
 
 /**
  * Every line this repository is allowed to still say one of NAMES on, and
@@ -24,7 +43,7 @@ interface Allowed {
 const ALLOW: Allowed[] = [
   // The adoption ladder preserves the source document's own wording,
   // including its byline — CLAUDE.md says so.
-  { file: 'docs/adoption.md', pattern: /Boris Cherny/, because: "the source document's own byline" },
+  { file: 'docs/adoption.md', pattern: /Boris Cherny/, because: "the source document's own byline", base: true },
 
   // Shared, byte-identical across every repository built from this one.
   // Another agent owns .claude/skills/sync-ai-layer/; it documents the
@@ -38,19 +57,19 @@ const ALLOW: Allowed[] = [
   // This repository's own name, and its relationship to repositories built
   // from it — "naming boris as the master is fine" is sync-ai-layer's own
   // rule, applied here in CLAUDE.md and README.md.
-  { file: 'CLAUDE.md', pattern: /^# boris$/, because: "this repository's own name" },
-  { file: 'CLAUDE.md', pattern: /Boris Cherny/, because: "the adoption ladder's author, named in this file's intro" },
-  { file: 'CLAUDE.md', pattern: /boris is also the master copy/, because: 'this repository is the master copy; stated once' },
+  { file: 'CLAUDE.md', pattern: /^# boris$/, because: "this repository's own name", base: true },
+  { file: 'CLAUDE.md', pattern: /Boris Cherny/, because: "the adoption ladder's author, named in this file's intro", base: true },
+  { file: 'CLAUDE.md', pattern: /boris is also the master copy/, because: 'this repository is the master copy; stated once', base: true },
   { file: 'CLAUDE.md', pattern: /from boris\. Edit them in boris and sync/, because: 'syncing from this repository, named as itself' },
   { file: 'CLAUDE.md', pattern: /with boris or a repository built from it/, because: 'the sync-ai-layer skill row, naming this repository' },
-  { file: 'CLAUDE.md', pattern: /gh api repos\/stevemarvell\/boris/, because: 'the actual GitHub path this repository is checked against' },
+  { file: 'CLAUDE.md', pattern: /gh api repos\/stevemarvell\/boris/, because: 'the actual GitHub path this repository is checked against', base: true },
   {
     file: 'CLAUDE.md',
     pattern: /arborist crashes/,
     because: '"arborist" contains "boris" as a substring; this quotes npm\'s own error text verbatim',
   },
-  { file: 'README.md', pattern: /^# boris$/, because: "this repository's own name" },
-  { file: 'README.md', pattern: /Boris Cherny/, because: "the adoption ladder's author" },
+  { file: 'README.md', pattern: /^# boris$/, because: "this repository's own name", base: true },
+  { file: 'README.md', pattern: /Boris Cherny/, because: "the adoption ladder's author", base: true },
   {
     file: 'scripts/labels.mjs',
     pattern: /Every repository built from boris/,
@@ -60,17 +79,18 @@ const ALLOW: Allowed[] = [
     file: 'docs/data-governance.md',
     pattern: /stevemarvell\.github\.io\/boris/,
     because: 'the actual GitHub Pages URL for this repository',
+    base: true,
   },
 
   // The frozen step-0 artifact. CLAUDE.md and apps/web/scripts/build-docs.mjs
   // both say it is published exactly as it was written, never restyled.
-  { file: 'index.html', pattern: /<title>boris<\/title>/, because: 'the frozen step-0 artifact; never restyled' },
+  { file: 'index.html', pattern: /<title>boris<\/title>/, because: 'the frozen step-0 artifact; never restyled', base: true },
 
   // This repository's own package and project name — project.json's `name`
   // is "boris", so npm's lockfile and manifest legitimately say so too.
-  { file: 'package.json', pattern: /"name": "boris"/, because: "this repository's own package name" },
-  { file: 'package-lock.json', pattern: /"name": "boris"/, because: "this repository's own package name" },
-  { file: 'project.json', pattern: /"name": "boris"/, because: "this repository's own name, which project.json declares" },
+  { file: 'package.json', pattern: /"name": "boris"/, because: "this repository's own package name", base: true },
+  { file: 'package-lock.json', pattern: /"name": "boris"/, because: "this repository's own package name", base: true },
+  { file: 'project.json', pattern: /"name": "boris"/, because: "this repository's own name, which project.json declares", base: true },
 
   // telemetry/ is shared AI-layer infra naming, unrelated to the application
   // and out of scope for identity work that isn't about telemetry itself.
@@ -86,20 +106,13 @@ const ALLOW: Allowed[] = [
 
   // The setup instructions clone this repository by its real path, so
   // README.md's Quick start names it literally.
-  { file: 'README.md', pattern: /gh repo clone stevemarvell\/boris/, because: 'the setup instructions clone this repository by its real path' },
+  { file: 'README.md', pattern: /gh repo clone stevemarvell\/boris/, because: 'the setup instructions clone this repository by its real path', base: true },
 
-  // `create`'s clone keeps "boris" as the remote name for this base, so a
-  // clone can still fetch upstream without ever pushing to it by accident —
-  // the literal remote name the script sets up, not this repository naming
-  // itself.
-  { file: 'scripts/setup.mjs', pattern: /BASE_REMOTE = 'boris'/, because: "the literal remote name create's clone sets up, not this repository naming itself" },
-
-  // The real clone source: `create` clones this base by its actual path.
-  { file: 'scripts/setup.mjs', pattern: /git@github\.com:stevemarvell\/boris\.git/, because: 'the actual GitHub path create clones from' },
-
-  // The commit message CLAUDE.md's own #211 spells out verbatim: "Start <n>
-  // from boris@<short-sha>".
-  { file: 'scripts/setup.mjs', pattern: /from boris@/, because: 'the commit message create makes, naming the base it started from' },
+  // The remote name `create` gives this base in a product, fetch-only, so a
+  // product can fetch upstream improvements and measure how far behind it is
+  // without ever pushing to this base by accident. It is also what `check`
+  // calls the base when it reports that drift, so no other line names it.
+  { file: 'scripts/setup.mjs', pattern: /BASE_REMOTE = 'boris'/, because: "the literal remote name create sets up, not this repository naming itself" },
 ];
 
 // Every name this repository has to stay neutral about, and that has leaked
@@ -147,6 +160,9 @@ function grepHits() {
     });
 }
 
+/** The entries that describe this checkout: all of them in boris, only the engine's own in a product. */
+const applicable = ALLOW.filter((allowed) => IN_BASE || !allowed.base);
+
 describe('no leftover name from NAMES outside the allowlist', () => {
   const hits = grepHits();
 
@@ -158,7 +174,7 @@ describe('no leftover name from NAMES outside the allowlist', () => {
 
   it('allows nothing beyond the explicit allowlist', () => {
     const unexplained = hits.filter(
-      (hit) => !ALLOW.some((allowed) => allowed.file === hit.file && allowed.pattern.test(hit.content)),
+      (hit) => !applicable.some((allowed) => allowed.file === hit.file && allowed.pattern.test(hit.content)),
     );
     expect(unexplained).toEqual([]);
   });
@@ -167,7 +183,7 @@ describe('no leftover name from NAMES outside the allowlist', () => {
     // An entry whose pattern stopped matching anything is hiding nothing —
     // it is dead weight that would mask a genuinely new violation landing on
     // the same file.
-    const stale = ALLOW.filter(
+    const stale = applicable.filter(
       (allowed) => !hits.some((hit) => hit.file === allowed.file && allowed.pattern.test(hit.content)),
     );
     expect(stale).toEqual([]);

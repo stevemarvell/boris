@@ -300,6 +300,28 @@ describe('assemble in a small repository', () => {
     expect(JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')).name).toBe('prod');
   });
 
+  it("records the engine's commit as engine.commit in the product's project.json, and only when it is given", () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    const withSha = build(undefined, { engineCommit: sha });
+    withSha.run();
+    const written = loadProject(join(withSha.target, 'project.json'));
+    expect(written.engine).toEqual({ commit: sha });
+    // Read back as raw JSON too, so the test does not lean on the loader it is checking.
+    expect(JSON.parse(readFileSync(join(withSha.target, 'project.json'), 'utf8')).engine).toEqual({ commit: sha });
+
+    const without = build();
+    without.run();
+    expect(JSON.parse(readFileSync(join(without.target, 'project.json'), 'utf8')).engine).toBeUndefined();
+  });
+
+  it('refuses an engine commit that is not a full SHA before writing anything', () => {
+    for (const engineCommit of ['abc1234', 'main', '', 'Z'.repeat(40)]) {
+      const { target, run } = build(undefined, { engineCommit });
+      expect(run, engineCommit).toThrow(/engine\.commit/);
+      expect(existsSync(target), engineCommit).toBe(false);
+    }
+  });
+
   it('copies committed files only: an untracked file in an engine path or a starter never reaches a product', () => {
     const { root, target, run } = build();
     for (const path of ['tools/.env.production', 'tools/stray.pem', 'tools/deep/notes.txt', 'apps/svc/key.pem']) {
@@ -492,7 +514,14 @@ describe('under', () => {
 describe('the command line', () => {
   it('parses its flags and rejects the rest', () => {
     expect(parseArgs(['--target', 'd', '--name', 'n', '--starter', 'a', '--starter', 'b'])).toEqual({ target: 'd', name: 'n', starters: ['a', 'b'] });
+    expect(parseArgs(['--target', 'd', '--name', 'n', '--starter', 'a', '--engine-commit', 'abc'])).toEqual({
+      target: 'd',
+      name: 'n',
+      starters: ['a'],
+      engineCommit: 'abc',
+    });
     expect(parseArgs(['--list'])).toEqual({ list: true, starters: [] });
+    expect(() => parseArgs(['--engine-commit'])).toThrow(/needs a value/);
     expect(() => parseArgs(['--target'])).toThrow(/needs a value/);
     expect(() => parseArgs(['--bogus'])).toThrow(/unknown argument "--bogus"/);
   });
@@ -510,6 +539,24 @@ describe('the command line', () => {
     });
     expect(built.status).toBe(0);
     expect(existsSync(join(target, 'apps/api/pyproject.toml'))).toBe(true);
+
+    const sha = 'f'.repeat(40);
+    const recorded = join(scratch(), 'cli-recorded');
+    const withSha = spawnSync(
+      'node',
+      ['scripts/assemble.mjs', '--target', recorded, '--name', 'cli-product', '--starter', 'python-fastapi', '--engine-commit', sha],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    expect(withSha.status).toBe(0);
+    expect(JSON.parse(readFileSync(join(recorded, 'project.json'), 'utf8')).engine).toEqual({ commit: sha });
+
+    const badSha = spawnSync(
+      'node',
+      ['scripts/assemble.mjs', '--target', join(scratch(), 'cli-bad'), '--name', 'cli-product', '--starter', 'python-fastapi', '--engine-commit', 'abc'],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    expect(badSha.status).toBe(1);
+    expect(badSha.stderr).toMatch(/engine\.commit/);
 
     const again = spawnSync('node', ['scripts/assemble.mjs', '--target', target, '--name', 'cli-product', '--starter', 'python-fastapi'], {
       cwd: ROOT,

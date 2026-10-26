@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { canonical } from '../paths.mjs';
@@ -353,9 +353,13 @@ describe('the premise: this repository can actually be counted', () => {
     const inApps = tables.filter((path) => appPaths.some((prefix) => path.startsWith(prefix)));
     // assemble.test.ts is table-driven over the combinations of starters, a
     // fixed product of the catalogue's starters: a dropped row means a dropped
-    // starter, which catalogue.test.ts catches.
+    // starter, which catalogue.test.ts catches. It tests how a product is
+    // built, so it is listed in catalogue.json's `base` and a product does not
+    // have it; where it exists the list stays exact, and where it does not
+    // there is nothing for the list to name.
+    const buildsProducts = existsSync(join(root, 'scripts/test/assemble.test.ts'));
     expect(tables.filter((path) => !inApps.includes(path))).toEqual([
-      'scripts/test/assemble.test.ts',
+      ...(buildsProducts ? ['scripts/test/assemble.test.ts'] : []),
       'scripts/test/test-census.test.ts',
     ]);
   });

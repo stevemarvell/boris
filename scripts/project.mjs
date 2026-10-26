@@ -67,6 +67,16 @@ export function validate(project) {
   };
   if (!project || typeof project !== 'object') fail('is not an object');
   if (typeof project.name !== 'string' || !project.name) fail('"name" must be a non-empty string');
+  // Which base commit a product was assembled from (`setup create` writes it,
+  // the sync-ai-layer skill moves it, `setup check` measures from it). Optional:
+  // the base itself is the engine and has no commit to record.
+  if (project.engine !== undefined) {
+    const engine = project.engine;
+    if (!engine || typeof engine !== 'object' || Array.isArray(engine)) fail('"engine" must be an object');
+    if (typeof engine.commit !== 'string' || !/^[0-9a-f]{40}$/.test(engine.commit)) {
+      fail('"engine.commit" must be a full 40-character lowercase hex commit SHA');
+    }
+  }
   const apps = Object.entries(project.apps ?? {});
   if (apps.length === 0) fail('"apps" must declare at least one app');
   for (const [name, app] of apps) {

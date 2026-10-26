@@ -24,7 +24,7 @@
 // CLI:
 //
 //     node scripts/assemble.mjs --list
-//     node scripts/assemble.mjs --target <dir> --name <name> --starter <s> [--starter <s> ...]
+//     node scripts/assemble.mjs --target <dir> --name <name> --starter <s> [--starter <s> ...] [--engine-commit <sha>]
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -317,11 +317,13 @@ function walk(root, rel, { tracked, skip, limits, count }) {
 /**
  * What a product of `starters` holds, without writing anything:
  * `{ entries: [{ to, from } | { to, content }], project }`, entries sorted by
- * `to`. Throws on an unknown starter, a name nothing can use, a catalogue path
+ * `to`. `engineCommit`, when given, is recorded as `engine.commit` in the
+ * product's project.json. Throws on an unknown starter, a name nothing can use,
+ * an engine commit that is not a full SHA, a catalogue path
  * that does not exist, two sources for one file, or an app that reads or
  * smoke-tests something the product would not have.
  */
-export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalogue.json')), name, starters, limits = LIMITS }) {
+export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalogue.json')), name, starters, engineCommit, limits = LIMITS }) {
   if (typeof name !== 'string' || !NAME.test(name)) throw new Error(`assemble: name "${String(name)}" must be lowercase letters, digits, "." "_" or "-"`);
   if (!Array.isArray(starters) || starters.length === 0) {
     throw new Error(`assemble: choose at least one starter (have: ${Object.keys(catalogue.starters).join(', ')})`);
@@ -346,6 +348,9 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
   const project = {
     ...(comment ? { $comment: comment } : {}),
     name,
+    // The base commit the engine was copied from, when the caller knows it
+    // (`setup create` does). project.mjs's validate() holds it to a full SHA.
+    ...(engineCommit === undefined ? {} : { engine: { commit: engineCommit } }),
     apps: Object.fromEntries(
       chosen.map(({ app, entry }) => {
         const { deploy: _deploy, ...rest } = entry;
@@ -428,7 +433,7 @@ function resolvedPath(path) {
 }
 
 /** Throws unless `target` is absent or an empty directory outside `root`. */
-function checkTarget(target, root) {
+export function checkTarget(target, root) {
   const rel = relative(realpathSync(resolve(root)), resolvedPath(target));
   // `..x` is a sibling name inside the root; only `..` itself, or `..` as a
   // whole leading segment, climbs out.
@@ -472,12 +477,17 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === '--list') opts.list = true;
-    else if (flag === '--target' || flag === '--name' || flag === '--starter') {
+    else if (flag === '--target' || flag === '--name' || flag === '--starter' || flag === '--engine-commit') {
       const value = argv[(i += 1)];
       if (value === undefined || value.startsWith('--')) throw new Error(`${flag} needs a value`);
       if (flag === '--starter') opts.starters.push(value);
+      else if (flag === '--engine-commit') opts.engineCommit = value;
       else opts[flag.slice(2)] = value;
-    } else throw new Error(`usage: assemble.mjs --list | --target <dir> --name <name> --starter <s> [--starter <s> ...]: unknown argument "${flag}"`);
+    } else {
+      throw new Error(
+        `usage: assemble.mjs --list | --target <dir> --name <name> --starter <s> [--starter <s> ...] [--engine-commit <sha>]: unknown argument "${flag}"`,
+      );
+    }
   }
   return opts;
 }
@@ -490,7 +500,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       for (const [key, starter] of Object.entries(catalogue.starters)) console.log(`starter  ${key}: ${starter.description}`);
       for (const [key, provider] of Object.entries(catalogue.providers)) console.log(`provider ${key}: ${provider.description}`);
     } else {
-      const { target, files } = assemble({ target: opts.target, name: opts.name, starters: opts.starters });
+      const { target, files } = assemble({ target: opts.target, name: opts.name, starters: opts.starters, engineCommit: opts.engineCommit });
       console.log(`Assembled ${files.length} files into ${target.split(sep).join('/')}`);
     }
   } catch (error) {

@@ -1,32 +1,40 @@
 #!/usr/bin/env node
 // From an empty folder to a repository ready for triage.
 //
-// Cloning this base carries the files, but not the secrets, labels, settings
-// or owner tickets a working repository needs around them — starting a real
+// Copying files does not give a working repository: it also needs the
+// secrets, labels, settings and owner tickets around them, and starting a real
 // repository from this base took days of hand work before this existed.
 //
 // Usage:
-//     npm run setup -- create --name <n> --owner <o> [--dir <path>] [--public]
+//     npm run setup -- create --name <n> --owner <o> --starter <s> [--starter <s> ...]
+//                             [--deploy <provider>] [--dir <path>] [--public]
 //     npm run setup -- check [--skip-verify] [--dry-run] [--repo owner/name]
 //
 // `create` is run from a checkout of this base, and is never run for real by
-// an agent: it creates a GitHub repository, which is the owner's call.
+// an agent: it creates a GitHub repository, which is the owner's call. It
+// wraps scripts/assemble.mjs, which builds the file tree from catalogue.json;
+// the product gets no history from this base, one commit of its own, and a
+// fetch-only remote to it. Which base commit it was built from is recorded as
+// `engine.commit` in the product's project.json.
 // `check` is run inside a repository built from this base (including this
 // one) and is idempotent — re-running it after fixing something reports less
 // to do, never more, and never creates a second copy of anything it already
 // made. It exits 0 only when every line is done (✔) or just fixed (✚); any
-// ✋ line is something only the owner can do, with the exact command.
+// ✋ line is something only the owner can do, with the exact command. A
+// product also gets an ℹ line saying how far behind its base it is: a report,
+// never a ✋.
 //
 // GitHub is reached through `gh api` (REST), not `gh repo`, `gh issue` or
 // `gh auth status`: those are GraphQL or need a local login, and Claude Code
 // cloud sessions refuse the one and have the other (#225). `gh secret list`
 // is REST already and stays.
 import { execFile, execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assemble, checkTarget, loadCatalogue, plan } from './assemble.mjs';
 import { apply as applyLabels, loadManifest as loadLabelManifest } from './labels.mjs';
-import { ROOT, apps, deployed, loadProject } from './project.mjs';
+import { ROOT, deployed, loadProject } from './project.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const STORY_TEMPLATE_PATH = join(HERE, 'setup/story-template.md');
@@ -38,6 +46,8 @@ export const STORY_TEMPLATE_PATH = join(HERE, 'setup/story-template.md');
 export const BASE_REMOTE = 'boris';
 
 export const PREFLIGHT_NODE_MAJOR = 22;
+
+const CREATE_USAGE = 'create --name <n> --owner <o> --starter <s> [--starter <s> ...] [--deploy <provider>] [--dir <path>] [--public]';
 
 /** Runs `cmd args` and resolves to its exit status, stdout and stderr. Never rejects. */
 export function exec(cmd, args) {
@@ -56,9 +66,13 @@ function reason({ stdout, stderr }) {
 // Argument parsing
 // ---------------------------------------------------------------------------
 
-/** `create`'s flags, defaulting `--dir` to `../<name>` and `--public` to false. */
+/**
+ * `create`'s flags, defaulting `--dir` to `../<name>` and `--public` to false.
+ * `--starter` may repeat. Whether the starters and the provider exist is the
+ * catalogue's to say, so `create` checks that, not this.
+ */
 export function parseCreateArgs(argv) {
-  const opts = { public: false };
+  const opts = { public: false, starters: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--public') {
@@ -66,13 +80,14 @@ export function parseCreateArgs(argv) {
       continue;
     }
     const value = argv[i + 1];
-    if (flag === '--name' || flag === '--owner' || flag === '--dir') {
+    if (flag === '--name' || flag === '--owner' || flag === '--dir' || flag === '--starter' || flag === '--deploy') {
       if (value === undefined || value.startsWith('--')) throw new Error(`usage: ${flag} needs a value`);
-      opts[flag.slice(2)] = value;
+      if (flag === '--starter') opts.starters.push(value);
+      else opts[flag.slice(2)] = value;
       i++;
       continue;
     }
-    throw new Error(`usage: create --name <n> --owner <o> [--dir <path>] [--public]: unknown flag "${flag}"`);
+    throw new Error(`usage: ${CREATE_USAGE}: unknown flag "${flag}"`);
   }
   if (!opts.name) throw new Error('usage: --name <n> is required');
   if (!opts.owner) throw new Error('usage: --owner <o> is required');
@@ -146,166 +161,12 @@ export function missingPreflight(results) {
 }
 
 // ---------------------------------------------------------------------------
-// Renaming the identity (create, step 4)
-// ---------------------------------------------------------------------------
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** `project.json` or the root `package.json`'s "name" field, renamed in place
- * if (and only if) it currently matches `oldName`. Returns whether it changed. */
-export function renameJsonName(path, oldName, newName) {
-  const data = JSON.parse(readFileSync(path, 'utf8'));
-  if (data.name !== oldName) return false;
-  data.name = newName;
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
-  return true;
-}
-
-/** A Python app's `pyproject.toml` `[project]` name, renamed if it currently
- * matches `oldName`. Returns whether it changed. Never touches a dependency
- * or tool name that happens to share the pattern: only the first `name = "…"`
- * line, which `[project]` puts first in every app here. */
-export function renamePyproject(path, oldName, newName) {
-  const text = readFileSync(path, 'utf8');
-  const pattern = /^(name\s*=\s*")([^"]*)(")/m;
-  const match = pattern.exec(text);
-  if (!match || match[2] !== oldName) return false;
-  writeFileSync(path, text.replace(pattern, `$1${newName}$3`));
-  return true;
-}
-
-// The telemetry identifiers CLAUDE.md names: the compose project and the
-// Grafana dashboard/datasource uids. Each file's own identifier is a whole
-// word built from the old name, never a substring match (so a rename never
-// touches an unrelated word that happens to contain it).
-export const TELEMETRY_FILES = [
-  'telemetry/docker-compose.yml',
-  'telemetry/grafana/provisioning/datasources/prometheus.yml',
-  'telemetry/grafana/provisioning/dashboards/dashboards.yml',
-  'telemetry/grafana/dashboards/claude-code.json',
-];
-
-/** Every whole-word occurrence of `oldName` in each of TELEMETRY_FILES,
- * renamed to `newName`. Returns the files actually changed. */
-export function renameTelemetry(root, oldName, newName) {
-  const pattern = new RegExp(`\\b${escapeRegExp(oldName)}\\b`, 'g');
-  const changed = [];
-  for (const rel of TELEMETRY_FILES) {
-    const path = join(root, rel);
-    if (!existsSync(path)) continue;
-    const text = readFileSync(path, 'utf8');
-    const updated = text.replace(pattern, newName);
-    if (updated === text) continue;
-    writeFileSync(path, updated);
-    changed.push(rel);
-  }
-  return changed;
-}
-
-/**
- * CLAUDE.md's "## Repository settings" section, which names the base's own
- * GitHub path and its own repository settings, replaced with a placeholder
- * pointing at `check` instead of a guess about a repository that has not
- * been pushed yet. Everything else in CLAUDE.md — including the intro and
- * its own name — is left for the "Rewrite README and CLAUDE.md around the
- * product" owner issue `check` files: a technical rename is not a rewrite.
- *
- * Also blanks any real VERCEL_TOKEN expiry date left over from the base,
- * since that date was never this repository's own.
- */
-export function placeholderClaudeMd(text, { owner, name }) {
-  const heading = '## Repository settings';
-  const start = text.indexOf(heading);
-  if (start === -1) throw new Error('CLAUDE.md has no "## Repository settings" section');
-  const bodyStart = start + heading.length;
-  const nextHeading = text.indexOf('\n## ', bodyStart);
-  const bodyEnd = nextHeading === -1 ? text.length : nextHeading;
-  const replacement =
-    `${heading}\n\n` +
-    `Checked with \`gh api repos/${owner}/${name}\`, not assumed:\n\n` +
-    "- Not yet checked — run `npm run setup -- check` once this repository is pushed; it fixes what it can and reports the rest.\n";
-  let out = text.slice(0, start) + replacement + text.slice(bodyEnd);
-  out = out.replace(/(VERCEL_TOKEN[^\n]*?)\b\d{4}-\d{2}-\d{2}\b/i, '$1<expiry>');
-  return out;
-}
-
-// Every exact substring scripts/test/identity.test.ts's own ALLOW list uses
-// for a fact that a rename changes. Each is replaced in the clone's copy of
-// that file, so the allowlist still matches what the clone actually
-// contains; each is asserted present first, so a future edit to
-// identity.test.ts that moves this text fails loudly here rather than
-// silently leaving the clone's allowlist stale.
-function identityReplacements(oldName, newName, owner) {
-  return [
-    [`pattern: /gh api repos\\/stevemarvell\\/${oldName}/`, `pattern: /gh api repos\\/${owner}\\/${newName}/`],
-    [`{ file: 'package.json', pattern: /"name": "${oldName}"/`, `{ file: 'package.json', pattern: /"name": "${newName}"/`],
-    [`{ file: 'package-lock.json', pattern: /"name": "${oldName}"/`, `{ file: 'package-lock.json', pattern: /"name": "${newName}"/`],
-    [`{ file: 'project.json', pattern: /"name": "${oldName}"/`, `{ file: 'project.json', pattern: /"name": "${newName}"/`],
-    [`pattern: /name: ${oldName}-telemetry/`, `pattern: /name: ${newName}-telemetry/`],
-    [
-      `pattern: /${oldName}/, because: 'Grafana dashboard/datasource naming`,
-      `pattern: /${newName}/, because: 'Grafana dashboard/datasource naming`,
-    ],
-    [`pattern: /name: ${oldName}/, because: 'Grafana provisioning naming`, `pattern: /name: ${newName}/, because: 'Grafana provisioning naming`],
-    [`pattern: /uid: ${oldName}-prometheus/`, `pattern: /uid: ${newName}-prometheus/`],
-  ];
-}
-
-/**
- * The clone's own copy of scripts/test/identity.test.ts, with every ALLOW
- * entry the rename invalidates rewritten to match what the clone actually
- * contains afterwards. Everything else — the entries for files a technical
- * rename deliberately leaves alone (CLAUDE.md's own name, the sync-ai-layer
- * convention, the frozen step-0 artifact, and so on) — is untouched, because
- * those stay true in the clone exactly as they are in the base.
- *
- * Throws, rather than silently doing nothing, if a replacement's source text
- * is not found: a present-but-inert rewrite is the one failure shape this
- * repository keeps re-discovering (docs/sops.md SOP 3), and this function
- * would be a textbook case of it.
- */
-export function rewriteIdentityTestForClone(source, { oldName, newName, owner }) {
-  let out = source;
-  for (const [from, to] of identityReplacements(oldName, newName, owner)) {
-    if (!out.includes(from)) throw new Error(`identity.test.ts rewrite: expected to find ${JSON.stringify(from)}`);
-    out = out.replaceAll(from, to);
-  }
-  return out;
-}
-
-/**
- * Every identity rename `create` makes, against a checkout at `root`. Pure
- * filesystem work — no network, no git — so it is the same function whether
- * it runs for real or against a fixture directory in a test.
- */
-export function renameIdentity({ root, oldName, newName, owner, project }) {
-  const changed = [];
-  if (renameJsonName(join(root, 'project.json'), oldName, newName)) changed.push('project.json');
-  if (renameJsonName(join(root, 'package.json'), oldName, newName)) changed.push('package.json');
-  for (const [appName, app] of apps(project, 'python')) {
-    const pyproject = join(root, app.path, 'pyproject.toml');
-    if (existsSync(pyproject) && renamePyproject(pyproject, oldName, newName)) changed.push(`${app.path}/pyproject.toml (${appName})`);
-  }
-  changed.push(...renameTelemetry(root, oldName, newName));
-
-  const claudeMdPath = join(root, 'CLAUDE.md');
-  writeFileSync(claudeMdPath, placeholderClaudeMd(readFileSync(claudeMdPath, 'utf8'), { owner, name: newName }));
-  changed.push('CLAUDE.md');
-
-  const identityTestPath = join(root, 'scripts/test/identity.test.ts');
-  writeFileSync(identityTestPath, rewriteIdentityTestForClone(readFileSync(identityTestPath, 'utf8'), { oldName, newName, owner }));
-  changed.push('scripts/test/identity.test.ts');
-
-  return changed;
-}
-
-// ---------------------------------------------------------------------------
 // check: the list, and what it means for the exit code
 // ---------------------------------------------------------------------------
 
-export const MARK = { done: '✔', fixed: '✚', owner: '✋' };
+// ℹ is a report: it changes nothing and asks nothing of the owner, so it never
+// counts toward the exit code.
+export const MARK = { done: '✔', fixed: '✚', owner: '✋', info: 'ℹ' };
 
 /** `results` (each `{ mark, text }`) rendered as the printed lines, and the
  * exit code: 0 iff no ✋ remains. */
@@ -366,9 +227,9 @@ export const OWNER_ISSUES = [
     title: 'Rewrite README and CLAUDE.md around the product',
     rank: 'high',
     body:
-      '`setup create` only renames identifiers — project.json, package.json, telemetry, and the Repository settings ' +
-      "section. The intro, Layout and Deployments sections still describe this base's own placeholder shells. Rewrite " +
-      'them once this repository has a real application; see CLAUDE.md\'s own rule that a shared file never names the ' +
+      "`setup create` writes a CLAUDE.md and README.md that carry the shared rules and a stub paragraph. The intro " +
+      'and the Layout still describe the starters it was assembled from, not the product. Rewrite them once this ' +
+      'repository has a real application; see CLAUDE.md\'s own rule that a shared file never names the ' +
       'repository it sits in.',
   },
 ];
@@ -479,6 +340,44 @@ function runIdentityCensus() {
     const output = `${error.stdout ?? ''}${error.stderr ?? ''}`.trim() || error.message;
     return { ok: false, output };
   }
+}
+
+/** A SHA as a short, readable id. */
+const short = (sha) => sha.slice(0, 7);
+
+/**
+ * How far behind its base a product is: fetches the base's `develop` through
+ * the fetch-only remote `create` set up, and counts the commits `commit` (the
+ * product's `engine.commit`) lacks. Always an ℹ line, never a ✋: being behind
+ * is a fact to act on when convenient, and a fetch that fails or a commit the
+ * base's history does not contain is reported as exactly that, not guessed at.
+ */
+export async function engineDrift({ run, root, commit }) {
+  const git = (args) => run('git', ['-C', root, ...args]);
+  const fetched = await git(['fetch', '--no-tags', BASE_REMOTE, 'develop']);
+  if (fetched.status !== 0) {
+    return {
+      mark: MARK.info,
+      text: `how far behind ${BASE_REMOTE} cannot be measured: git fetch ${BASE_REMOTE} develop failed (${reason(fetched)}) — the fetch-only ${BASE_REMOTE} remote may be missing from this clone`,
+    };
+  }
+  const known = await git(['merge-base', '--is-ancestor', commit, 'FETCH_HEAD']);
+  if (known.status !== 0) {
+    return {
+      mark: MARK.info,
+      text: `engine.commit ${short(commit)} is not in ${BASE_REMOTE}'s develop history (unpushed, or rewritten), so how far behind cannot be counted`,
+    };
+  }
+  const counted = await git(['rev-list', '--count', `${commit}..FETCH_HEAD`]);
+  const behind = Number(counted.stdout.trim());
+  if (counted.status !== 0 || !/^\d+$/.test(counted.stdout.trim())) {
+    return { mark: MARK.info, text: `how far behind ${BASE_REMOTE} cannot be counted: git rev-list failed (${reason(counted)})` };
+  }
+  if (behind === 0) return { mark: MARK.info, text: `up to date with ${BASE_REMOTE} (engine.commit ${short(commit)})` };
+  return {
+    mark: MARK.info,
+    text: `behind ${BASE_REMOTE} by ${behind} commit${behind === 1 ? '' : 's'} (engine.commit ${short(commit)}); the sync-ai-layer skill brings them in and moves engine.commit`,
+  };
 }
 
 /**
@@ -660,6 +559,10 @@ export async function runCheck({
     }
   }
 
+  // How far behind its base this repository is. Only a product has an
+  // engine.commit; the base itself is the engine and has nothing to measure.
+  if (project.engine) results.push(await engineDrift({ run, root, commit: project.engine.commit }));
+
   // npm run verify
   if (skipVerify) {
     results.push({ mark: MARK.done, text: 'npm run verify: skipped (--skip-verify)' });
@@ -725,32 +628,121 @@ export async function ensureEmptyTarget({ run, target }) {
 }
 
 /**
- * `create`, run for real. Only `ensureEmptyTarget` (above) and the pieces
- * above it (parseCreateArgs, preflight, renameIdentity and its parts) carry
- * this repository's own test coverage for it — the rest clones a few
- * hundred megabytes and pushes, which is the owner's call and not safe to
- * run from a test. `run` and `spawn` are both injectable, so a test can
- * drive every step — including the final one below — without any of that.
- *
- * Returns `check`'s exit code, from the *clone's own copy* of this script,
- * run as a separate process with `cwd: opts.dir`. It must not call
- * `runCheck` in this process: this process's own `loadProject()`, the
- * identity census, and the README read would all inspect this checkout —
- * the base being cloned *from* — not the new repository `check` is meant to
- * grade. A separate `node scripts/setup.mjs check` under the clone's own
- * `cwd` resolves `project.json`, `README.md` and even `scripts/setup.mjs`
- * itself from the clone, because that is where that process's own `ROOT`
- * and relative reads land.
+ * Throws, naming what catalogue.json offers, unless every one of `starters`
+ * and `deploy` (when given) is in `catalogue`. Run before anything is read from
+ * git or the network, so a mistyped name costs nothing.
  */
-export async function create(opts, { run = exec, spawn = spawnSync } = {}) {
+export function checkChoices({ catalogue, starters, deploy }) {
+  const offered = (entries) => Object.keys(entries).join(', ');
+  if (starters.length === 0) {
+    throw new Error(`setup create: choose at least one --starter (catalogue.json offers: ${offered(catalogue.starters)})`);
+  }
+  for (const starter of starters) {
+    if (!catalogue.starters[starter]) {
+      throw new Error(`setup create: no starter named "${starter}" (catalogue.json offers: ${offered(catalogue.starters)})`);
+    }
+  }
+  if (deploy !== undefined && !catalogue.providers[deploy]) {
+    throw new Error(`setup create: no provider named "${deploy}" (catalogue.json offers: ${offered(catalogue.providers)})`);
+  }
+}
+
+/** `url` without any user:password a remote URL may carry, so a credential never lands in the product's git config. */
+export function withoutCredentials(url) {
+  return url.replace(/^(https?:\/\/)[^/@]*@/, '$1');
+}
+
+/**
+ * `create`, run for real: assembles a product from the chosen starters
+ * (scripts/assemble.mjs does the copying), gives it one commit of its own and
+ * no base history, creates the GitHub repository over REST, and pushes. Never
+ * run for real from a test, and never by an agent — the repository is the
+ * owner's to create. `run`, `spawn`, `root` and `log` are injectable so a test
+ * can drive every step, including the real assembly into a scratch directory.
+ *
+ * Everything that can be refused is refused before anything is created: the
+ * choices, the name, the target directory, a dirty or history-less base
+ * checkout, and a GitHub repository that already holds something. After that
+ * the order is the safe one: build, lock, verify, commit, and only then create
+ * the remote and push — so a failure up to and including `verify` leaves
+ * nothing on GitHub, and a directory the owner can look at.
+ *
+ * `--deploy` deploys nothing: a Vercel project is the owner's to create. It
+ * only checks the provider exists and prints the `deploy:add` command.
+ *
+ * Returns `check`'s exit code, from the *product's own copy* of this script,
+ * run as a separate process with `cwd: opts.dir`. It must not call `runCheck`
+ * in this process: this process's own `loadProject()`, the identity census,
+ * and the README read would all inspect this checkout — the base — not the
+ * new repository `check` is meant to grade.
+ */
+export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log } = {}) {
+  const catalogueFile = join(root, 'catalogue.json');
+  if (!existsSync(catalogueFile)) {
+    throw new Error(`setup create: ${root} has no catalogue.json; create runs from the base checkout, which says what a product can be made of`);
+  }
+  const catalogue = loadCatalogue(catalogueFile);
+  checkChoices({ catalogue, starters: opts.starters, deploy: opts.deploy });
+  const dir = resolve(opts.dir);
+  // The same refusals assemble would make, taken now (a bad name, a missing
+  // file, a target with anything in it) instead of after the network calls.
+  plan({ root, catalogue, name: opts.name, starters: opts.starters });
+  checkTarget(dir, root);
+
   const results = await preflight({ run });
   const missing = missingPreflight(results);
   if (missing.length > 0) {
     throw new Error(`setup create: missing ${missing.map((m) => m.name).join(', ')}`);
   }
 
+  // The commit recorded as engine.commit must describe what was copied: only
+  // tracked files are, so a modified or staged one makes HEAD a false record.
+  const baseGit = (args) => run('git', ['-C', root, ...args]);
+  const dirty = await baseGit(['status', '--porcelain', '--untracked-files=no']);
+  if (dirty.status !== 0) throw new Error(`git status failed in ${root}: ${reason(dirty)}`);
+  if (dirty.stdout.trim()) {
+    throw new Error(`setup create: ${root} has uncommitted changes to tracked files; commit or stash them, so engine.commit describes what is copied`);
+  }
+  const head = await baseGit(['rev-parse', 'HEAD']);
+  const engineCommit = head.stdout.trim();
+  if (head.status !== 0 || !/^[0-9a-f]{40}$/.test(engineCommit)) throw new Error(`git rev-parse HEAD failed in ${root}: ${reason(head)}`);
+  const upstream = await baseGit(['remote', 'get-url', 'origin']);
+  if (upstream.status !== 0 || !upstream.stdout.trim()) {
+    throw new Error(`setup create: ${root} has no origin remote, so the product would have nowhere to fetch ${BASE_REMOTE} from: ${reason(upstream)}`);
+  }
+  const baseUrl = withoutCredentials(upstream.stdout.trim());
+
   const target = `${opts.owner}/${opts.name}`;
   const { exists } = await ensureEmptyTarget({ run, target });
+
+  const { project } = assemble({ root, catalogue, target: dir, name: opts.name, starters: opts.starters, engineCommit });
+  log(`Assembled ${opts.starters.join(' + ')} into ${dir}, recording engine.commit ${short(engineCommit)}`);
+
+  const git = async (args) => {
+    const result = await run('git', ['-C', dir, ...args]);
+    if (result.status !== 0) throw new Error(`git ${args[0]} failed in ${dir}: ${reason(result)}`);
+    return result;
+  };
+  const step = (cmd, args, what) => {
+    const result = spawn(cmd, args, { cwd: dir, stdio: 'inherit' });
+    if ((result.status ?? 1) !== 0) throw new Error(`setup create: ${what} failed in ${dir}`);
+  };
+
+  await git(['init', '-b', 'develop']);
+  // package-lock.json belongs to the node-react starter, so a product without
+  // it has none and `npm ci` cannot run: lock it now (npm 11, CLAUDE.md
+  // "Running it"), or the product's CI fails on its first push.
+  if (!existsSync(join(dir, 'package-lock.json'))) step('npx', ['npm@11', 'install'], 'npm install (writing package-lock.json)');
+  // The identity test reads the index, so the files are staged before verify.
+  await git(['add', '-A']);
+  step('npm', ['run', 'bootstrap'], 'npm run bootstrap');
+  step('npm', ['run', 'verify'], 'npm run verify');
+  await git(['add', '-A']);
+  await git(['commit', '-m', `Start ${opts.name} from ${BASE_REMOTE}@${short(engineCommit)}`, '-m', `engine.commit ${engineCommit}`]);
+
+  await git(['remote', 'add', BASE_REMOTE, baseUrl]);
+  await git(['remote', 'set-url', '--push', BASE_REMOTE, 'DISABLED']);
+
   if (!exists) {
     // POST /user/repos for the authenticated account's own repository,
     // /orgs/{owner}/repos for an organisation's: `gh repo create` is GraphQL.
@@ -760,34 +752,16 @@ export async function create(opts, { run = exec, spawn = spawnSync } = {}) {
     const created = await run('gh', ['api', route, '-X', 'POST', '-f', `name=${opts.name}`, '-F', `private=${opts.public ? 'false' : 'true'}`]);
     if (created.status !== 0) throw new Error(`creating ${target} failed: ${reason(created)}`);
   }
-
-  const clone = await run('git', ['clone', '--branch', 'develop', 'git@github.com:stevemarvell/boris.git', opts.dir]);
-  if (clone.status !== 0) throw new Error(`git clone failed: ${reason(clone)}`);
-
-  const git = (args) => run('git', ['-C', opts.dir, ...args]);
-  await git(['remote', 'rename', 'origin', BASE_REMOTE]);
-  await git(['remote', 'set-url', '--push', BASE_REMOTE, 'DISABLED']);
   await git(['remote', 'add', 'origin', `git@github.com:${target}.git`]);
-
-  const project = loadProject(join(opts.dir, 'project.json'));
-  renameIdentity({ root: opts.dir, oldName: project.name, newName: opts.name, owner: opts.owner, project });
-
-  spawn('npx', ['npm@11', 'install'], { cwd: opts.dir, stdio: 'inherit' });
-  for (const [, app] of apps(project, 'python')) {
-    spawn('uv', ['lock', '--directory', join(opts.dir, app.path)], { stdio: 'inherit' });
-  }
-
-  spawn('npm', ['run', 'bootstrap'], { cwd: opts.dir, stdio: 'inherit' });
-  const verify = spawn('npm', ['run', 'verify'], { cwd: opts.dir, stdio: 'inherit' });
-  if ((verify.status ?? 1) !== 0) throw new Error('setup create: npm run verify failed in the clone');
-
-  await git(['add', '-A']);
-  const sha = await run('git', ['-C', opts.dir, 'rev-parse', '--short', `${BASE_REMOTE}/develop`]);
-  await git(['commit', '-m', `Start ${opts.name} from boris@${sha.stdout.trim()}`]);
-  const push = await git(['push', '-u', 'origin', 'develop']);
+  const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop']);
   if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
 
-  const check = spawn('node', ['scripts/setup.mjs', 'check'], { cwd: opts.dir, stdio: 'inherit' });
+  if (opts.deploy) {
+    log(`\n${opts.deploy} is not set up: the project is yours to create. In ${dir}, for each app to deploy:`);
+    for (const app of Object.keys(project.apps)) log(`  npm run deploy:add -- ${opts.deploy} --app ${app}`);
+  }
+
+  const check = spawn('node', ['scripts/setup.mjs', 'check'], { cwd: dir, stdio: 'inherit' });
   return check.status ?? 1;
 }
 
@@ -799,9 +773,8 @@ export async function main(argv) {
   const [command, ...rest] = argv;
   if (command === 'create') {
     const opts = parseCreateArgs(rest);
-    // create() prints nothing of its own beyond here: every step's output,
-    // including the clone's own `check` at the end, is already streamed
-    // live via inherited stdio.
+    // Every step's output, including the product's own `check` at the end, is
+    // streamed live via inherited stdio; create() adds only a few lines of its own.
     return await create(opts);
   }
   if (command === 'check') {
@@ -810,7 +783,7 @@ export async function main(argv) {
     process.stdout.write(result.lines.join('\n') + '\n');
     return result.exitCode;
   }
-  throw new Error('usage: setup.mjs create --name <n> --owner <o> [--dir <path>] [--public] | check [--skip-verify] [--dry-run] [--repo owner/name]');
+  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name]`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
