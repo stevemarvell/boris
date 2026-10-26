@@ -9,14 +9,21 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadCatalogue } from '../assemble.mjs';
 import { ROOT } from '../project.mjs';
-import { BASE_REMOTE, checkChoices, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
+import { BASE_REMOTE, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
 
 describe('checkChoices', () => {
   const catalogue = loadCatalogue();
 
   it('accepts starters and a provider the catalogue offers, and no provider at all', () => {
     expect(() => checkChoices({ catalogue, starters: ['python-fastapi'] })).not.toThrow();
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'], deploy: 'vercel' })).not.toThrow();
+    // node-react is held back (below) until #231; an empty hold-back list shows the rest accepts it.
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'], deploy: 'vercel', heldBack: {} })).not.toThrow();
+  });
+
+  it('refuses node-react, naming #231, until the web starter can pass its own verify in a product', () => {
+    expect(() => checkChoices({ catalogue, starters: ['node-react'] })).toThrow(/node-react.*#231/);
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'] })).toThrow(/#231/);
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi'] })).not.toThrow();
   });
 
   it('names what catalogue.json offers when a starter is unknown', () => {
@@ -37,11 +44,34 @@ describe('checkChoices', () => {
 });
 
 describe('withoutCredentials', () => {
-  it('drops a user:password from an http(s) remote, and leaves every other URL alone', () => {
+  it('drops the whole userinfo from an http(s) remote, where the user part can itself be a token', () => {
     expect(withoutCredentials('https://user:tok3n@github.com/o/r.git')).toBe('https://github.com/o/r.git');
     expect(withoutCredentials('http://x-access-token@127.0.0.1:8080/o/r')).toBe('http://127.0.0.1:8080/o/r');
+    expect(withoutCredentials('HTTPS://ghp_abc@github.com/o/r.git')).toBe('HTTPS://github.com/o/r.git');
+  });
+
+  it('drops only the password from any other scheme://userinfo@host URL, ssh included, keeping the username git needs to connect', () => {
+    expect(withoutCredentials('ssh://git:secret@github.com/o/r.git')).toBe('ssh://git@github.com/o/r.git');
+    expect(withoutCredentials('git+ssh://deploy:hunter2@host.example:2222/o/r.git')).toBe('git+ssh://deploy@host.example:2222/o/r.git');
+    expect(withoutCredentials('ssh://git@github.com/o/r.git')).toBe('ssh://git@github.com/o/r.git');
+  });
+
+  it('leaves a URL with no userinfo, and scp-style git@host:path (where git is a username, not a secret), alone', () => {
     expect(withoutCredentials('https://github.com/o/r.git')).toBe('https://github.com/o/r.git');
     expect(withoutCredentials('git@github.com:o/r.git')).toBe('git@github.com:o/r.git');
+    expect(withoutCredentials('/home/me/base')).toBe('/home/me/base');
+  });
+});
+
+describe('checkOwner', () => {
+  it('accepts a GitHub login or organisation name', () => {
+    for (const owner of ['o', 'O', 'stevemarvell', 'my-org', 'a1', 'a'.repeat(39)]) expect(() => checkOwner(owner), owner).not.toThrow();
+  });
+
+  it('refuses anything that could reshape a REST path or a remote URL', () => {
+    for (const owner of ['x/../../orgs/y', 'a?b', 'a/b', '', '-a', 'a b', 'a#b', 'a..b', 'a@b', 'a:b', 'a'.repeat(40)]) {
+      expect(() => checkOwner(owner), owner).toThrow(/owner/);
+    }
   });
 });
 
@@ -137,6 +167,24 @@ describe('create', () => {
       );
       expect(w.timeline).toEqual([]);
       expect(existsSync(dir)).toBe(false);
+    });
+
+    it('on node-react, naming #231, having run nothing and written nothing', async () => {
+      const w = world();
+      const dir = freshDir();
+      await expect(create(python(dir, { starters: ['node-react'] }), w)).rejects.toThrow(/node-react.*#231/);
+      expect(w.timeline).toEqual([]);
+      expect(existsSync(dir)).toBe(false);
+    });
+
+    it('on an owner that could reshape a REST path or the origin URL, having run nothing and written nothing', async () => {
+      for (const owner of ['x/../../orgs/y', 'a?b']) {
+        const w = world();
+        const dir = freshDir();
+        await expect(create(python(dir, { owner }), w)).rejects.toThrow(/owner/);
+        expect(w.timeline, owner).toEqual([]);
+        expect(existsSync(dir), owner).toBe(false);
+      }
     });
 
     it('when no starter is chosen', async () => {
@@ -274,7 +322,7 @@ describe('create', () => {
 
       const withNode = world();
       const dir = freshDir();
-      await create(python(dir, { starters: ['python-fastapi', 'node-react'] }), withNode);
+      await create(python(dir, { starters: ['python-fastapi', 'node-react'] }), { ...withNode, heldBack: {} });
       expect(existsSync(join(dir, 'package-lock.json'))).toBe(true);
       expect(withNode.spawned.map((s) => s.key)).not.toContain('npx npm@11 install');
       expect(Object.keys(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps).sort()).toEqual(['api', 'web']);
@@ -328,6 +376,47 @@ describe('create', () => {
       expect(w.calls.some((c) => c.includes('POST'))).toBe(false);
     });
 
+    it('says how to recover when creating the repository or pushing fails after the product is built', async () => {
+      const creating = world({ 'gh api user/repos': fail('HTTP 403') });
+      const pushing = world();
+      const failPush: Run = async (cmd, args) => (args.includes('push') ? fail('remote: Permission denied') : pushing.run(cmd, args));
+      for (const [w, deps, why] of [
+        [creating, creating, /HTTP 403/],
+        [pushing, { ...pushing, run: failPush }, /Permission denied/],
+      ] as const) {
+        const dir = freshDir();
+        const message = await create(python(dir), deps).then(
+          () => '',
+          (error: Error) => error.message,
+        );
+        expect(message).toMatch(why);
+        // The way back: the empty repository is accepted on a rerun; the directory is not.
+        expect(message).toContain('o/n may exist but be empty');
+        expect(message).toMatch(/rerun/);
+        expect(message).toContain(`remove ${dir} first`);
+        expect(existsSync(join(dir, 'project.json'))).toBe(true);
+        void w;
+      }
+    });
+
+    it('does not add the recovery text to a failure before the product is built, which leaves nothing to clean up', async () => {
+      const w = world({ 'gh api repos/o/n --jq .name': ok('n'), 'gh api repos/o/n/branches': fail('API rate limit exceeded') });
+      const message = await create(python(freshDir()), w).then(
+        () => '',
+        (error: Error) => error.message,
+      );
+      expect(message).toMatch(/API rate limit exceeded/);
+      expect(message).not.toMatch(/may exist but be empty|remove .* first/);
+    });
+
+    it('never writes a credential from the base remote into the product, whatever the scheme', async () => {
+      const ssh = world({ [`git -C ${ROOT} remote get-url origin`]: ok('ssh://git:secret@github.com/someone/base.git\n') });
+      await create(python(freshDir()), ssh);
+      const addedSsh = ssh.calls.find((c) => c.includes('remote') && c.includes(BASE_REMOTE) && c.includes('add'));
+      expect(addedSsh).toContain('ssh://git@github.com/someone/base.git');
+      expect(ssh.calls.flat().some((a) => a.includes('secret'))).toBe(false);
+    });
+
     it('never writes a credential from the base remote into the product', async () => {
       const w = world({ [`git -C ${ROOT} remote get-url origin`]: ok('https://user:secret@github.com/someone/base.git\n') });
       await create(python(freshDir()), w);
@@ -340,7 +429,7 @@ describe('create', () => {
   describe('--deploy', () => {
     it('prints the deploy:add command for each app, and sets nothing up', async () => {
       const w = world();
-      await create(python(freshDir(), { starters: ['python-fastapi', 'node-react'], deploy: 'vercel' }), w);
+      await create(python(freshDir(), { starters: ['python-fastapi', 'node-react'], deploy: 'vercel' }), { ...w, heldBack: {} });
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app api');
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app web');
       expect(w.timeline.filter((entry) => /deploy|vercel/.test(entry))).toEqual([]);

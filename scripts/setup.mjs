@@ -91,6 +91,7 @@ export function parseCreateArgs(argv) {
   }
   if (!opts.name) throw new Error('usage: --name <n> is required');
   if (!opts.owner) throw new Error('usage: --owner <o> is required');
+  checkOwner(opts.owner);
   if (!opts.dir) opts.dir = `../${opts.name}`;
   return opts;
 }
@@ -362,11 +363,16 @@ export async function engineDrift({ run, root, commit }) {
     };
   }
   const known = await git(['merge-base', '--is-ancestor', commit, 'FETCH_HEAD']);
-  if (known.status !== 0) {
+  // Exit 1 is git's answer "not an ancestor"; anything else (128 for an
+  // unknown object, say) is git failing to answer, and says so.
+  if (known.status === 1) {
     return {
       mark: MARK.info,
       text: `engine.commit ${short(commit)} is not in ${BASE_REMOTE}'s develop history (unpushed, or rewritten), so how far behind cannot be counted`,
     };
+  }
+  if (known.status !== 0) {
+    return { mark: MARK.info, text: `how far behind ${BASE_REMOTE} cannot be checked: git merge-base failed (${reason(known)})` };
   }
   const counted = await git(['rev-list', '--count', `${commit}..FETCH_HEAD`]);
   const behind = Number(counted.stdout.trim());
@@ -561,7 +567,12 @@ export async function runCheck({
 
   // How far behind its base this repository is. Only a product has an
   // engine.commit; the base itself is the engine and has nothing to measure.
-  if (project.engine) results.push(await engineDrift({ run, root, commit: project.engine.commit }));
+  // `git fetch` writes to the clone (FETCH_HEAD), which --dry-run promises not to.
+  if (project.engine && dryRun) {
+    results.push({ mark: MARK.info, text: `drift check skipped under --dry-run: it runs git fetch ${BASE_REMOTE} develop, which writes to this clone` });
+  } else if (project.engine) {
+    results.push(await engineDrift({ run, root, commit: project.engine.commit }));
+  }
 
   // npm run verify
   if (skipVerify) {
@@ -628,11 +639,30 @@ export async function ensureEmptyTarget({ run, target }) {
 }
 
 /**
+ * Throws unless `owner` is a GitHub login or organisation name. It goes into
+ * REST paths (`repos/<owner>/<name>`, `orgs/<owner>/repos`) and into the
+ * product's origin URL, so anything with a `/`, `?`, `#` or `..` in it could
+ * point a call somewhere else.
+ */
+export function checkOwner(owner) {
+  if (typeof owner !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner)) {
+    throw new Error(`setup create: owner "${String(owner)}" is not a GitHub user or organisation name (letters, digits and "-", at most 39, starting with a letter or digit)`);
+  }
+}
+
+/**
+ * Starters `create` cannot yet finish, each with why. TEMPORARY: #231 deletes
+ * this table, the check in `checkChoices` that reads it, and the `heldBack`
+ * parameters (only tests pass one).
+ */
+export const HELD_BACK = { 'node-react': "the web starter's docs e2e asserts the base's own documents, which a product does not have (#231)" };
+
+/**
  * Throws, naming what catalogue.json offers, unless every one of `starters`
  * and `deploy` (when given) is in `catalogue`. Run before anything is read from
  * git or the network, so a mistyped name costs nothing.
  */
-export function checkChoices({ catalogue, starters, deploy }) {
+export function checkChoices({ catalogue, starters, deploy, heldBack = HELD_BACK }) {
   const offered = (entries) => Object.keys(entries).join(', ');
   if (starters.length === 0) {
     throw new Error(`setup create: choose at least one --starter (catalogue.json offers: ${offered(catalogue.starters)})`);
@@ -642,14 +672,28 @@ export function checkChoices({ catalogue, starters, deploy }) {
       throw new Error(`setup create: no starter named "${starter}" (catalogue.json offers: ${offered(catalogue.starters)})`);
     }
   }
+  for (const starter of starters) {
+    if (heldBack[starter]) throw new Error(`setup create: --starter ${starter} cannot be used yet: ${heldBack[starter]}. Use the other starters until then`);
+  }
   if (deploy !== undefined && !catalogue.providers[deploy]) {
     throw new Error(`setup create: no provider named "${deploy}" (catalogue.json offers: ${offered(catalogue.providers)})`);
   }
 }
 
-/** `url` without any user:password a remote URL may carry, so a credential never lands in the product's git config. */
+/**
+ * `url` without a secret a remote URL may carry, so none lands in the product's
+ * git config. For http(s) that is the whole `user[:password]@`, since the user
+ * part can itself be a token. For any other `scheme://userinfo@host` (ssh
+ * included) it is the `:password` only: the username (`git`) is what lets the
+ * connection be made and is no secret. A URL with no userinfo, and scp-style
+ * `git@host:path`, are returned as they are.
+ */
 export function withoutCredentials(url) {
-  return url.replace(/^(https?:\/\/)[^/@]*@/, '$1');
+  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/@]*)@/i.exec(url);
+  if (!match) return url;
+  const [whole, scheme, userinfo] = match;
+  const user = /^https?$/i.test(scheme) ? '' : `${userinfo.split(':')[0]}@`;
+  return `${scheme}://${user}${url.slice(whole.length)}`;
 }
 
 /**
@@ -676,13 +720,14 @@ export function withoutCredentials(url) {
  * and the README read would all inspect this checkout — the base — not the
  * new repository `check` is meant to grade.
  */
-export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log } = {}) {
+export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log, heldBack } = {}) {
   const catalogueFile = join(root, 'catalogue.json');
   if (!existsSync(catalogueFile)) {
     throw new Error(`setup create: ${root} has no catalogue.json; create runs from the base checkout, which says what a product can be made of`);
   }
   const catalogue = loadCatalogue(catalogueFile);
-  checkChoices({ catalogue, starters: opts.starters, deploy: opts.deploy });
+  checkOwner(opts.owner);
+  checkChoices({ catalogue, starters: opts.starters, deploy: opts.deploy, ...(heldBack ? { heldBack } : {}) });
   const dir = resolve(opts.dir);
   // The same refusals assemble would make, taken now (a bad name, a missing
   // file, a target with anything in it) instead of after the network calls.
@@ -737,24 +782,33 @@ export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT,
   await git(['add', '-A']);
   step('npm', ['run', 'bootstrap'], 'npm run bootstrap');
   step('npm', ['run', 'verify'], 'npm run verify');
-  await git(['add', '-A']);
-  await git(['commit', '-m', `Start ${opts.name} from ${BASE_REMOTE}@${short(engineCommit)}`, '-m', `engine.commit ${engineCommit}`]);
+  // From here the product is built and verified, and a failure leaves a
+  // directory and possibly an (empty) GitHub repository behind: say how to go on.
+  try {
+    await git(['add', '-A']);
+    await git(['commit', '-m', `Start ${opts.name} from ${BASE_REMOTE}@${short(engineCommit)}`, '-m', `engine.commit ${engineCommit}`]);
 
-  await git(['remote', 'add', BASE_REMOTE, baseUrl]);
-  await git(['remote', 'set-url', '--push', BASE_REMOTE, 'DISABLED']);
+    await git(['remote', 'add', BASE_REMOTE, baseUrl]);
+    await git(['remote', 'set-url', '--push', BASE_REMOTE, 'DISABLED']);
 
-  if (!exists) {
-    // POST /user/repos for the authenticated account's own repository,
-    // /orgs/{owner}/repos for an organisation's: `gh repo create` is GraphQL.
-    const me = await run('gh', ['api', 'user', '--jq', '.login']);
-    if (me.status !== 0) throw new Error(`gh api user failed: ${reason(me)}`);
-    const route = me.stdout.trim().toLowerCase() === opts.owner.toLowerCase() ? 'user/repos' : `orgs/${opts.owner}/repos`;
-    const created = await run('gh', ['api', route, '-X', 'POST', '-f', `name=${opts.name}`, '-F', `private=${opts.public ? 'false' : 'true'}`]);
-    if (created.status !== 0) throw new Error(`creating ${target} failed: ${reason(created)}`);
+    if (!exists) {
+      // POST /user/repos for the authenticated account's own repository,
+      // /orgs/{owner}/repos for an organisation's: `gh repo create` is GraphQL.
+      const me = await run('gh', ['api', 'user', '--jq', '.login']);
+      if (me.status !== 0) throw new Error(`gh api user failed: ${reason(me)}`);
+      const route = me.stdout.trim().toLowerCase() === opts.owner.toLowerCase() ? 'user/repos' : `orgs/${opts.owner}/repos`;
+      const created = await run('gh', ['api', route, '-X', 'POST', '-f', `name=${opts.name}`, '-F', `private=${opts.public ? 'false' : 'true'}`]);
+      if (created.status !== 0) throw new Error(`creating ${target} failed: ${reason(created)}`);
+    }
+    await git(['remote', 'add', 'origin', `git@github.com:${target}.git`]);
+    const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop']);
+    if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
+  } catch (error) {
+    throw new Error(
+      `${error.message}\n${dir} is built and verified. ${target} may exist but be empty; a rerun accepts an empty repository, ` +
+        `but --dir must be empty or absent, so remove ${dir} first.`,
+    );
   }
-  await git(['remote', 'add', 'origin', `git@github.com:${target}.git`]);
-  const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop']);
-  if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
 
   if (opts.deploy) {
     log(`\n${opts.deploy} is not set up: the project is yours to create. In ${dir}, for each app to deploy:`);

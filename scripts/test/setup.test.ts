@@ -42,6 +42,12 @@ describe('parseCreateArgs', () => {
     expect(() => parseCreateArgs(['--name', 'n'])).toThrow(/--owner/);
   });
 
+  it('refuses an owner that is not a GitHub login or organisation name, before anything runs', () => {
+    for (const owner of ['x/../../orgs/y', 'a?b', 'a/b', '-a']) {
+      expect(() => parseCreateArgs(['--name', 'n', '--owner', owner]), owner).toThrow(/owner/);
+    }
+  });
+
   it('refuses an unknown flag, naming the usage', () => {
     expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--nope'])).toThrow(/unknown flag "--nope"/);
     expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--nope'])).toThrow(/--starter/);
@@ -390,6 +396,22 @@ describe('runCheck', () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it('does not fetch under --dry-run, which writes nothing, and says the drift check was skipped', async () => {
+      const result = await runCheck({
+        root: product,
+        dryRun: true,
+        skipVerify: true,
+        runIdentityTest: identityOk,
+        run: async (cmd, args) => {
+          if (cmd === 'git') throw new Error(`--dry-run must not run git: ${args.join(' ')}`);
+          return run(baseResponses)(cmd, args);
+        },
+      });
+      const line = result.lines.find((l) => l.includes('drift'));
+      expect(line).toBe(`${MARK.info} drift check skipped under --dry-run: it runs git fetch ${BASE_REMOTE} develop, which writes to this clone`);
+      expect(result.lines.some((l) => l.includes('behind'))).toBe(false);
+    });
+
     it('asks the base nothing, and prints nothing about it, where no engine.commit is recorded', async () => {
       writeFileSync(
         join(product, 'project.json'),
@@ -624,11 +646,20 @@ describe('engineDrift', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("says so when the recorded commit is not in the base's develop history, instead of counting from it", async () => {
-    for (const ancestor of [fail('', 1), fail('fatal: Not a valid commit name', 128)]) {
-      const { run, calls } = git({ ancestor });
+  it("says the recorded commit is not in the base's develop history only when git says so (exit 1), and never counts from it", async () => {
+    const { run, calls } = git({ ancestor: fail('', 1) });
+    const line = await engineDrift({ run, root: '/p', commit: COMMIT });
+    expect(line.text).toBe(`engine.commit abcdef0 is not in ${BASE_REMOTE}'s develop history (unpushed, or rewritten), so how far behind cannot be counted`);
+    expect(calls.some((c) => c.includes('rev-list'))).toBe(false);
+  });
+
+  it('says the check failed, not that the commit is unknown, when git errors (any other exit)', async () => {
+    for (const status of [128, 2, 129]) {
+      const { run, calls } = git({ ancestor: fail('fatal: Not a valid commit name', status) });
       const line = await engineDrift({ run, root: '/p', commit: COMMIT });
-      expect(line.text).toBe(`engine.commit abcdef0 is not in ${BASE_REMOTE}'s develop history (unpushed, or rewritten), so how far behind cannot be counted`);
+      expect(line.mark).toBe(MARK.info);
+      expect(line.text, String(status)).toMatch(/cannot be checked: git merge-base failed \(fatal: Not a valid commit name\)/);
+      expect(line.text).not.toMatch(/is not in/);
       expect(calls.some((c) => c.includes('rev-list'))).toBe(false);
     }
   });
@@ -664,7 +695,15 @@ describe('engineDrift', () => {
       };
       expect((await engineDrift({ run: realRun, root: product, commit: shas[0]! })).text).toMatch(/^behind boris by 2 commits/);
       expect((await engineDrift({ run: realRun, root: product, commit: shas[2]! })).text).toMatch(/^up to date with boris/);
-      expect((await engineDrift({ run: realRun, root: product, commit: 'f'.repeat(40) })).text).toMatch(/is not in boris's develop history/);
+      // A commit the product has that the base's develop does not: git answers "not an ancestor" (exit 1).
+      g(product, 'checkout', '-q', '-b', 'elsewhere');
+      writeFileSync(join(product, 'g'), 'x');
+      g(product, 'add', '-A');
+      g(product, 'commit', '-q', '-m', 'local only');
+      const local = g(product, 'rev-parse', 'HEAD');
+      expect((await engineDrift({ run: realRun, root: product, commit: local })).text).toMatch(/is not in boris's develop history/);
+      // A commit git has never heard of: git errors (exit 128), which is reported as a failed check, not as an answer.
+      expect((await engineDrift({ run: realRun, root: product, commit: 'f'.repeat(40) })).text).toMatch(/cannot be checked: git merge-base failed/);
       g(product, 'remote', 'remove', BASE_REMOTE);
       expect((await engineDrift({ run: realRun, root: product, commit: shas[0]! })).text).toMatch(/cannot be measured/);
     } finally {

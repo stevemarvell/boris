@@ -69,11 +69,13 @@ export declare function runCheck(options?: {
 }): Promise<CheckResult>;
 
 export declare function engineDrift(options: { run: Run; root: string; commit: string }): Promise<CheckLine>;
-export declare function checkChoices(options: { catalogue: Catalogue; starters: string[]; deploy?: string }): void;
+export declare const HELD_BACK: Record<string, string>;
+export declare function checkOwner(owner: unknown): void;
+export declare function checkChoices(options: { catalogue: Catalogue; starters: string[]; deploy?: string; heldBack?: Record<string, string> }): void;
 export declare function withoutCredentials(url: string): string;
 export declare function ensureEmptyTarget(options: { run: Run; target: string }): Promise<{ exists: boolean }>;
 export declare function create(
   options: CreateArgs,
-  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
+  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void; heldBack?: Record<string, string> },
 ): Promise<number>;
 export declare function main(argv: string[]): Promise<number>;

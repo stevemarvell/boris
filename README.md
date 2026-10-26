@@ -24,13 +24,16 @@ reviews.
    gh repo clone stevemarvell/boris
    npm run bootstrap
    npm run setup -- create --name <project> --owner <github-owner> \
-     --starter python-fastapi --starter node-react [--deploy vercel] [--dir <path>] [--public]
+     --starter python-fastapi [--starter <another>] [--deploy vercel] [--dir <path>] [--public]
    ```
 
-   Give `--starter` once for each app, at least one. An unknown starter or
-   provider stops `create` before anything is created, naming what the
-   catalogue offers; so does a `--dir` that is not empty, and so does a
-   checkout of this base with uncommitted changes to tracked files. `create`
+   Give `--starter` once for each app, at least one. Until #231 lands,
+   `node-react` is refused up front: the web starter's docs end-to-end test
+   asserts this base's own documents, so a product with it cannot pass
+   `verify`. An unknown starter or provider stops `create` before anything is
+   created, naming what the catalogue offers; so does an `--owner` that is not
+   a GitHub name, a `--dir` that is not empty, and a checkout of this base with
+   uncommitted changes to tracked files. `create`
    does the following:
    - builds the project into `--dir` (default `../<project>`) from the engine,
      the chosen starters and a `project.json` of their apps, by running
@@ -45,6 +48,10 @@ reviews.
    - creates the GitHub repository (private unless `--public`), stopping if it
      already has content, and pushes;
    - finishes by running `check` inside the new repository.
+
+   If a step after `verify` fails (creating the repository, the push), the
+   GitHub repository may exist but be empty: a rerun accepts an empty one, but
+   `--dir` must be removed first.
 
    `--deploy` deploys nothing: a Vercel project is yours to create. It checks
    the provider exists and prints the `npm run deploy:add -- <provider> --app
