@@ -36,6 +36,13 @@ not edit — SOP 7), `generated` (written fresh for each product: its own
 `node scripts/assemble.mjs --target <empty dir> --name <name> --starter <s>`
 builds a product tree from these lists.
 
+A product records which boris commit its engine was copied from, as
+`engine.commit` (a full 40-character SHA) in its `project.json`: `setup create`
+writes it, and `npm run setup -- check` fetches boris's `develop` through the
+product's fetch-only `boris` remote and reports "behind boris by N commits"
+from it. That number is only true while the record is, so a sync moves it
+(step 4).
+
 One more shared thing is not a path: the block of `CLAUDE.md` between
 `<!-- shared:begin` and `<!-- shared:end -->`. Everything outside it is the
 repository's own.
@@ -63,7 +70,13 @@ on.
 4. **Then down.** Copy every engine file from boris's `develop`, replace the
    shared block of its `CLAUDE.md`, run `npm run verify` there, and run
    `node scripts/labels.mjs --repo <downstream>` so the downstream repository's
-   labels match `labels.json`. Open a pull request; its body lists any file
-   that is still intentionally different, and why.
+   labels match `labels.json`. Set `engine.commit` in the downstream
+   `project.json` to the full SHA of the boris `develop` commit you copied from
+   (`git rev-parse` it in boris at the moment of the copy, never from memory),
+   and commit it in the same pull request: a copy that leaves the old SHA in
+   place makes `check` report drift that is already gone. Open a pull request;
+   its body lists any file that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only files outside the
-   catalogue's engine list may still differ.
+   catalogue's engine list may still differ. Then run
+   `npm run setup -- check` downstream: its ℹ line should say "up to date with
+   boris" if the copy was of boris's current `develop`.

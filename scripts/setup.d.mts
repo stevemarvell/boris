@@ -1,4 +1,4 @@
-import type { Project } from './project.d.mts';
+import type { Catalogue } from './assemble.d.mts';
 
 export type RunResult = { status: number; stdout: string; stderr: string };
 export type Run = (cmd: string, args: string[]) => Promise<RunResult>;
@@ -9,6 +9,8 @@ export interface CreateArgs {
   owner: string;
   dir: string;
   public: boolean;
+  starters: string[];
+  deploy?: string;
 }
 export interface CheckArgs {
   skipVerify: boolean;
@@ -37,8 +39,7 @@ export interface OwnerIssue {
 export declare const STORY_TEMPLATE_PATH: string;
 export declare const BASE_REMOTE: string;
 export declare const PREFLIGHT_NODE_MAJOR: number;
-export declare const TELEMETRY_FILES: string[];
-export declare const MARK: { done: string; fixed: string; owner: string };
+export declare const MARK: { done: string; fixed: string; owner: string; info: string };
 export declare const OWNER_ISSUES: OwnerIssue[];
 export declare const TEMPLATE_ISSUE_TITLE: string;
 export declare const MAX_ISSUE_PAGES: number;
@@ -50,22 +51,6 @@ export declare function parseCheckArgs(argv: string[]): CheckArgs;
 
 export declare function preflight(options?: { run?: Run; nodeVersion?: string }): Promise<PreflightResult[]>;
 export declare function missingPreflight(results: PreflightResult[]): PreflightResult[];
-
-export declare function renameJsonName(path: string, oldName: string, newName: string): boolean;
-export declare function renamePyproject(path: string, oldName: string, newName: string): boolean;
-export declare function renameTelemetry(root: string, oldName: string, newName: string): string[];
-export declare function placeholderClaudeMd(text: string, options: { owner: string; name: string }): string;
-export declare function rewriteIdentityTestForClone(
-  source: string,
-  options: { oldName: string; newName: string; owner: string },
-): string;
-export declare function renameIdentity(options: {
-  root: string;
-  oldName: string;
-  newName: string;
-  owner: string;
-  project: Project;
-}): string[];
 
 export declare function renderCheck(results: CheckLine[]): CheckResult;
 export declare function branchProtectionDecision(options: { isPrivate: boolean }): CheckLine;
@@ -83,6 +68,14 @@ export declare function runCheck(options?: {
   runIdentityTest?: () => { ok: boolean; output: string };
 }): Promise<CheckResult>;
 
+export declare function engineDrift(options: { run: Run; root: string; commit: string }): Promise<CheckLine>;
+export declare const HELD_BACK: Record<string, string>;
+export declare function checkOwner(owner: unknown): void;
+export declare function checkChoices(options: { catalogue: Catalogue; starters: string[]; deploy?: string; heldBack?: Record<string, string> }): void;
+export declare function withoutCredentials(url: string): string;
 export declare function ensureEmptyTarget(options: { run: Run; target: string }): Promise<{ exists: boolean }>;
-export declare function create(options: CreateArgs, deps?: { run?: Run; spawn?: Spawn }): Promise<number>;
+export declare function create(
+  options: CreateArgs,
+  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void; heldBack?: Record<string, string> },
+): Promise<number>;
 export declare function main(argv: string[]): Promise<number>;

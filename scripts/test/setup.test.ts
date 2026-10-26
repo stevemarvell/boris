@@ -1,45 +1,37 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  BASE_REMOTE,
   MARK,
   OWNER_ISSUES,
-  TELEMETRY_FILES,
   branchProtectionDecision,
-  create,
+  engineDrift,
   ensureEmptyTarget,
   missingOwnerIssues,
   missingPreflight,
   needsTemplateIssue,
   parseCheckArgs,
   parseCreateArgs,
-  placeholderClaudeMd,
   preflight,
-  renameIdentity,
-  renameJsonName,
-  renamePyproject,
-  renameTelemetry,
   renderCheck,
-  rewriteIdentityTestForClone,
   runCheck,
   type Run,
-  type Spawn,
 } from '../setup.mjs';
-import { ROOT } from '../project.mjs';
 
 describe('parseCreateArgs', () => {
-  it('parses --name, --owner, --dir and --public', () => {
-    expect(parseCreateArgs(['--name', 'n', '--owner', 'o', '--dir', '../n', '--public'])).toEqual({
-      name: 'n',
-      owner: 'o',
-      dir: '../n',
-      public: true,
-    });
+  it('parses --name, --owner, --dir, --public, a repeated --starter and --deploy', () => {
+    expect(
+      parseCreateArgs(['--name', 'n', '--owner', 'o', '--dir', '../n', '--public', '--starter', 'a', '--starter', 'b', '--deploy', 'vercel']),
+    ).toEqual({ name: 'n', owner: 'o', dir: '../n', public: true, starters: ['a', 'b'], deploy: 'vercel' });
   });
 
-  it('defaults --dir to ../<name> and --public to false', () => {
-    expect(parseCreateArgs(['--name', 'n', '--owner', 'o'])).toEqual({ name: 'n', owner: 'o', dir: '../n', public: false });
+  it('defaults --dir to ../<name>, --public to false, and chooses no starters and no provider', () => {
+    const opts = parseCreateArgs(['--name', 'n', '--owner', 'o']);
+    expect(opts).toEqual({ name: 'n', owner: 'o', dir: '../n', public: false, starters: [] });
+    expect(opts.deploy).toBeUndefined();
   });
 
   it('requires --name', () => {
@@ -50,12 +42,21 @@ describe('parseCreateArgs', () => {
     expect(() => parseCreateArgs(['--name', 'n'])).toThrow(/--owner/);
   });
 
-  it('refuses an unknown flag', () => {
-    expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--nope'])).toThrow(/unknown flag/);
+  it('refuses an owner that is not a GitHub login or organisation name, before anything runs', () => {
+    for (const owner of ['x/../../orgs/y', 'a?b', 'a/b', '-a']) {
+      expect(() => parseCreateArgs(['--name', 'n', '--owner', owner]), owner).toThrow(/owner/);
+    }
+  });
+
+  it('refuses an unknown flag, naming the usage', () => {
+    expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--nope'])).toThrow(/unknown flag "--nope"/);
+    expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--nope'])).toThrow(/--starter/);
   });
 
   it('refuses a flag with no value', () => {
     expect(() => parseCreateArgs(['--name'])).toThrow(/needs a value/);
+    expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--starter'])).toThrow(/--starter needs a value/);
+    expect(() => parseCreateArgs(['--name', 'n', '--owner', 'o', '--deploy'])).toThrow(/--deploy needs a value/);
   });
 
   it('refuses a flag whose value looks like another flag', () => {
@@ -112,205 +113,6 @@ describe('preflight', () => {
     const run: Run = async () => ({ status: 0, stdout: 'x', stderr: '' });
     const results = await preflight({ run, nodeVersion: 'v22.0.0' });
     expect(missingPreflight(results)).toEqual([]);
-  });
-});
-
-describe('renameJsonName', () => {
-  let root: string;
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'setup-rename-'));
-  });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
-
-  it('renames the name field when it matches', () => {
-    const path = join(root, 'project.json');
-    writeFileSync(path, JSON.stringify({ name: 'boris', apps: {} }));
-    expect(renameJsonName(path, 'boris', 'acme')).toBe(true);
-    expect(JSON.parse(readFileSync(path, 'utf8')).name).toBe('acme');
-  });
-
-  it('leaves the file untouched and reports false when the name does not match', () => {
-    const path = join(root, 'project.json');
-    const original = JSON.stringify({ name: 'something-else', apps: {} });
-    writeFileSync(path, original);
-    expect(renameJsonName(path, 'boris', 'acme')).toBe(false);
-    expect(readFileSync(path, 'utf8')).toBe(original);
-  });
-});
-
-describe('renamePyproject', () => {
-  let root: string;
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'setup-pyproject-'));
-  });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
-
-  it('renames the [project] name when it matches', () => {
-    const path = join(root, 'pyproject.toml');
-    writeFileSync(path, '[project]\nname = "boris"\nversion = "0.1.0"\n');
-    expect(renamePyproject(path, 'boris', 'acme')).toBe(true);
-    expect(readFileSync(path, 'utf8')).toContain('name = "acme"');
-  });
-
-  it('does nothing when the app already has its own name, like the real api app', () => {
-    const path = join(root, 'pyproject.toml');
-    writeFileSync(path, '[project]\nname = "api"\nversion = "0.1.0"\n');
-    expect(renamePyproject(path, 'boris', 'acme')).toBe(false);
-    expect(readFileSync(path, 'utf8')).toContain('name = "api"');
-  });
-});
-
-describe('renameTelemetry', () => {
-  let root: string;
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'setup-telemetry-'));
-    for (const rel of TELEMETRY_FILES) {
-      mkdirSync(join(root, rel, '..'), { recursive: true });
-    }
-    writeFileSync(join(root, TELEMETRY_FILES[0]!), 'name: boris-telemetry\n');
-    writeFileSync(join(root, TELEMETRY_FILES[1]!), 'uid: boris-prometheus\n');
-    writeFileSync(join(root, TELEMETRY_FILES[2]!), 'providers:\n  - name: boris\n');
-    writeFileSync(join(root, TELEMETRY_FILES[3]!), '{"uid": "boris-claude-code", "tags": ["claude-code", "boris"]}\n');
-  });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
-
-  it('renames every whole-word occurrence in every telemetry file, and reports which changed', () => {
-    const changed = renameTelemetry(root, 'boris', 'acme');
-    expect(changed.sort()).toEqual([...TELEMETRY_FILES].sort());
-    expect(readFileSync(join(root, TELEMETRY_FILES[0]!), 'utf8')).toBe('name: acme-telemetry\n');
-    expect(readFileSync(join(root, TELEMETRY_FILES[1]!), 'utf8')).toBe('uid: acme-prometheus\n');
-    expect(readFileSync(join(root, TELEMETRY_FILES[2]!), 'utf8')).toBe('providers:\n  - name: acme\n');
-    expect(readFileSync(join(root, TELEMETRY_FILES[3]!), 'utf8')).toBe('{"uid": "acme-claude-code", "tags": ["claude-code", "acme"]}\n');
-  });
-
-  it('never touches an unrelated word that merely contains the old name as a substring', () => {
-    writeFileSync(join(root, TELEMETRY_FILES[0]!), 'name: boris-telemetry   # arborist\n');
-    const changed = renameTelemetry(root, 'boris', 'acme');
-    expect(changed).toContain(TELEMETRY_FILES[0]);
-    expect(readFileSync(join(root, TELEMETRY_FILES[0]!), 'utf8')).toContain('arborist');
-  });
-
-  it('reports no files changed, and touches nothing, when the name does not match', () => {
-    expect(renameTelemetry(root, 'nope', 'acme')).toEqual([]);
-  });
-
-  it('skips a telemetry file that does not exist, rather than throwing', () => {
-    rmSync(join(root, TELEMETRY_FILES[0]!));
-    expect(() => renameTelemetry(root, 'boris', 'acme')).not.toThrow();
-  });
-});
-
-describe('placeholderClaudeMd', () => {
-  const sample = [
-    '# boris',
-    '',
-    'intro text',
-    '',
-    '## Repository settings',
-    '',
-    'Checked with `gh api repos/stevemarvell/boris`, not assumed:',
-    '',
-    "- **Private.** Some boris-specific fact.",
-    '- Another boris-specific fact.',
-    '',
-    '## Deployments and documentation',
-    '',
-    'VERCEL_TOKEN expires 2026-03-01.',
-  ].join('\n');
-
-  it('replaces the Repository settings section with a placeholder naming the real owner/repo', () => {
-    const out = placeholderClaudeMd(sample, { owner: 'acme-owner', name: 'acme' });
-    expect(out).toContain('gh api repos/acme-owner/acme');
-    expect(out).not.toContain('stevemarvell/boris');
-    expect(out).not.toContain('boris-specific fact');
-  });
-
-  it('leaves everything outside the Repository settings section alone', () => {
-    const out = placeholderClaudeMd(sample, { owner: 'acme-owner', name: 'acme' });
-    expect(out).toContain('# boris');
-    expect(out).toContain('## Deployments and documentation');
-  });
-
-  it('blanks a real VERCEL_TOKEN expiry date, which was never this clone\'s own', () => {
-    const out = placeholderClaudeMd(sample, { owner: 'acme-owner', name: 'acme' });
-    expect(out).toContain('VERCEL_TOKEN expires <expiry>');
-    expect(out).not.toContain('2026-03-01');
-  });
-
-  it('throws rather than silently doing nothing when there is no Repository settings heading', () => {
-    expect(() => placeholderClaudeMd('# boris\n\nno such section\n', { owner: 'o', name: 'n' })).toThrow(/Repository settings/);
-  });
-});
-
-describe('rewriteIdentityTestForClone', () => {
-  const real = readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8');
-
-  it('rewrites every ALLOW entry a rename invalidates, against the real file', () => {
-    const out = rewriteIdentityTestForClone(real, { oldName: 'boris', newName: 'acme', owner: 'acme-owner' });
-    expect(out).toContain('gh api repos\\/acme-owner\\/acme');
-    expect(out).toContain(`{ file: 'package.json', pattern: /"name": "acme"/`);
-    expect(out).toContain(`{ file: 'package-lock.json', pattern: /"name": "acme"/`);
-    expect(out).toContain(`{ file: 'project.json', pattern: /"name": "acme"/`);
-    expect(out).toContain('pattern: /name: acme-telemetry/');
-    expect(out).toContain("pattern: /acme/, because: 'Grafana dashboard/datasource naming");
-    expect(out).toContain("pattern: /name: acme/, because: 'Grafana provisioning naming");
-    expect(out).toContain('pattern: /uid: acme-prometheus/');
-  });
-
-  it('leaves every entry a rename does not invalidate untouched, including the ones this file just added for itself', () => {
-    const out = rewriteIdentityTestForClone(real, { oldName: 'boris', newName: 'acme', owner: 'acme-owner' });
-    expect(out).toContain("pattern: /^# boris$/");
-    expect(out).toContain('Boris Cherny');
-    expect(out).toContain("BASE_REMOTE = 'boris'");
-    expect(out).toContain('gh repo clone stevemarvell\\/boris');
-  });
-
-  it('throws, rather than silently doing nothing, when expected source text is missing', () => {
-    expect(() => rewriteIdentityTestForClone('nothing to rewrite here', { oldName: 'boris', newName: 'acme', owner: 'o' })).toThrow(
-      /expected to find/,
-    );
-  });
-});
-
-describe('renameIdentity', () => {
-  let root: string;
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'setup-identity-'));
-    mkdirSync(join(root, 'apps/api'), { recursive: true });
-    mkdirSync(join(root, 'scripts/test'), { recursive: true });
-    for (const rel of TELEMETRY_FILES) mkdirSync(join(root, rel, '..'), { recursive: true });
-
-    writeFileSync(join(root, 'project.json'), JSON.stringify({ name: 'boris', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }));
-    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'boris', private: true }));
-    writeFileSync(join(root, 'apps/api/pyproject.toml'), '[project]\nname = "api"\nversion = "0.1.0"\n');
-    writeFileSync(join(root, TELEMETRY_FILES[0]!), 'name: boris-telemetry\n');
-    writeFileSync(join(root, TELEMETRY_FILES[1]!), 'uid: boris-prometheus\n');
-    writeFileSync(join(root, TELEMETRY_FILES[2]!), '  - name: boris\n');
-    writeFileSync(join(root, TELEMETRY_FILES[3]!), '{"uid": "boris-claude-code", "tags": ["claude-code", "boris"]}\n');
-    writeFileSync(
-      join(root, 'CLAUDE.md'),
-      ['# boris', '', '## Repository settings', '', 'Checked with `gh api repos/stevemarvell/boris`, not assumed:', '', '- a fact', ''].join('\n'),
-    );
-    writeFileSync(join(root, 'scripts/test/identity.test.ts'), readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8'));
-  });
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
-
-  it('renames every identity file it is given, and reports what changed', () => {
-    const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
-    const changed = renameIdentity({ root, oldName: 'boris', newName: 'acme', owner: 'acme-owner', project });
-
-    expect(JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).name).toBe('acme');
-    expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name).toBe('acme');
-    expect(readFileSync(join(root, 'apps/api/pyproject.toml'), 'utf8')).toContain('name = "api"'); // unchanged: already its own name
-    expect(readFileSync(join(root, TELEMETRY_FILES[0]!), 'utf8')).toBe('name: acme-telemetry\n');
-    expect(readFileSync(join(root, 'CLAUDE.md'), 'utf8')).toContain('gh api repos/acme-owner/acme');
-    expect(readFileSync(join(root, 'scripts/test/identity.test.ts'), 'utf8')).toContain(
-      `{ file: 'project.json', pattern: /"name": "acme"/`,
-    );
-    expect(changed).toContain('project.json');
-    expect(changed).toContain('package.json');
-    expect(changed).toContain('CLAUDE.md');
-    expect(changed).toContain('scripts/test/identity.test.ts');
   });
 });
 
@@ -424,6 +226,9 @@ describe('runCheck', () => {
     'gh api user': { status: 0, stdout: 'octocat\n', stderr: '' },
     'gh secret list': { status: 0, stdout: JSON.stringify([{ name: 'CLAUDE_CODE_OAUTH_TOKEN' }]), stderr: '' },
     'gh api repos/{owner}/{repo}': { status: 0, stdout: repoJson(), stderr: '' },
+    // Only a product records the base commit it came from, and then `check` asks git how far behind it is.
+    // These tests run in whichever repository this file is in, so git answers with nothing here.
+    'git -C': { status: 0, stdout: '', stderr: '' },
   };
 
   it('exits 0 when every check is already satisfied', async () => {
@@ -553,6 +358,76 @@ describe('runCheck', () => {
   it('always prints the closing next-steps section', async () => {
     const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.lines.some((l) => l.includes('work-backlog'))).toBe(true);
+  });
+
+  describe('the base commit a product records', () => {
+    const COMMIT = '0123456789abcdef0123456789abcdef01234567';
+    let product: string;
+    beforeEach(() => {
+      product = mkdtempSync(join(tmpdir(), 'setup-product-'));
+      writeFileSync(
+        join(product, 'project.json'),
+        JSON.stringify({ name: 'acme', engine: { commit: COMMIT }, apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }),
+      );
+    });
+    afterEach(() => rmSync(product, { recursive: true, force: true }));
+
+    it('reports how far behind the base it is as an informational line, not an owner action', async () => {
+      const seen: string[] = [];
+      const result = await runCheck({
+        root: product,
+        skipVerify: true,
+        runIdentityTest: identityOk,
+        run: async (cmd, args) => {
+          const key = `${cmd} ${args.join(' ')}`;
+          if (cmd === 'git') {
+            seen.push(key);
+            if (args.includes('rev-list')) return { status: 0, stdout: '4\n', stderr: '' };
+            return { status: 0, stdout: '', stderr: '' };
+          }
+          return run(baseResponses)(cmd, args);
+        },
+      });
+      const line = result.lines.find((l) => l.includes('behind'));
+      expect(line).toBe(`${MARK.info} behind ${BASE_REMOTE} by 4 commits (engine.commit 0123456); the sync-ai-layer skill brings them in and moves engine.commit`);
+      // It is read from the product's own checkout, never this one.
+      expect(seen.every((k) => k.startsWith(`git -C ${product} `))).toBe(true);
+      expect(seen[0]).toBe(`git -C ${product} fetch --no-tags ${BASE_REMOTE} develop`);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it('does not fetch under --dry-run, which writes nothing, and says the drift check was skipped', async () => {
+      const result = await runCheck({
+        root: product,
+        dryRun: true,
+        skipVerify: true,
+        runIdentityTest: identityOk,
+        run: async (cmd, args) => {
+          if (cmd === 'git') throw new Error(`--dry-run must not run git: ${args.join(' ')}`);
+          return run(baseResponses)(cmd, args);
+        },
+      });
+      const line = result.lines.find((l) => l.includes('drift'));
+      expect(line).toBe(`${MARK.info} drift check skipped under --dry-run: it runs git fetch ${BASE_REMOTE} develop, which writes to this clone`);
+      expect(result.lines.some((l) => l.includes('behind'))).toBe(false);
+    });
+
+    it('asks the base nothing, and prints nothing about it, where no engine.commit is recorded', async () => {
+      writeFileSync(
+        join(product, 'project.json'),
+        JSON.stringify({ name: 'base', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }),
+      );
+      const result = await runCheck({
+        root: product,
+        skipVerify: true,
+        runIdentityTest: identityOk,
+        run: async (cmd, args) => {
+          if (cmd === 'git') throw new Error(`no engine.commit, so git must not be run: ${args.join(' ')}`);
+          return run(baseResponses)(cmd, args);
+        },
+      });
+      expect(result.lines.some((l) => l.includes('behind') || l.includes('up to date') || l.startsWith(MARK.info))).toBe(false);
+    });
   });
 
   it("reads project.json and README.md from the given root, not this repository's own", async () => {
@@ -712,189 +587,125 @@ describe('ensureEmptyTarget', () => {
   });
 });
 
-describe('create', () => {
-  function stubRun(overrides: Record<string, { status: number; stdout: string; stderr: string }>): { run: Run; calls: string[][] } {
-    const calls: string[][] = [];
+describe('engineDrift', () => {
+  const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01';
+  const ok = (stdout = '') => ({ status: 0, stdout, stderr: '' });
+  const fail = (stderr: string, status = 1) => ({ status, stdout: '', stderr });
+
+  /** A `run` that answers the three git calls, each by the sub-command it is. */
+  function git(answers: { fetch?: ReturnType<typeof ok>; ancestor?: ReturnType<typeof ok>; count?: ReturnType<typeof ok> }) {
+    const calls: string[] = [];
     const run: Run = async (cmd, args) => {
-      calls.push([cmd, ...args]);
-      const key = `${cmd} ${args.join(' ')}`;
-      for (const [prefix, result] of Object.entries(overrides)) {
-        if (key.startsWith(prefix)) return result;
-      }
-      // Preflight passes by default, so every test only has to override what it cares about.
-      return { status: 0, stdout: 'ok', stderr: '' };
+      calls.push([cmd, ...args].join(' '));
+      if (args.includes('fetch')) return answers.fetch ?? ok();
+      if (args.includes('merge-base')) return answers.ancestor ?? ok();
+      if (args.includes('rev-list')) return answers.count ?? ok('0\n');
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
     };
     return { run, calls };
   }
 
-  it('a hard failure checking emptiness stops create before any clone or push', async () => {
-    const { run, calls } = stubRun({
-      'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
-      'gh api repos/o/n/branches': { status: 1, stdout: '', stderr: 'API rate limit exceeded' },
+  it('fetches only develop from the base remote, then counts what the recorded commit lacks', async () => {
+    const { run, calls } = git({ count: ok('3\n') });
+    const line = await engineDrift({ run, root: '/p', commit: COMMIT });
+    expect(calls).toEqual([
+      `git -C /p fetch --no-tags ${BASE_REMOTE} develop`,
+      `git -C /p merge-base --is-ancestor ${COMMIT} FETCH_HEAD`,
+      `git -C /p rev-list --count ${COMMIT}..FETCH_HEAD`,
+    ]);
+    expect(line).toEqual({
+      mark: MARK.info,
+      text: `behind ${BASE_REMOTE} by 3 commits (engine.commit abcdef0); the sync-ai-layer skill brings them in and moves engine.commit`,
     });
-    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
-      /API rate limit exceeded/,
-    );
-    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(false);
-    expect(calls.some((c) => c[0] === 'git' && c[1] === 'push')).toBe(false);
   });
 
-  it('refuses an existing, non-empty target before any clone or push', async () => {
-    const { run, calls } = stubRun({
-      'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
-      'gh api repos/o/n/branches': { status: 0, stdout: '[{"name":"develop"}]', stderr: '' },
+  it('says "1 commit" for one, and "up to date" for none', async () => {
+    expect((await engineDrift({ ...git({ count: ok('1\n') }), root: '/p', commit: COMMIT })).text).toMatch(/behind boris by 1 commit \(/);
+    expect(await engineDrift({ ...git({ count: ok('0\n') }), root: '/p', commit: COMMIT })).toEqual({
+      mark: MARK.info,
+      text: `up to date with ${BASE_REMOTE} (engine.commit abcdef0)`,
     });
-    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
-      /already exists and is not empty/,
-    );
-    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(false);
   });
 
-  it('an empty repository proceeds past the guard and attempts the clone', async () => {
-    const { run, calls } = stubRun({
-      'gh api repos/o/n --jq .name': { status: 0, stdout: '{}', stderr: '' },
-      'gh api repos/o/n/branches': { status: 0, stdout: '[]', stderr: '' },
-      // Deliberately fails the clone itself, so the test stops there rather
-      // than reaching the real filesystem/bootstrap/verify/push pipeline.
-      'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
-    });
-    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
-      /git clone failed/,
-    );
-    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
+  it('is never an owner action, whatever it finds', async () => {
+    const answers = [
+      git({ count: ok('9\n') }),
+      git({ fetch: fail('no such remote') }),
+      git({ ancestor: fail('', 1) }),
+      git({ count: fail('boom') }),
+      git({ count: ok('not a number') }),
+    ];
+    for (const a of answers) expect((await engineDrift({ run: a.run, root: '/p', commit: COMMIT })).mark).toBe(MARK.info);
+    expect(renderCheck([{ mark: MARK.info, text: 'x' }]).exitCode).toBe(0);
   });
 
-  it('a brand-new target (the repository lookup fails) creates the repository and proceeds to clone', async () => {
-    const { run, calls } = stubRun({
-      'gh api repos/o/n --jq .name': { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' },
-      'gh api orgs/o/repos': { status: 0, stdout: '', stderr: '' },
-      'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
-    });
-    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(
-      /git clone failed/,
-    );
-    const createCall = calls.find((c) => c.includes('orgs/o/repos'));
-    expect(createCall).toEqual(['gh', 'api', 'orgs/o/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=true']);
-    // REST, never `gh repo create` (GraphQL, refused from cloud sessions).
-    expect(calls.some((c) => c[0] === 'gh' && c[1] === 'repo')).toBe(false);
-    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(true);
+  it('says so when the fetch fails, and does not go on to count against a stale FETCH_HEAD', async () => {
+    const { run, calls } = git({ fetch: fail("fatal: 'boris' does not appear to be a git repository", 128) });
+    const line = await engineDrift({ run, root: '/p', commit: COMMIT });
+    expect(line.text).toMatch(/cannot be measured: git fetch boris develop failed \(fatal: 'boris' does not appear/);
+    expect(calls).toHaveLength(1);
   });
 
-  it('creates the repository under the authenticated account when it is the owner, publicly if asked', async () => {
-    const { run, calls } = stubRun({
-      'gh api user': { status: 0, stdout: 'O\n', stderr: '' },
-      'gh api repos/o/n --jq .name': { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' },
-      'gh api user/repos': { status: 0, stdout: '', stderr: '' },
-      'git clone': { status: 1, stdout: '', stderr: 'stopped for the test' },
-    });
-    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: true }, { run })).rejects.toThrow(/git clone failed/);
-    expect(calls.find((c) => c.includes('user/repos'))).toEqual(['gh', 'api', 'user/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=false']);
+  it("says the recorded commit is not in the base's develop history only when git says so (exit 1), and never counts from it", async () => {
+    const { run, calls } = git({ ancestor: fail('', 1) });
+    const line = await engineDrift({ run, root: '/p', commit: COMMIT });
+    expect(line.text).toBe(`engine.commit abcdef0 is not in ${BASE_REMOTE}'s develop history (unpushed, or rewritten), so how far behind cannot be counted`);
+    expect(calls.some((c) => c.includes('rev-list'))).toBe(false);
   });
 
-  it('stops before cloning when creating the repository fails', async () => {
-    const { run, calls } = stubRun({
-      'gh api repos/o/n --jq .name': { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' },
-      'gh api orgs/o/repos': { status: 1, stdout: '', stderr: 'HTTP 403' },
-    });
-    await expect(create({ name: 'n', owner: 'o', dir: '/nonexistent', public: false }, { run })).rejects.toThrow(/HTTP 403/);
-    expect(calls.some((c) => c[0] === 'git' && c[1] === 'clone')).toBe(false);
-  });
-
-  it("'s final step spawns the clone's own check, with cwd set to opts.dir, and returns its exit code", async () => {
-    // A real tmpdir standing in for "the clone": renameIdentity actually
-    // writes into it, so this exercises the whole pipeline up to (but not
-    // including) a real network clone or push, which `run` stubs out.
-    const dir = mkdtempSync(join(tmpdir(), 'setup-create-'));
-    try {
-      mkdirSync(join(dir, 'apps/api'), { recursive: true });
-      mkdirSync(join(dir, 'scripts/test'), { recursive: true });
-      for (const rel of TELEMETRY_FILES) mkdirSync(join(dir, rel, '..'), { recursive: true });
-
-      writeFileSync(
-        join(dir, 'project.json'),
-        JSON.stringify({ name: 'boris', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }),
-      );
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'boris', private: true }));
-      writeFileSync(join(dir, 'apps/api/pyproject.toml'), '[project]\nname = "api"\nversion = "0.1.0"\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[0]!), 'name: boris-telemetry\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[1]!), 'uid: boris-prometheus\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[2]!), '  - name: boris\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[3]!), '{"uid": "boris-claude-code", "tags": ["claude-code", "boris"]}\n');
-      writeFileSync(
-        join(dir, 'CLAUDE.md'),
-        ['# boris', '', '## Repository settings', '', 'Checked with `gh api repos/stevemarvell/boris`, not assumed:', '', '- a fact', ''].join(
-          '\n',
-        ),
-      );
-      writeFileSync(join(dir, 'scripts/test/identity.test.ts'), readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8'));
-
-      const target = 'acme-owner/acme';
-      const run: Run = async (cmd, args) => {
-        const key = `${cmd} ${args.join(' ')}`;
-        if (key === `gh api repos/${target} --jq .name`) return { status: 0, stdout: '{}', stderr: '' };
-        if (key === `gh api repos/${target}/branches?per_page=1`) return { status: 0, stdout: '[]', stderr: '' };
-        if (cmd === 'git' && args.includes('rev-parse')) return { status: 0, stdout: 'abc1234\n', stderr: '' };
-        return { status: 0, stdout: '', stderr: '' }; // clone, remote rename/set-url/add, add, commit, push
-      };
-
-      const spawnCalls: { cmd: string; args: string[]; options?: Record<string, unknown> }[] = [];
-      const spawn: Spawn = (cmd, args, options) => {
-        spawnCalls.push({ cmd, args, options });
-        return { status: 0 };
-      };
-
-      const exitCode = await create({ name: 'acme', owner: 'acme-owner', dir, public: false }, { run, spawn });
-
-      expect(exitCode).toBe(0);
-      const checkCall = spawnCalls.find((c) => c.cmd === 'node' && c.args[0] === 'scripts/setup.mjs' && c.args[1] === 'check');
-      expect(checkCall).toBeDefined();
-      expect(checkCall?.options?.cwd).toBe(dir);
-      expect(checkCall?.options?.stdio).toBe('inherit');
-
-      // And it is the clone's own copy run as a separate process, never
-      // this process's own runCheck inspecting this checkout.
-      expect(spawnCalls.filter((c) => c.cmd === 'node').length).toBe(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+  it('says the check failed, not that the commit is unknown, when git errors (any other exit)', async () => {
+    for (const status of [128, 2, 129]) {
+      const { run, calls } = git({ ancestor: fail('fatal: Not a valid commit name', status) });
+      const line = await engineDrift({ run, root: '/p', commit: COMMIT });
+      expect(line.mark).toBe(MARK.info);
+      expect(line.text, String(status)).toMatch(/cannot be checked: git merge-base failed \(fatal: Not a valid commit name\)/);
+      expect(line.text).not.toMatch(/is not in/);
+      expect(calls.some((c) => c.includes('rev-list'))).toBe(false);
     }
   });
 
-  it('propagates a non-zero exit from the clone\'s own check', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'setup-create-'));
+  it('is measured against a real repository: a base two commits ahead of the recorded one', async () => {
+    // Real git, no network: a "base" with three commits stands in for boris,
+    // the product records the first and fetches from it.
+    const dir = mkdtempSync(join(tmpdir(), 'setup-drift-'));
     try {
-      mkdirSync(join(dir, 'apps/api'), { recursive: true });
-      mkdirSync(join(dir, 'scripts/test'), { recursive: true });
-      for (const rel of TELEMETRY_FILES) mkdirSync(join(dir, rel, '..'), { recursive: true });
-      writeFileSync(
-        join(dir, 'project.json'),
-        JSON.stringify({ name: 'boris', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }),
-      );
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'boris', private: true }));
-      writeFileSync(join(dir, 'apps/api/pyproject.toml'), '[project]\nname = "api"\nversion = "0.1.0"\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[0]!), 'name: boris-telemetry\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[1]!), 'uid: boris-prometheus\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[2]!), '  - name: boris\n');
-      writeFileSync(join(dir, TELEMETRY_FILES[3]!), '{"uid": "boris-claude-code", "tags": ["claude-code", "boris"]}\n');
-      writeFileSync(
-        join(dir, 'CLAUDE.md'),
-        ['# boris', '', '## Repository settings', '', 'Checked with `gh api repos/stevemarvell/boris`, not assumed:', '', '- a fact', ''].join(
-          '\n',
-        ),
-      );
-      writeFileSync(join(dir, 'scripts/test/identity.test.ts'), readFileSync(join(ROOT, 'scripts/test/identity.test.ts'), 'utf8'));
-
-      const target = 'acme-owner/acme';
-      const run: Run = async (cmd, args) => {
-        const key = `${cmd} ${args.join(' ')}`;
-        if (key === `gh api repos/${target} --jq .name`) return { status: 0, stdout: '{}', stderr: '' };
-        if (key === `gh api repos/${target}/branches?per_page=1`) return { status: 0, stdout: '[]', stderr: '' };
-        if (cmd === 'git' && args.includes('rev-parse')) return { status: 0, stdout: 'abc1234\n', stderr: '' };
-        return { status: 0, stdout: '', stderr: '' };
+      const g = (cwd: string, ...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+      const base = join(dir, 'base');
+      const product = join(dir, 'product');
+      mkdirSync(base);
+      g(base, 'init', '-q', '-b', 'develop');
+      const shas: string[] = [];
+      for (const n of [1, 2, 3]) {
+        writeFileSync(join(base, 'f'), String(n));
+        g(base, 'add', '-A');
+        g(base, 'commit', '-q', '-m', `c${n}`);
+        shas.push(g(base, 'rev-parse', 'HEAD'));
+      }
+      mkdirSync(product);
+      g(product, 'init', '-q', '-b', 'develop');
+      g(product, 'remote', 'add', BASE_REMOTE, base);
+      const realRun: Run = async (cmd, args) => {
+        try {
+          return { status: 0, stdout: execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), stderr: '' };
+        } catch (error) {
+          const e = error as { status?: number; stdout?: string; stderr?: string };
+          return { status: e.status ?? 1, stdout: String(e.stdout ?? ''), stderr: String(e.stderr ?? '') };
+        }
       };
-      const spawn: Spawn = (cmd, args) => (cmd === 'node' && args[1] === 'check' ? { status: 1 } : { status: 0 });
-
-      const exitCode = await create({ name: 'acme', owner: 'acme-owner', dir, public: false }, { run, spawn });
-      expect(exitCode).toBe(1);
+      expect((await engineDrift({ run: realRun, root: product, commit: shas[0]! })).text).toMatch(/^behind boris by 2 commits/);
+      expect((await engineDrift({ run: realRun, root: product, commit: shas[2]! })).text).toMatch(/^up to date with boris/);
+      // A commit the product has that the base's develop does not: git answers "not an ancestor" (exit 1).
+      g(product, 'checkout', '-q', '-b', 'elsewhere');
+      writeFileSync(join(product, 'g'), 'x');
+      g(product, 'add', '-A');
+      g(product, 'commit', '-q', '-m', 'local only');
+      const local = g(product, 'rev-parse', 'HEAD');
+      expect((await engineDrift({ run: realRun, root: product, commit: local })).text).toMatch(/is not in boris's develop history/);
+      // A commit git has never heard of: git errors (exit 128), which is reported as a failed check, not as an answer.
+      expect((await engineDrift({ run: realRun, root: product, commit: 'f'.repeat(40) })).text).toMatch(/cannot be checked: git merge-base failed/);
+      g(product, 'remote', 'remove', BASE_REMOTE);
+      expect((await engineDrift({ run: realRun, root: product, commit: shas[0]! })).text).toMatch(/cannot be measured/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

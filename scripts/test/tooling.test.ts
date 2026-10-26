@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { apps, loadProject } from '../project.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -38,7 +39,10 @@ describe('shared tool versions', () => {
     expect(root.workspaces?.length ?? 0).toBeGreaterThan(0);
     const mismatches: string[] = [];
     const workspaces = (root.workspaces ?? []).flatMap(expand);
-    expect(workspaces.length).toBeGreaterThan(0);
+    // A product with no node app has no workspace to compare, and says so in
+    // project.json; any other product must have found its apps, or this check
+    // would pass having compared nothing.
+    if (apps(loadProject(), 'node').length > 0) expect(workspaces.length).toBeGreaterThan(0);
     for (const workspace of workspaces) {
       for (const [name, version] of Object.entries(declared(read(workspace)))) {
         if (name in rootDeps && rootDeps[name] !== version) {

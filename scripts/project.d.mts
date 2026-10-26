@@ -14,8 +14,12 @@ export interface App {
   deploy?: Deploy;
   smoke?: string;
 }
+export interface Engine {
+  commit: string;
+}
 export interface Project {
   name: string;
+  engine?: Engine;
   apps: Record<string, App>;
 }
 export declare const ROOT: string;

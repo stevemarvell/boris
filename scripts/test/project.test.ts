@@ -100,6 +100,23 @@ describe('validate', () => {
     expect(() => validate(absolute)).toThrow(/apps\.svc\.path/);
   });
 
+  it('accepts an optional engine.commit, and a project without one', () => {
+    const sha = 'a'.repeat(39) + '1';
+    expect(validate({ ...minimal(), engine: { commit: sha } }).engine?.commit).toBe(sha);
+    expect(validate(minimal()).engine).toBeUndefined();
+  });
+
+  it('refuses an engine.commit that is not a full lowercase 40-hex SHA, naming the field', () => {
+    for (const commit of ['abc1234', 'A'.repeat(40), 'g'.repeat(40), `${'a'.repeat(40)}0`, '', 7, null]) {
+      const bad = { ...minimal(), engine: { commit } } as unknown as Project;
+      expect(() => validate(bad), String(commit)).toThrow(/"engine\.commit" must be a full 40-character/);
+    }
+    for (const engine of ['abc', null, [], {}]) {
+      const bad = { ...minimal(), engine } as unknown as Project;
+      expect(() => validate(bad), JSON.stringify(engine)).toThrow(/"engine/);
+    }
+  });
+
   it('refuses an app with no deploy block at all: verify still runs it, nothing deploy-related touches it', () => {
     expect(() => validate(minimal())).not.toThrow();
     expect(deployed(minimal())).toEqual([['ui', minimal().apps.ui]]);

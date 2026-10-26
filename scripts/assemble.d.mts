@@ -40,6 +40,7 @@ export interface PlanOptions {
   catalogue?: Catalogue;
   name: string;
   starters: string[];
+  engineCommit?: string;
   limits?: Limits;
 }
 export interface AssembleResult {
@@ -56,6 +57,7 @@ export declare function validateCatalogue(catalogue: unknown): Catalogue;
 export declare function loadCatalogue(path?: string): Catalogue;
 export declare function under(prefix: string, path: string): boolean;
 export declare function sharedBlock(claudeMd: string): string;
+export declare function checkTarget(target: string, root: string): void;
 export declare function plan(options: PlanOptions): { entries: PlanEntry[]; project: Project };
 export declare function assemble(options: PlanOptions & { target: string }): AssembleResult;
-export declare function parseArgs(argv: string[]): { list?: boolean; target?: string; name?: string; starters: string[] };
+export declare function parseArgs(argv: string[]): { list?: boolean; target?: string; name?: string; engineCommit?: string; starters: string[] };
