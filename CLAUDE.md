@@ -53,8 +53,9 @@ sync. Repository-specific facts go in the sections outside this block. -->
   text. **Read the `delegate` skill** before any agent work.
 
 - **Every change ships as a pull request, and the coordinator merges it.**
-  Branch off `develop`, push the branch, open a PR with
-  `gh pr create --base develop`, and merge once `verify` is green — without
+  Branch off `develop`, push the branch, open a PR against `develop` (the
+  GitHub MCP tools; `gh pr create` is GraphQL, which cloud sessions refuse),
+  and merge once `verify` is green — without
   asking; a green PR left open is work that looks finished and is not. Never
   commit or push directly to `develop`. Whether anything mechanical enforces
   these is a repository setting, recorded under *Repository settings* below,
