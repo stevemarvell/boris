@@ -8,11 +8,12 @@
 //
 // It is a pure file-tree builder. It takes its file list from `git ls-files`
 // in the source root, so only committed files can reach a product: an
-// untracked `.env.production` or key file is never copied. That one read-only
-// local command is all it runs: no network, no install, no other git, so
-// `npm run verify` can assemble every starter on each run and stay fast; creating the repository, relocking and the first commit
-// are the caller's (`setup create`). It never writes anywhere but `target`,
-// and refuses a target that already has anything in it.
+// untracked `.env.production` or key file is never copied. `git ls-files` is
+// the only command it runs: no network, no install, no other git. That keeps
+// `npm run verify` fast enough to assemble every starter on each run.
+// Creating the repository, relocking and the first commit are the caller's
+// (`setup create`). It never writes anywhere but `target`, and refuses a
+// target that already has anything in it.
 //
 // Bounded: the file list is finite, no symlink is followed (one is an error),
 // a path deeper than LIMITS.depth levels under its catalogue entry or more
@@ -265,11 +266,14 @@ const RENAMED = {
  * other repository's files.
  */
 export function trackedFiles(root) {
+  const { GIT_DIR: _dir, GIT_WORK_TREE: _tree, GIT_INDEX_FILE: _index, ...environment } = process.env;
   const result = spawnSync('git', ['ls-files', '-z'], {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(resolve(root)) },
+    // GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE would override `cwd` and list
+    // some other repository, so they are not passed on.
+    env: { ...environment, GIT_CEILING_DIRECTORIES: dirname(resolve(root)) },
   });
   if (result.error || result.status !== 0) {
     const why = (result.error?.message ?? result.stderr ?? '').trim();
@@ -280,8 +284,8 @@ export function trackedFiles(root) {
 
 /**
  * Every committed file under `rel` (or `rel` itself), sorted, without what
- * `skip` or the catalogue's ignored names exclude. Files deleted from the
- * working tree since the last commit are left out.
+ * `skip` or the catalogue's ignored names exclude. A committed file that is
+ * missing from the working tree is an error.
  */
 function walk(root, rel, { tracked, skip, limits, count }) {
   const found = tracked.filter((path) => under(rel, path));
@@ -296,8 +300,11 @@ function walk(root, rel, { tracked, skip, limits, count }) {
     let info;
     try {
       info = lstatSync(join(root, ...parts));
-    } catch {
-      continue;
+    } catch (error) {
+      // A committed file that is gone from disk would leave a hole in the
+      // product with no message, so it stops the build.
+      if (error.code === 'ENOENT') throw new Error(`assemble: "${path}" is tracked but missing from the working tree in ${root}`);
+      throw error;
     }
     if (info.isSymbolicLink()) throw new Error(`assemble: "${path}" is a symbolic link; nothing is followed`);
     if (!info.isFile()) throw new Error(`assemble: "${path}" is neither a file nor a symbolic link`);

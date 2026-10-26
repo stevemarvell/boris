@@ -318,6 +318,32 @@ describe('assemble in a small repository', () => {
     expect(listing(target).filter((f) => f.includes('.env'))).toEqual([]);
   });
 
+  it('refuses a committed file that is missing from the working tree, naming it', () => {
+    const { root, target, run } = build();
+    rmSync(join(root, 'tools/deep/b.mjs'));
+    expect(run).toThrow(/"tools\/deep\/b\.mjs" is tracked but missing from the working tree/);
+    expect(existsSync(target)).toBe(false);
+  });
+
+  it('lists the source root\'s own repository even when the environment points git elsewhere', () => {
+    const { root, catalogue } = fakeRepo();
+    // A different repository entirely: this one, whose files share nothing with the fake.
+    const saved = { GIT_DIR: process.env['GIT_DIR'], GIT_WORK_TREE: process.env['GIT_WORK_TREE'], GIT_INDEX_FILE: process.env['GIT_INDEX_FILE'] };
+    const elsewhere = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    process.env['GIT_DIR'] = elsewhere;
+    process.env['GIT_WORK_TREE'] = ROOT;
+    process.env['GIT_INDEX_FILE'] = join(elsewhere, 'index');
+    try {
+      const { entries } = plan({ root, catalogue, name: 'p', starters: ['svc'] });
+      expect(entries.map((e) => e.to)).toContain('tools/a.mjs');
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it('says so when the source is not a git checkout, rather than guess at its files', () => {
     const { root, catalogue } = fakeRepo(undefined, false);
     const target = join(scratch(), 'out');
