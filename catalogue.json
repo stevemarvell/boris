@@ -1,0 +1,83 @@
+{
+  "$comment": "What a product can be assembled from. Plain data: a planner reads it without running any code here. Every tracked file has exactly one home below (a test enforces it); scripts/assemble.mjs builds a product tree from it, and its tests keep the lists true. A starter's project.json app entry is not repeated here: `app` names the entry in project.json, which stays the one place it is written.",
+  "ignoredNames": [
+    "node_modules", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "dist",
+    "test-results", "playwright-report", ".vercel", ".idea", ".DS_Store"
+  ],
+  "engine": {
+    "description": "The loop: verify, review, isolate, deploy, smoke, triage. Every product has all of it, synced from the base for good; a file is only here when this list names it or the directory above it.",
+    "paths": [
+      ".claude/agents",
+      ".claude/commands",
+      ".claude/hooks",
+      ".claude/skills",
+      ".claude/statusline.mjs",
+      ".claude/statusline.d.mts",
+      ".gitattributes",
+      ".github",
+      ".gitignore",
+      "docs/sops.md",
+      "labels.json",
+      "scripts",
+      "telemetry"
+    ]
+  },
+  "seeded": {
+    "description": "Copied into a product once, then the product's own: it differs per repository and an agent may not edit it.",
+    "paths": [
+      ".claude/settings.json"
+    ]
+  },
+  "generated": {
+    "description": "Written fresh for each product, never copied: the base's own copy describes the base.",
+    "paths": [
+      "CLAUDE.md",
+      "README.md",
+      "docs/data-governance.md",
+      "package.json",
+      "project.json"
+    ]
+  },
+  "base": {
+    "description": "Belongs to the base repository alone and never reaches a product, including the files that test or build the parts.",
+    "paths": [
+      ".claude/trials",
+      "apps/CLAUDE.md",
+      "catalogue.json",
+      "docs/adoption.md",
+      "index.html",
+      "scripts/test/assemble.test.ts",
+      "scripts/test/catalogue.test.ts"
+    ]
+  },
+  "starters": {
+    "python-fastapi": {
+      "description": "A Python API on FastAPI with security headers and a /health endpoint, tested with pytest and linted with ruff.",
+      "app": "api",
+      "files": [],
+      "build": [],
+      "stubs": []
+    },
+    "node-react": {
+      "description": "An Ionic React web app on Vite, with a Playwright end-to-end suite and a documentation site built into its bundle at /docs/.",
+      "app": "web",
+      "files": [
+        "package-lock.json"
+      ],
+      "build": [
+        "apps/web/public"
+      ],
+      "stubs": [
+        "docs/adoption.md",
+        "index.html"
+      ]
+    }
+  },
+  "providers": {
+    "vercel": {
+      "description": "Deploys an app to Vercel: the build-skip step, the freshness smoke gate and preview pruning ship with the engine; `npm run deploy:add` copies the template files in once.",
+      "path": "scripts/deploy/vercel",
+      "template": "scripts/deploy/vercel/template"
+    }
+  }
+}

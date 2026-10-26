@@ -111,6 +111,36 @@ answers, that the token is present, and that its expiry is recorded.
   side by side.
 - **Pull later improvements from this base** with the `sync-ai-layer` skill.
 
+## The parts a product is made of
+
+A product is assembled from three kinds of part. They are declared where they
+already live, in [`catalogue.json`](catalogue.json), not moved into folders.
+
+| Part | Where it lives | In a product |
+| --- | --- | --- |
+| **Engine** | `.claude/`, `scripts/`, `.github/`, `telemetry/`, `docs/sops.md`, `labels.json` and a few root files, as an explicit allowlist in the catalogue. | Synced from this base for good (`sync-ai-layer`). |
+| **Starters** | Each app directory under `apps/`: `apps/api` is `python-fastapi`, `apps/web` is `node-react`. Each carries its own `CLAUDE.md` and skills, and the catalogue lists the few files it needs outside its directory. | Copied once, then the product's own. |
+| **Providers** | `scripts/deploy/<name>/`, starting with `vercel`. | The code ships with the engine; `npm run deploy:add` copies the template files once. |
+
+The catalogue also lists what is written fresh for each product (its own
+`CLAUDE.md`, `README.md`, `project.json`, `package.json` and
+`docs/data-governance.md`), what is copied once (`.claude/settings.json`), and
+what never leaves this base (`docs/adoption.md`, the step-0 `index.html`,
+`.claude/trials/`, and the catalogue and its tests). It is plain data: a
+planner reads it without running anything here.
+
+`scripts/assemble.mjs` builds a product tree from it, into an empty directory:
+
+```bash
+node scripts/assemble.mjs --list
+node scripts/assemble.mjs --target ../my-product --name my-product --starter python-fastapi --starter node-react
+```
+
+It runs no git, no network and no install, and refuses a target that already
+has anything in it. `npm run verify` assembles each starter into a temporary
+directory and checks the result: `project.json` validates, every engine file
+is present, the starter's files are present, and nothing else is.
+
 ## Two layers
 
 ```mermaid
@@ -204,8 +234,10 @@ flowchart LR
 
 ## Swapping the application
 
-1. Replace what is under `apps/`, including `apps/CLAUDE.md` and `smoke.sh`,
-   and the app skills in `apps/.claude/skills/`.
+1. Replace what is under `apps/`, including each app's own `CLAUDE.md`,
+   `smoke.sh` and skills (the web starter's `docs-site` skill is in
+   `apps/web/.claude/skills/`), and the matching starter in
+   [`catalogue.json`](catalogue.json).
 2. Rewrite [`project.json`](project.json). Each app declares:
 
    | Field | Meaning |
@@ -232,7 +264,8 @@ flowchart LR
 | Where | What |
 | --- | --- |
 | [`CLAUDE.md`](CLAUDE.md) | The AI layer's rules, which every agent session loads. |
-| [`apps/CLAUDE.md`](apps/CLAUDE.md) | The application's rules, layout and deployments. |
+| [`apps/CLAUDE.md`](apps/CLAUDE.md) | The application's layout and deployments; each starter's own rules are in its `CLAUDE.md`. |
+| [`catalogue.json`](catalogue.json) | The engine, starters and providers a product is assembled from. |
 | [`docs/sops.md`](docs/sops.md) | How agent work is run, including every loop's declared limit. |
 | [`docs/data-governance.md`](docs/data-governance.md) | What is exposed, why, and what would change that. |
 | [`docs/adoption.md`](docs/adoption.md) | The adoption ladder being climbed. |

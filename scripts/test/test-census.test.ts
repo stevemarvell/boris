@@ -351,6 +351,12 @@ describe('the premise: this repository can actually be counted', () => {
     // detector sees tables at all is proven by the unit tests above.
     const appPaths = apps(loadProject()).map(([, app]) => `${app.path}/`);
     const inApps = tables.filter((path) => appPaths.some((prefix) => path.startsWith(prefix)));
-    expect(tables.filter((path) => !inApps.includes(path))).toEqual(['scripts/test/test-census.test.ts']);
+    // assemble.test.ts is table-driven over the combinations of starters, a
+    // fixed product of the catalogue's starters: a dropped row means a dropped
+    // starter, which catalogue.test.ts catches.
+    expect(tables.filter((path) => !inApps.includes(path))).toEqual([
+      'scripts/test/assemble.test.ts',
+      'scripts/test/test-census.test.ts',
+    ]);
   });
 });

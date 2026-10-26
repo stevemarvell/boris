@@ -1,6 +1,6 @@
 ---
 name: sync-ai-layer
-description: Keeping the AI layer identical between boris (the master) and a repository built from it — which files are shared, which stay per repository, and how to bring improvements up from a downstream repository before syncing down. Use when asked to sync, compare or reconcile .claude/, the SOPs or CLAUDE.md with boris or with a repository built from it.
+description: Keeping the AI layer identical between boris (the master) and a repository built from it — which parts are shared (the engine), which stay per repository, and how to bring improvements up from a downstream repository before syncing down. Use when asked to sync, compare or reconcile .claude/, the SOPs or CLAUDE.md with boris or with a repository built from it.
 ---
 
 # Syncing the AI layer
@@ -10,31 +10,35 @@ shared files byte-identical, so a sync is a copy and a diff check, not a merge
 of prose. Improvements found downstream come **up** to boris first, then go
 back **down** — never edited only in the downstream copy.
 
-## What is shared
+## The parts
 
-Copied verbatim, every file:
+A product is assembled from three kinds of part, declared in place in
+`catalogue.json` at the repository root rather than moved into folders:
 
-- `.claude/agents/`, `.claude/commands/`, `.claude/hooks/`, `.claude/skills/`,
-  `.claude/statusline.mjs`, `.claude/statusline.d.mts`
-- `docs/sops.md`
-- `scripts/*.mjs`, `scripts/*.d.mts`, `scripts/deploy/`, and `scripts/test/` —
-  including `scripts/labels.mjs`
-- `labels.json` at the repository root: the one source of truth for label
-  names, colours and descriptions, applied by `scripts/labels.mjs`
-- `.github/workflows/`, except anything that names a repository or project
+- **The engine** — the loop: `.claude/`, `scripts/`, `.github/`,
+  `telemetry/`, `docs/sops.md`, `labels.json` and a few root files. This is
+  what this skill syncs. The list of engine paths is `engine.paths` in
+  `catalogue.json`; read it there, it is not repeated here. The engine is
+  an explicit allowlist (minus anything under a listed directory that another
+  list claims, such as the two tests of the catalogue itself), and a test fails when a file in the repository is in
+  none of the catalogue's lists.
+- **Starters** — each app directory under `apps/` with the files it needs
+  outside it. Copied once when a product is created, then the product's own;
+  never synced.
+- **Providers** — deploy code under `scripts/deploy/<name>/`. It is in the
+  engine, so it syncs; its template files are copied once by `deploy:add`.
 
-And one block of `CLAUDE.md`: everything between `<!-- shared:begin` and
-`<!-- shared:end -->`.
+The catalogue's other lists say what is *not* synced: `seeded` (copied once,
+then the product's own, such as `.claude/settings.json`, which an agent may
+not edit — SOP 7), `generated` (written fresh for each product: its own
+`CLAUDE.md`, `README.md`, `project.json`, `package.json` and
+`docs/data-governance.md`) and `base` (this repository's alone).
+`node scripts/assemble.mjs --target <empty dir> --name <name> --starter <s>`
+builds a product tree from these lists.
 
-## What stays per repository
-
-- `CLAUDE.md` outside the shared block: the intro, *Layout*, *Repository
-  settings*, *Deployments and documentation*, and any rule that belongs to
-  the application (an acceptance-criteria convention, say).
-- `apps/`, including `apps/CLAUDE.md` and `apps/.claude/skills/`.
-- `project.json`, `README.md`, `docs/data-governance.md`, `docs/adoption.md`
-  if the repository has one, `.claude/settings.json` (its permissions are
-  per-repository, and an agent may not edit it — SOP 7), `.claude/trials/`.
+One more shared thing is not a path: the block of `CLAUDE.md` between
+`<!-- shared:begin` and `<!-- shared:end -->`. Everything outside it is the
+repository's own.
 
 A shared file never names the repository it sits in (naming boris as the
 master is fine — that is the same everywhere). If a file has to, it isn't
@@ -45,7 +49,8 @@ shared.
 Ceiling: one pass. Anything still different after it is reported, not looped
 on.
 
-1. **Measure.** For every shared path, diff boris against the downstream
+1. **Measure.** For every path in the catalogue's `engine.paths` (read it
+   from boris's `catalogue.json`), diff boris against the downstream
    repository (`git diff --no-index --numstat`). Byte-identical files need
    nothing.
 2. **Classify each differing hunk:** generic (it belongs in the master),
@@ -55,10 +60,10 @@ on.
 3. **Up first.** Generic downstream improvements go into boris in a pull
    request, with any test that came with them. Strip incident narrative and
    the downstream repository's name as they come up.
-4. **Then down.** Copy every shared file from boris's `develop`, replace the
+4. **Then down.** Copy every engine file from boris's `develop`, replace the
    shared block of its `CLAUDE.md`, run `npm run verify` there, and run
    `node scripts/labels.mjs --repo <downstream>` so the downstream repository's
    labels match `labels.json`. Open a pull request; its body lists any file
    that is still intentionally different, and why.
-5. **Check.** After both merge, re-run step 1: only the per-repository files
-   above may still differ.
+5. **Check.** After both merge, re-run step 1: only files outside the
+   catalogue's engine list may still differ.
