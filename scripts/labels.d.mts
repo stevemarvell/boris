@@ -12,7 +12,10 @@ export declare function validate(manifest: unknown): Label[];
 export declare function loadManifest(path?: string): Label[];
 export declare function plan(manifest: Label[], existing: Label[]): LabelAction[];
 export declare function gh(args: string[]): Promise<RunResult>;
-export declare function listLabels(run: Run, repo?: string): Promise<Label[]>;
+export declare const LABEL_PAGE_SIZE: number;
+export declare const MAX_LABEL_PAGES: number;
+export declare function listLabels(run: Run, repo?: string, maxPages?: number): Promise<Label[]>;
+export declare function writeArgs(label: LabelAction, repo?: string): string[];
 export declare function apply(options: {
   run?: Run;
   manifest: Label[];

@@ -16,6 +16,11 @@
 // to do, never more, and never creates a second copy of anything it already
 // made. It exits 0 only when every line is done (✔) or just fixed (✚); any
 // ✋ line is something only the owner can do, with the exact command.
+//
+// GitHub is reached through `gh api` (REST), not `gh repo`, `gh issue` or
+// `gh auth status`: those are GraphQL or need a local login, and Claude Code
+// cloud sessions refuse the one and have the other (#225). `gh secret list`
+// is REST already and stays.
 import { execFile, execSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -109,8 +114,15 @@ export function parseCheckArgs(argv) {
 export async function preflight({ run = exec, nodeVersion = process.version } = {}) {
   const results = [];
 
-  const ghAuth = await run('gh', ['auth', 'status']);
-  results.push({ name: 'gh auth status', ok: ghAuth.status === 0, detail: ghAuth.status === 0 ? 'authenticated' : reason(ghAuth) });
+  // `gh api user`, not `gh auth status`: a cloud session authenticates through
+  // its proxy, which `gh auth status` reports as an invalid token while every
+  // call works. A REST call that succeeds is the proof that matters.
+  const ghAuth = await run('gh', ['api', 'user', '--jq', '.login']);
+  results.push({
+    name: 'gh api user',
+    ok: ghAuth.status === 0,
+    detail: ghAuth.status === 0 ? `authenticated as ${ghAuth.stdout.trim()}` : reason(ghAuth),
+  });
 
   const git = await run('git', ['--version']);
   results.push({ name: 'git', ok: git.status === 0, detail: git.status === 0 ? git.stdout.trim() : reason(git) });
@@ -380,13 +392,61 @@ export function needsTemplateIssue(openIssues) {
 // check: orchestration
 // ---------------------------------------------------------------------------
 
-/** `gh repo view`'s JSON, narrowed to what `check` reads. */
+/** The REST path of `repo` (`owner/name`), or gh's own `{owner}/{repo}` placeholders (the cwd's remote). */
+function repoRoute(repo) {
+  return `repos/${repo ?? '{owner}/{repo}'}`;
+}
+
+/** The repository's settings `check` reads, from `GET /repos/{owner}/{repo}`. */
 async function repoView(run, repo) {
-  const args = ['repo', 'view', '--json', 'isPrivate,deleteBranchOnMerge,url'];
-  if (repo) args.push(repo);
-  const result = await run('gh', args);
-  if (result.status !== 0) throw new Error(`gh repo view failed: ${reason(result)}`);
-  return JSON.parse(result.stdout);
+  const result = await run('gh', ['api', repoRoute(repo)]);
+  if (result.status !== 0) throw new Error(`gh api ${repoRoute(repo)} failed: ${reason(result)}`);
+  const body = JSON.parse(result.stdout);
+  return { isPrivate: body.private, deleteBranchOnMerge: body.delete_branch_on_merge, url: body.html_url };
+}
+
+/** Items per REST page; GitHub's maximum. */
+const PAGE_SIZE = 100;
+
+/** Pages of issues read before failing (SOP 1): 500 issues, matching the old `--limit 500`. */
+export const MAX_ISSUE_PAGES = 5;
+
+/**
+ * Every issue of `repo`, in `state`, from REST's issues listing (which also
+ * lists pull requests; they are dropped). Fails rather than returning a
+ * partial list when it runs out of pages: the callers decide whether to file
+ * something from what is *not* in it.
+ */
+async function listIssues(run, repo, state) {
+  const issues = [];
+  for (let page = 1; page <= MAX_ISSUE_PAGES; page++) {
+    const result = await run('gh', ['api', `${repoRoute(repo)}/issues?state=${state}&per_page=${PAGE_SIZE}&page=${page}`]);
+    if (result.status !== 0) throw new Error(`gh api issues failed: ${reason(result)}`);
+    const batch = JSON.parse(result.stdout);
+    for (const item of batch) {
+      if (!item.pull_request) {
+        issues.push({ title: item.title, labels: (item.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)) });
+      }
+    }
+    if (batch.length < PAGE_SIZE) return issues;
+  }
+  throw new Error(`gh api issues returned ${MAX_ISSUE_PAGES * PAGE_SIZE} items and more pages remain; raise MAX_ISSUE_PAGES`);
+}
+
+/** The `gh api` arguments that file an issue: labels and assignees as arrays, which `gh issue create` would take as flags. */
+function createIssueArgs(repo, { title, body, labels, assignee }) {
+  return [
+    'api',
+    `${repoRoute(repo)}/issues`,
+    '-X',
+    'POST',
+    '-f',
+    `title=${title}`,
+    '-f',
+    `body=${body}`,
+    ...labels.flatMap((l) => ['-f', `labels[]=${l}`]),
+    ...(assignee ? ['-f', `assignees[]=${assignee}`] : []),
+  ];
 }
 
 async function ghJson(run, args) {
@@ -459,10 +519,10 @@ export async function runCheck({
   if (view.deleteBranchOnMerge) {
     results.push({ mark: MARK.done, text: 'delete_branch_on_merge is already on' });
   } else if (dryRun) {
-    results.push({ mark: MARK.owner, text: 'would enable delete_branch_on_merge: gh repo edit --delete-branch-on-merge' });
+    results.push({ mark: MARK.owner, text: 'would enable delete_branch_on_merge: PATCH the repository with delete_branch_on_merge=true' });
   } else {
-    const edit = await run('gh', repoArg(['repo', 'edit', '--delete-branch-on-merge']));
-    if (edit.status !== 0) throw new Error(`gh repo edit --delete-branch-on-merge failed: ${reason(edit)}`);
+    const edit = await run('gh', ['api', repoRoute(repo), '-X', 'PATCH', '-F', 'delete_branch_on_merge=true']);
+    if (edit.status !== 0) throw new Error(`enabling delete_branch_on_merge failed: ${reason(edit)}`);
     results.push({ mark: MARK.fixed, text: 'enabled delete_branch_on_merge' });
   }
 
@@ -472,12 +532,12 @@ export async function runCheck({
     results.push({ mark: MARK.owner, text: `would set branch protection: ${protection.text}` });
   } else if (protection.mark === MARK.fixed) {
     // `gh api` takes no --repo flag of its own: the repository comes from
-    // the path itself, so a given `repo` is spliced into it directly
-    // instead of going through repoArg, and gh's own {owner}/{repo}
-    // placeholders (resolved from the cwd's git remote) cover the default.
+    // the path itself, so `repoRoute` splices a given `repo` into it, and
+    // gh's own {owner}/{repo} placeholders (resolved from the cwd's git
+    // remote) cover the default.
     const branchArgs = [
       'api',
-      `repos/${repo ?? '{owner}/{repo}'}/branches/develop/protection`,
+      `${repoRoute(repo)}/branches/develop/protection`,
       '-X',
       'PUT',
       '-f',
@@ -514,26 +574,20 @@ export async function runCheck({
   );
 
   // Owner issues, deduplicated by title
-  const allIssues = await ghJson(run, repoArg(['issue', 'list', '--state', 'all', '--limit', '500', '--json', 'title']));
+  const allIssues = await listIssues(run, repo, 'all');
   const missing = missingOwnerIssues(allIssues.map((i) => i.title));
+  let assignee; // the authenticated login, looked up once and only if an issue is actually filed
   for (const issue of missing) {
     const label = [issue.rank, 'human', 'do not automate'];
     if (dryRun) {
       results.push({ mark: MARK.owner, text: `would file owner issue "${issue.title}"` });
       continue;
     }
-    const createArgs = repoArg([
-      'issue',
-      'create',
-      '--title',
-      issue.title,
-      '--body',
-      issue.body,
-      ...label.flatMap((l) => ['--label', l]),
-      '--assignee',
-      '@me',
-    ]);
-    const created = await run('gh', createArgs);
+    if (assignee === undefined) {
+      const me = await run('gh', ['api', 'user', '--jq', '.login']);
+      assignee = me.status === 0 ? me.stdout.trim() : '';
+    }
+    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body, labels: label, assignee }));
     results.push(
       created.status === 0
         ? { mark: MARK.fixed, text: `filed owner issue "${issue.title}"` }
@@ -543,14 +597,14 @@ export async function runCheck({
   if (missing.length === 0) results.push({ mark: MARK.done, text: 'every owner issue already exists' });
 
   // Story template issue
-  const openIssues = await ghJson(run, repoArg(['issue', 'list', '--state', 'open', '--limit', '500', '--json', 'labels']));
+  const openIssues = await listIssues(run, repo, 'open');
   if (!needsTemplateIssue(openIssues)) {
     results.push({ mark: MARK.done, text: 'a template issue is already open' });
   } else if (dryRun) {
     results.push({ mark: MARK.owner, text: `would file "${TEMPLATE_ISSUE_TITLE}" from ${STORY_TEMPLATE_PATH}` });
   } else {
     const body = readFileSync(STORY_TEMPLATE_PATH, 'utf8');
-    const created = await run('gh', repoArg(['issue', 'create', '--title', TEMPLATE_ISSUE_TITLE, '--body', body, '--label', 'template']));
+    const created = await run('gh', createIssueArgs(repo, { title: TEMPLATE_ISSUE_TITLE, body, labels: ['template'] }));
     results.push(
       created.status === 0
         ? { mark: MARK.fixed, text: `filed "${TEMPLATE_ISSUE_TITLE}"` }
@@ -633,26 +687,26 @@ export async function runCheck({
 
 /**
  * Whether `target` is safe for `create` to clone into: either it doesn't
- * exist yet, or `gh repo view` reports it `isEmpty`. Fails closed: any
- * non-zero status or unparseable JSON from the emptiness check itself
- * throws with `gh`'s own stderr, rather than falling through to "assume
- * empty" the way a `gh api .../commits` call failing used to. Proceeds only
- * on the positive answer `isEmpty === true` — not "no commits found", which
- * a failed call can also look like.
+ * exist yet, or it exists with no branches. Fails closed: any non-zero
+ * status or unparseable JSON from the emptiness check itself throws with
+ * `gh`'s own stderr, rather than falling through to "assume empty". Proceeds
+ * only on the positive answer, an empty branch listing — not "no commits
+ * found", which a failed call can also look like.
  */
 export async function ensureEmptyTarget({ run, target }) {
-  const view = await run('gh', ['repo', 'view', target, '--json', 'name']);
+  const view = await run('gh', ['api', `repos/${target}`, '--jq', '.name']);
   if (view.status !== 0) return { exists: false }; // does not exist yet; create() will create it
 
-  const empty = await run('gh', ['repo', 'view', target, '--json', 'isEmpty']);
-  if (empty.status !== 0) throw new Error(`gh repo view ${target} --json isEmpty failed: ${reason(empty)}`);
-  let isEmpty;
+  const branches = await run('gh', ['api', `repos/${target}/branches?per_page=1`]);
+  if (branches.status !== 0) throw new Error(`gh api repos/${target}/branches failed: ${reason(branches)}`);
+  let list;
   try {
-    isEmpty = JSON.parse(empty.stdout).isEmpty;
+    list = JSON.parse(branches.stdout);
   } catch {
-    throw new Error(`gh repo view ${target} --json isEmpty returned unparseable JSON: ${empty.stdout}`);
+    throw new Error(`gh api repos/${target}/branches returned unparseable JSON: ${branches.stdout}`);
   }
-  if (isEmpty !== true) throw new Error(`setup create: ${target} already exists and is not empty`);
+  if (!Array.isArray(list)) throw new Error(`gh api repos/${target}/branches returned something other than a list: ${branches.stdout}`);
+  if (list.length > 0) throw new Error(`setup create: ${target} already exists and is not empty`);
   return { exists: true };
 }
 
@@ -684,8 +738,13 @@ export async function create(opts, { run = exec, spawn = spawnSync } = {}) {
   const target = `${opts.owner}/${opts.name}`;
   const { exists } = await ensureEmptyTarget({ run, target });
   if (!exists) {
-    const created = await run('gh', ['repo', 'create', target, opts.public ? '--public' : '--private']);
-    if (created.status !== 0) throw new Error(`gh repo create ${target} failed: ${reason(created)}`);
+    // POST /user/repos for the authenticated account's own repository,
+    // /orgs/{owner}/repos for an organisation's: `gh repo create` is GraphQL.
+    const me = await run('gh', ['api', 'user', '--jq', '.login']);
+    if (me.status !== 0) throw new Error(`gh api user failed: ${reason(me)}`);
+    const route = me.stdout.trim().toLowerCase() === opts.owner.toLowerCase() ? 'user/repos' : `orgs/${opts.owner}/repos`;
+    const created = await run('gh', ['api', route, '-X', 'POST', '-f', `name=${opts.name}`, '-F', `private=${opts.public ? 'false' : 'true'}`]);
+    if (created.status !== 0) throw new Error(`creating ${target} failed: ${reason(created)}`);
   }
 
   const clone = await run('git', ['clone', '--branch', 'develop', 'git@github.com:stevemarvell/boris.git', opts.dir]);

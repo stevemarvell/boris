@@ -59,8 +59,11 @@ under test to compute its own expected value proves nothing.
 
 If the prompt names an open pull request to fix, for example a review
 finding, you are continuing it, not starting a new one. In your worktree
-run `gh pr checkout <n>` and work on that branch. Push your commits to it
-and **do not** run `gh pr create`: a second pull request leaves the
+read its branch (`pull_request_read` with method `get`, or `gh api
+repos/{owner}/{repo}/pulls/<n> --jq .head.ref`), then `git fetch origin
+<branch>` and `git checkout <branch>`, and work on that branch. (Not `gh pr
+checkout`: it is GraphQL, which Claude Code cloud sessions refuse.) Push your
+commits to it and **do not** open another pull request: a second one leaves the
 finding unfixed on the one it was raised against. Reproduce the finding
 first, as the prompt describes. If it doesn't reproduce, say so instead of
 changing anything.
@@ -76,8 +79,11 @@ the coordinator's job, from your report (`docs/sops.md` SOP 2).
 ## Finishing
 
 - `npm run verify` green, in full.
-- Commit and push. For new work, open a pull request with
-  `gh pr create --base develop`. When continuing an existing pull request,
+- Commit and push. For new work, open a pull request with the GitHub MCP
+  tool `create_pull_request` (base `develop`); the fallback is `gh api -X POST
+  repos/{owner}/{repo}/pulls -f title=… -F body=@<file> -f head=<branch> -f
+  base=develop`. Not `gh pr create`: it is GraphQL, which Claude Code cloud
+  sessions refuse (#225). When continuing an existing pull request,
   push to its branch and open nothing.
 - Put `Closes #<n>` in the body if the prompt names an issue. **Never** write a
   closing keyword — close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved

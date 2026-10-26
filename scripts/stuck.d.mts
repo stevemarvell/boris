@@ -8,7 +8,8 @@ export interface PullRequest {
   headRefName: string;
   headRefOid?: string;
   mergeable?: string;
-  statusCheckRollup?: unknown[];
+  /** Check runs plus commit statuses on the head commit; only set for an open pull request. */
+  checks?: number;
 }
 
 export interface BranchWithAhead {
@@ -56,7 +57,10 @@ export interface Findings {
 
 export declare const MAX_MERGES_BEHIND: number;
 export declare const WORKTREES_DIR: string;
-export declare const PR_FETCH_LIMIT: number;
+export declare const PR_PAGE_SIZE: number;
+export declare const MAX_PR_PAGES: number;
+export declare const MERGEABLE_ATTEMPTS: number;
+export declare const MERGEABLE_WAIT_MS: number;
 export declare function gh(args: string[]): Promise<RunResult>;
 export declare function git(args: string[]): Promise<RunResult>;
 export declare function localBranches(run: Run): Promise<string[]>;
@@ -65,7 +69,12 @@ export declare function aheadCount(run: Run, develop: string, ref: string): Prom
 export declare function behindMergeCount(run: Run, develop: string, ref: string): Promise<number | null>;
 export declare function parseWorktreeList(porcelain: string): Worktree[];
 export declare function worktreeList(run: Run): Promise<Worktree[]>;
-export declare function allPullRequests(run: Run, limit?: number): Promise<PullRequest[]>;
+export declare function allPullRequests(run: Run, maxPages?: number): Promise<PullRequest[]>;
+export declare function openPullRequestDetail(
+  run: Run,
+  pr: PullRequest,
+  options?: { sleep?: (ms: number) => Promise<void>; attempts?: number },
+): Promise<{ mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'; checks: number }>;
 export declare function orphanedBranches(
   branches: { local?: BranchWithAhead[]; remote?: BranchWithAhead[] },
   prs: PullRequest[],
@@ -82,6 +91,7 @@ export declare function find(options?: {
   worktreesDir?: string;
   readDir?: (dir: string) => string[];
   gitStatus?: (dir: string) => Promise<boolean | null>;
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<Findings>;
 export declare function renderFindings(findings: Findings): string[];
 export declare function render(findings: Findings): string;
