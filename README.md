@@ -16,23 +16,39 @@ credentials, money, or a dashboard behind a login.
 `gh` logged in (`gh auth status`), and a Claude subscription to pay for CI
 reviews.
 
-1. **Create the project.** From a clone of this repository:
+1. **Create the project.** From a clone of this repository, choose its parts.
+   `node scripts/assemble.mjs --list` shows what [`catalogue.json`](catalogue.json)
+   offers: starters (an app and what it needs) and deploy providers.
 
    ```bash
    gh repo clone stevemarvell/boris
    npm run bootstrap
-   npm run setup -- create --name <project> --owner <github-owner> [--dir <path>] [--public]
+   npm run setup -- create --name <project> --owner <github-owner> \
+     --starter python-fastapi --starter node-react [--deploy vercel] [--dir <path>] [--public]
    ```
 
-   `create` does the following:
-   - creates the GitHub repository (private unless `--public`), stopping if
-     it already has content;
-   - clones this base's `develop` into `--dir` (default `../<project>`);
-   - keeps this base as a fetch-only remote, so you can pull updates but
-     never push to it;
-   - renames the project's identity and relocks both lockfiles;
-   - runs `verify`, makes one commit, and pushes it;
+   Give `--starter` once for each app, at least one. An unknown starter or
+   provider stops `create` before anything is created, naming what the
+   catalogue offers; so does a `--dir` that is not empty, and so does a
+   checkout of this base with uncommitted changes to tracked files. `create`
+   does the following:
+   - builds the project into `--dir` (default `../<project>`) from the engine,
+     the chosen starters and a `project.json` of their apps, by running
+     `scripts/assemble.mjs`, with no history from this base;
+   - records the base commit it was built from as `engine.commit` in
+     `project.json`;
+   - locks a project without a `package-lock.json` (one with only Python
+     starters) with `npx npm@11 install`, so its CI can run `npm ci`;
+   - runs `verify`, and stops there, with nothing created on GitHub, if it fails;
+   - makes one commit, with this base as a fetch-only remote, so you can pull
+     updates and measure how far behind you are but never push to it;
+   - creates the GitHub repository (private unless `--public`), stopping if it
+     already has content, and pushes;
    - finishes by running `check` inside the new repository.
+
+   `--deploy` deploys nothing: a Vercel project is yours to create. It checks
+   the provider exists and prints the `npm run deploy:add -- <provider> --app
+   <app>` command for each app, to run in the new repository.
 
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
    Run `claude setup-token`, then
@@ -59,7 +75,11 @@ reviews.
      `CLAUDE.md` around the product, and Telegram and Grafana, each optional
      and in its own issue;
    - adds the story template issue;
-   - runs the name check, which fails if this base's name is left anywhere;
+   - runs the name check, which fails if this base's name is left anywhere it
+     should not be;
+   - reports how far behind this base the project is, in commits, from the
+     recorded `engine.commit`. That is information (ℹ), never a ✋, and it
+     does not change the exit code;
    - runs `verify`.
 
 4. **File the backlog.** Give every issue a rank label
