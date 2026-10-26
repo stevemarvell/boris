@@ -22,7 +22,8 @@ commands are in **`apps/CLAUDE.md`**; read it before working under `apps/`.
 
 | Path | Holds |
 | --- | --- |
-| `apps/` | The application, with its own `CLAUDE.md`. |
+| `catalogue.json` | The parts a product is assembled from: the engine (an explicit allowlist of paths), the starters (`apps/api` as `python-fastapi`, `apps/web` as `node-react`) and the providers (`scripts/deploy/vercel`). `scripts/assemble.mjs` builds a product tree from it. |
+| `apps/` | The starters, each with its own `CLAUDE.md`; `apps/CLAUDE.md` is this repository's own overview of them. |
 | `project.json` | The one place the AI layer (`.claude/`, `scripts/`, `.github/`) learns about the apps: paths, toolchains, build inputs, Vercel projects. Read through `scripts/project.mjs`. |
 | `docs/` | `adoption.md`, the ladder being climbed; `data-governance.md`, what the deployments and the credentialed CI jobs expose and why; `sops.md`, how agent work is run. |
 
@@ -177,7 +178,7 @@ block, and `npm run verify` is what keeps an undeployed app green.
 one: it writes that app's `deploy` block, drops in the provider's template
 files (`scripts/deploy/vercel/template/`), and prints the steps that are a
 person's to do. What deploys where, once something does, is application
-knowledge: `apps/CLAUDE.md`, and the `docs-site` skill and (once added) the
-`deployment` skill in `apps/.claude/skills/`. The AI layer's view of it is
+knowledge: `apps/CLAUDE.md`, the `docs-site` skill in `apps/web/.claude/skills/`,
+and (once added) the `deployment` skill in `apps/.claude/skills/`. The AI layer's view of it is
 `project.json`, read through `scripts/project.mjs`; provider code lives
 behind the registry in `scripts/deploy/index.mjs`.

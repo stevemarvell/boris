@@ -38,5 +38,11 @@ sources, never the output.
 5. `CLAUDE.md` — the Layout row, if the source file is new
 6. the Markdown source itself
 
+This skill belongs to the web starter and moves with it. The build reads
+`docs/`, the root `index.html` and `scripts/markdown.mjs`, none of which are in
+`apps/web/`: a product gets `docs/sops.md` and `scripts/markdown.mjs` from the
+engine, and placeholder `docs/adoption.md`, `docs/data-governance.md` and
+`index.html` written when it is assembled (`catalogue.json`).
+
 `scripts/markdown.mjs` renders a deliberate subset. Check what it supports
 before using a construct; an unsupported one renders as literal text.

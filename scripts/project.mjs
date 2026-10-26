@@ -31,7 +31,7 @@ export const MANIFEST = join(ROOT, 'project.json');
 // The AI layer's own code, which `verify` tests and the stop hook therefore
 // watches. Declared here rather than in the manifest: it is this layer's
 // footprint, not the application's.
-export const HARNESS_CODE = ['scripts', '.claude/hooks', '.claude/statusline.mjs', 'project.json'];
+export const HARNESS_CODE = ['scripts', '.claude/hooks', '.claude/statusline.mjs', 'project.json', 'catalogue.json'];
 
 const TOOLCHAINS = new Set(['python', 'node']);
 

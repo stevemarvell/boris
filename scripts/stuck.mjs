@@ -1,6 +1,6 @@
 // Find work that is stuck in a state nothing is watching.
 //
-// Both vsme-toolkit write-ups named this the largest gap: the loop drives
+// This was named the largest gap: the loop drives
 // known work well (verify, review, isolate, deploy, smoke, triage) and
 // discovers none of it on its own. A branch nobody opened a pull request
 // for, a worktree folder `git worktree` no longer tracks, a worktree

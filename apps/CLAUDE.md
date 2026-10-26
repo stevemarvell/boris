@@ -6,7 +6,10 @@ passing while a real application is chosen; nothing here is published
 anywhere until `npm run deploy:add` says otherwise (see root `CLAUDE.md`'s
 "Deployments and documentation").
 
-The rules below are this application's. The AI layer's rules — the loop,
+This file belongs to the base repository and is never carried into a product:
+each starter keeps its own `CLAUDE.md` inside its directory (`api/`, `web/`),
+and `catalogue.json` at the root declares what a starter is. The rules below
+are the base application's. The AI layer's rules — the loop,
 `verify`, pull requests, ceilings, issues — are in the root `CLAUDE.md` and
 hold here too. The AI layer learns about this application only from
 `project.json`; swapping the application means editing `apps/`, `project.json`
@@ -16,9 +19,9 @@ and this file.
 
 | Path | Holds |
 | --- | --- |
-| `api/` | FastAPI shell: `/health` (with the deployed commit, once deployed), security headers, and Swagger UI, ReDoc and `/openapi.json` in development only. `smoke.sh` is its post-deploy checks. |
-| `web/` | Ionic React shell on Vite, calling no API. Builds the project documentation to `/docs/` (`scripts/` is its `prebuild`). `smoke.sh` is its post-deploy checks. |
-| `.claude/skills/` | This application's skills: `docs-site`, and `deployment` once `npm run deploy:add` has added one. |
+| `api/` | The `python-fastapi` starter: FastAPI shell with `/health`, security headers and the developer consoles in development only. Its own `CLAUDE.md` holds its rules and run commands. |
+| `web/` | The `node-react` starter: Ionic React shell on Vite that builds the project documentation to `/docs/`. Its own `CLAUDE.md` holds its rules, and its `.claude/skills/` holds the `docs-site` skill. |
+| `.claude/skills/` | `deployment`, once `npm run deploy:add` has added one. |
 
 ## Rules
 
@@ -49,21 +52,13 @@ anything that deploys, once one exists.**
 
 ## Documentation
 
-The web app's build puts the project documentation at `/docs/` inside its own
-bundle; it is reachable wherever the web app is deployed, and nowhere while
-it isn't. Adding a page touches six files and missing one means a page that
-builds locally and 404s wherever it is live — **read the `docs-site` skill**.
+The web starter's build puts the project documentation at `/docs/` inside its
+own bundle; it is reachable wherever the web app is deployed, and nowhere
+while it isn't. **Read the `docs-site` skill** in `web/.claude/skills/` before
+adding a page.
 
 ## Running it
 
-```bash
-npm install && npm run dev            # web app on http://localhost:5173
-cd apps/api && API_ENVIRONMENT=development uv run uvicorn api.main:app --reload   # API on :8000
-```
-
-`API_ENVIRONMENT=development` opts back into Swagger UI, ReDoc and
-`/openapi.json`, all three off by default.
-
-The web e2e suite runs against the **built bundle** via `vite preview`, never
-the dev server: a unit test runs in-process and structurally cannot see a
-configuration failure that only shows up in a built, served bundle.
+Each starter's run commands are in its own `CLAUDE.md`. For the web app,
+`npm install && npm run dev` serves it on http://localhost:5173; the API's
+command is in `api/CLAUDE.md`.
