@@ -361,8 +361,9 @@ which offers `create_branch` and `list_branches` and no deletion.
 
 So this rule cannot promise that what it licenses will be permitted. SOP 7
 records the same classifier refusing a widening edit to a permissions file and
-allowing a narrowing one; this is a third shape, and unlike those it does not
-track recoverability — a demonstrably recoverable deletion is refused anyway.
+treating a narrowing one inconsistently; this is a third shape, and like the
+narrowing case it does not track recoverability — a demonstrably recoverable
+deletion is refused anyway.
 
 Expect the gate, report the block, and leave the command to a person. That is a
 second opinion this rule does not get to overrule, not this rule failing. What
@@ -449,12 +450,13 @@ Decided on 2026-10-27 (#153), with the owner handing the decision to the
 coordinating session. The auto-mode classifier stays at its defaults, and no
 agent tunes it.
 
-- **Why not tune it.** Four refusals have been observed here: SOP 6's remote
-  branch deletion, SOP 7's widening edit, and #201's narrowing edit, which an
-  identical earlier case let through. Each cost one hand-off to the owner, and
-  none exposed anything. The gate errs toward refusing, the safe direction.
-  Four data points, one of them inconsistent with an earlier one, are too few
-  to set a looser rule from.
+- **Why not tune it.** Six refusals of four kinds have been observed here:
+  a remote branch deletion, twice (SOP 6); an edit to `CLAUDE.md`'s restraint
+  rule, twice (SOP 6); a widening permissions edit (above); and #201's
+  narrowing edit, which an identical earlier case let through. Each cost one
+  hand-off to the owner, and none exposed anything. The gate errs toward
+  refusing, the safe direction. Six data points, two of them inconsistent with
+  earlier identical cases, are too few to set a looser rule from.
 - **Why an agent may not.** Tuning is an agent adjusting the gate that governs
   it. The argument above applies unchanged.
 - **What would reopen it.** Refusals frequent enough to stall unattended work,
