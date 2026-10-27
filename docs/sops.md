@@ -453,10 +453,10 @@ agent tunes it.
 - **Why not tune it.** Six refusals of four kinds have been observed here:
   a remote branch deletion, twice (SOP 6); an edit to `CLAUDE.md`'s restraint
   rule, twice (SOP 6); a widening permissions edit (above); and #201's
-  narrowing edit, which an identical earlier case let through. Each cost one
+  narrowing edit, which a similar earlier case let through. Each cost one
   hand-off to the owner, and none exposed anything. The gate errs toward
   refusing, the safe direction. Six data points, two of them inconsistent with
-  earlier identical cases, are too few to set a looser rule from.
+  earlier cases that went through, are too few to set a looser rule from.
 - **Why an agent may not.** Tuning is an agent adjusting the gate that governs
   it. The argument above applies unchanged.
 - **What would reopen it.** Refusals frequent enough to stall unattended work,
