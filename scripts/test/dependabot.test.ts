@@ -224,8 +224,7 @@ export function problems(source: string, project: Project, root: string): string
     }
   }
 
-  // A just-published version is not proposed at once: npm and uv both take
-  // `cooldown.default-days`, and three days is also Dependabot's own default.
+  // The cooldown delays proposing a new release, so a yanked or malicious one can be pulled first; held at three days or more.
   for (const [ecosystem, found] of [['npm', npm], ['uv', uv]] as const) {
     for (const entry of found) {
       if (!(Number(entry.cooldown?.['default-days']) >= 3)) out.push(`${ecosystem}: no cooldown of at least 3 days`);

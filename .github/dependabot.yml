@@ -48,10 +48,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # A version is not proposed until it has been out three days, so one that
-    # is yanked or found malicious has a chance to be pulled first. Dependabot
-    # applies three days by default; it is written here so the file says it
-    # and a change to the default does not change it.
+    # Delays proposing a new release by three days, so a yanked or malicious one can be pulled first.
     cooldown:
       default-days: 3
     groups:
@@ -69,10 +66,7 @@ updates:
       - '/apps/*'
     schedule:
       interval: weekly
-    # A version is not proposed until it has been out three days, so one that
-    # is yanked or found malicious has a chance to be pulled first. Dependabot
-    # applies three days by default; it is written here so the file says it
-    # and a change to the default does not change it.
+    # Delays proposing a new release by three days, so a yanked or malicious one can be pulled first.
     cooldown:
       default-days: 3
     groups:
