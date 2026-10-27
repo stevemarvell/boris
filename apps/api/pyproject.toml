@@ -4,15 +4,15 @@ version = "0.1.0"
 description = "The API shell: a health check behind security headers."
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.141.1",
-    "uvicorn[standard]==0.53.0",
+    "fastapi==0.162.0",
+    "uvicorn[standard]==0.54.0",
 ]
 
 [dependency-groups]
 dev = [
     "httpx==0.28.1",
     "pytest==9.1.1",
-    "ruff==0.16.8",
+    "ruff==0.17.2",
 ]
 
 # Vercel's Root Directory for this project is apps/api (#126), so entrypoint
