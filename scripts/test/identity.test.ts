@@ -99,11 +99,6 @@ const ALLOW: Allowed[] = [
   { file: 'telemetry/grafana/provisioning/dashboards/dashboards.yml', pattern: /name: boris/, because: 'Grafana provisioning naming, out of this issue\'s scope' },
   { file: 'telemetry/grafana/provisioning/datasources/prometheus.yml', pattern: /uid: boris-prometheus/, because: 'Grafana datasource naming, out of this issue\'s scope' },
 
-  // #201 (human-owned) is the only place this repository still names that
-  // platform — a dead Bash permission entry in .claude/settings.json, not
-  // code, and not this issue's to touch.
-  { file: '.claude/settings.json', pattern: /Bash\(railway up\*\)/, because: 'removed by #201' },
-
   // The setup instructions clone this repository by its real path, so
   // README.md's Quick start names it literally.
   { file: 'README.md', pattern: /gh repo clone stevemarvell\/boris/, because: 'the setup instructions clone this repository by its real path', base: true },
