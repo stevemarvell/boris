@@ -52,8 +52,7 @@
       "mcp__claude_ai_Vercel__get_deployment_build_logs"
     ],
     "deny": [
-      "Bash(git push --force*)",
-      "Bash(railway up*)"
+      "Bash(git push --force*)"
     ]
   },
   "hooks": {
