@@ -428,18 +428,39 @@ nothing wider:
   allowed to do, and *"I was only tightening it"* is what the unsafe version
   says too. The same gate refuses edits to `CLAUDE.md`'s restraint rule
   (SOP 6).
-- **Narrowing is not.** Removing dead entries — commands and hosts that no
-  longer answer — goes through without resistance. Removing a grant cannot
-  expand what an agent may do, so the argument above does not reach it.
+- **Narrowing is inconsistent.** Removing dead entries went through once, on
+  explicit instruction (#123). Another time it was refused as
+  `[Self-Modification]` (#201): an agent dropping a dead deny entry for a
+  retired deploy CLI was stopped, and the owner removed it by hand. Removing a grant
+  cannot expand what an agent may do, but the gate does not reliably see that.
 
-Nothing establishes that a removal is refused under other conditions, so this
-is an observation and not a guarantee: expect a widening edit to be stopped,
-and expect nothing either way of a removal. A rule predicting a refusal that
-does not happen is the shape this document exists to avoid.
+So this is an observation and not a guarantee: expect a widening edit to be
+stopped, and expect either outcome for a removal. A rule predicting a refusal
+that does not happen is the shape this document exists to avoid.
 
 So *adding* a permission is `human` work by construction rather than by
-preference. What an agent can do is audit both files, report, and take dead
-entries out of the tracked one.
+preference. What an agent can do is audit both files, report, and propose
+taking dead entries out of the tracked one. When the gate refuses a removal,
+it goes to the owner, as #201 did.
+
+### Tuning the classifier: not tuned
+
+Decided on 2026-10-27 (#153), with the owner handing the decision to the
+coordinating session. The auto-mode classifier stays at its defaults, and no
+agent tunes it.
+
+- **Why not tune it.** Four refusals have been observed here: SOP 6's remote
+  branch deletion, SOP 7's widening edit, and #201's narrowing edit, which an
+  identical earlier case let through. Each cost one hand-off to the owner, and
+  none exposed anything. The gate errs toward refusing, the safe direction.
+  Four data points, one of them inconsistent with an earlier one, are too few
+  to set a looser rule from.
+- **Why an agent may not.** Tuning is an agent adjusting the gate that governs
+  it. The argument above applies unchanged.
+- **What would reopen it.** Refusals frequent enough to stall unattended work,
+  such as a `work-backlog` run stopping on one, or the classifier permitting
+  something it should refuse. Either is a new issue for the owner, with the
+  transcript.
 
 The `/fewer-permission-prompts` skill does the tidying mechanically, reading
 transcripts to find the commands actually run, adding what is missing and
