@@ -7,9 +7,26 @@ version: 2
 # the trailing `# v4` comment. Without it the pins are a promise never to take
 # a security fix.
 #
-# Only github-actions is declared. npm and uv are the application's own
-# dependency sets and belong to a separate decision about how much unattended
-# PR traffic this repository wants.
+# npm and uv are declared too (#227): one weekly pull request per ecosystem
+# for minor and patch updates, and each major as its own pull request, because
+# a major can break things and should be reviewed alone. An update that
+# matches no group is opened individually (Dependabot options reference,
+# `groups`), so leaving `major` out of `update-types` is all it takes.
+#
+# This file ships in the engine to every product, whichever starters it has,
+# and can name only what every product has or what a glob can find:
+#
+#   npm   `/`. The root package.json is generated for every product, with
+#         `workspaces: ["apps/*"]`, and Dependabot reads the workspace
+#         members through it. Do not list a workspace directory as well: two
+#         entries for one manifest is the overlap the reference forbids.
+#   uv    `/apps/*`. Each Python app has its own pyproject.toml and uv.lock,
+#         and `directories` (not `directory`) is what accepts a glob. A
+#         directory without a manifest is skipped, but the docs are silent on
+#         a glob that finds none, and a product with no Python app is that
+#         case: see the pull request for #227.
+#
+# scripts/test/dependabot.test.ts holds this file to project.json.
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -26,3 +43,32 @@ updates:
     # No `labels:` here on purpose. A label named in this file has to already
     # exist on the repository or Dependabot errors; left out, it creates and
     # applies its own `dependencies` label.
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: uv
+    directories:
+      - '/apps/*'
+    schedule:
+      interval: weekly
+    groups:
+      uv-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: deps
