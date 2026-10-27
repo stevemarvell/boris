@@ -24,7 +24,7 @@ version: 2
 #         and `directories` (not `directory`) is what accepts a glob. A
 #         directory without a manifest is skipped, but the docs are silent on
 #         a glob that finds none, and a product with no Python app is that
-#         case: see the pull request for #227.
+#         case, which the test fails until #236 makes this file per product.
 #
 # scripts/test/dependabot.test.ts holds this file to project.json.
 updates:
@@ -48,6 +48,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A version is not proposed until it has been out three days, so one that
+    # is yanked or found malicious has a chance to be pulled first. Dependabot
+    # applies three days by default; it is written here so the file says it
+    # and a change to the default does not change it.
+    cooldown:
+      default-days: 3
     groups:
       npm-minor-patch:
         patterns:
@@ -63,6 +69,12 @@ updates:
       - '/apps/*'
     schedule:
       interval: weekly
+    # A version is not proposed until it has been out three days, so one that
+    # is yanked or found malicious has a chance to be pulled first. Dependabot
+    # applies three days by default; it is written here so the file says it
+    # and a change to the default does not change it.
+    cooldown:
+      default-days: 3
     groups:
       uv-minor-patch:
         patterns:

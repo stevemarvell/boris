@@ -100,7 +100,13 @@ Two things, and only one of them is written in the configuration:
   "arbitrary code with the Grafana credential" is that person running their
   own code with their own credential. Nothing in the code says this. It is a
   fact about the repository's membership, and it carries the whole of the
-  remaining severity.
+  remaining severity. `dependabot[bot]` now opens pull requests too (#227); for
+  the `pull_request` runs it initiates, GitHub documents that `GITHUB_TOKEN` is
+  read-only by default and that secrets come from Dependabot's own secrets, not
+  the repository's Actions secrets ("Dependabot on GitHub Actions",
+  docs.github.com/en/code-security/reference/supply-chain-security/dependabot-on-actions).
+  That is GitHub's documented behaviour, taken from its documentation source;
+  it has not been verified here.
 
 The scope job is not in this list: it checks out the base commit, so the
 rule deciding which reviews run is not the branch's copy. The

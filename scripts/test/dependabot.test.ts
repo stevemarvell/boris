@@ -92,6 +92,7 @@ type Entry = {
   directory?: string;
   directories?: string[];
   schedule?: { interval?: string };
+  cooldown?: { 'default-days'?: string };
   groups?: Record<string, { patterns?: string[]; 'update-types'?: string[] }>;
 };
 
@@ -179,6 +180,20 @@ export function problems(source: string, project: Project, root: string): string
     }
   }
 
+  // Every uv glob must find a directory holding a pyproject.toml. Dependabot
+  // skips a directory with no manifest but fails the job when none of the
+  // directories has one (dependabot-core, file_fetcher_command.rb), so a
+  // product with no Python app is red here on purpose: the engine's file cannot
+  // fit it. #236 tracks assemble.mjs writing a dependabot.yml per product.
+  for (const entry of uv) {
+    for (const pattern of dirsOf(entry)) {
+      const found = resolved({ directories: [pattern] }, root);
+      if (found.length > 0 && !found.some((dir) => exists(join(root, dir, 'pyproject.toml')))) {
+        out.push(`uv: "${pattern}" matches no directory holding a pyproject.toml`);
+      }
+    }
+  }
+
   // The node workspace is covered by the npm entry at the root, and its members
   // are reached through that entry, not listed beside it.
   const npm = entries('npm');
@@ -206,6 +221,14 @@ export function problems(source: string, project: Project, root: string): string
         return (group.patterns ?? []).includes('*') && types.join() === 'minor,patch';
       });
       if (!grouped) out.push(`${ecosystem}: no group of every dependency limited to minor and patch updates`);
+    }
+  }
+
+  // A just-published version is not proposed at once: npm and uv both take
+  // `cooldown.default-days`, and three days is also Dependabot's own default.
+  for (const [ecosystem, found] of [['npm', npm], ['uv', uv]] as const) {
+    for (const entry of found) {
+      if (!(Number(entry.cooldown?.['default-days']) >= 3)) out.push(`${ecosystem}: no cooldown of at least 3 days`);
     }
   }
   return out;
@@ -267,12 +290,16 @@ describe('problems()', () => {
       '    directory: /',
       '    schedule:',
       '      interval: weekly',
+      '    cooldown:',
+      '      default-days: 3',
       grouped('n') + npmExtra,
       '  - package-ecosystem: uv',
       '    directories:',
       "      - '/apps/*'",
       '    schedule:',
       '      interval: weekly',
+      '    cooldown:',
+      '      default-days: 3',
       grouped('u') + uvExtra,
     ].join('\n');
 
@@ -316,7 +343,25 @@ describe('problems()', () => {
       'uv: no group of every dependency limited to minor and patch updates',
     ]);
     const majorGroup = config().replaceAll('          - patch', '          - patch\n          - major');
-    expect(problems(majorGroup, project({ api: 'python' }), dir)).toHaveLength(2);
+    expect(problems(majorGroup, project({ api: 'python' }), dir)).toEqual([
+      'npm: no group of every dependency limited to minor and patch updates',
+      'uv: no group of every dependency limited to minor and patch updates',
+    ]);
+  });
+
+  it('flags a uv glob that finds no pyproject.toml, which is a product with no Python app', () => {
+    const webOnly = tree({ 'package.json': rootPackage, 'apps/web/package.json': '{}' });
+    expect(problems(config(), project({ web: 'node' }), webOnly)).toEqual([
+      'uv: "/apps/*" matches no directory holding a pyproject.toml',
+    ]);
+  });
+
+  it('flags a missing cooldown, or one under three days, on npm and uv', () => {
+    const dir = tree({ 'package.json': rootPackage, ...python() });
+    const none = config().replaceAll('    cooldown:\n      default-days: 3\n', '');
+    expect(problems(none, project({ api: 'python' }), dir)).toEqual(['npm: no cooldown of at least 3 days', 'uv: no cooldown of at least 3 days']);
+    const short = config().replaceAll('default-days: 3', 'default-days: 1');
+    expect(problems(short, project({ api: 'python' }), dir)).toEqual(['npm: no cooldown of at least 3 days', 'uv: no cooldown of at least 3 days']);
   });
 
   it('flags a path that does not exist, literal or glob', () => {
