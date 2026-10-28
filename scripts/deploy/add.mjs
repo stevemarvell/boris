@@ -7,7 +7,8 @@
 //
 // Writes `project.json`'s `apps.<app>.deploy` block, copies that provider's
 // template files into place (apps/<app>/vercel.json, and the `deployment`
-// skill under apps/.claude/skills/) with their placeholders filled in, and
+// skill under apps/<app>/.claude/skills/, inside the app it is about, as a
+// starter keeps its own skills) with their placeholders filled in, and
 // prints the steps that are a person's to do, not this command's: creating
 // the actual Vercel project, turning Deployment Protection's Vercel
 // Authentication off, copying the real production URL, and adding
@@ -115,7 +116,7 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, r
     renderTemplate(readFileSync(join(templateDir, 'vercel.template.json'), 'utf8'), placeholders),
   );
 
-  const skillDir = join(root, 'apps/.claude/skills/deployment');
+  const skillDir = join(appDir, '.claude/skills/deployment');
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(join(skillDir, 'SKILL.md'), renderTemplate(readFileSync(join(templateDir, 'SKILL.md'), 'utf8'), placeholders));
 

@@ -94,8 +94,6 @@ export function validateCatalogue(catalogue) {
     apps.add(starter.app);
     for (const path of pathList(starter.files, `${at}.files`)) claim(path, `${at}.files`);
     pathList(starter.build, `${at}.build`);
-    // Stubs are outputs, written fresh: they name no source file, so they claim nothing.
-    pathList(starter.stubs, `${at}.stubs`);
   }
   const providers = Object.entries(catalogue.providers ?? {});
   if (providers.length === 0) fail('"providers" must declare at least one provider');
@@ -201,33 +199,6 @@ credentialed jobs or pass the secrets only to the action's own step, and
 rewrite this section.
 `;
 
-const ADOPTION = `# Adoption
-
-This product does not carry the adoption ladder; it stays in the repository
-this product was assembled from. The page exists because the web starter's
-documentation build expects it.
-`;
-
-function stepZero(ctx) {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${ctx.name}</title>
-</head>
-<body>
-<main>
-<h1>${ctx.name}</h1>
-<p>A placeholder page. The web starter's documentation build publishes it as
-<code>/docs/step-0.html</code>; replace it, or drop it from
-<code>apps/web/scripts/build-docs.mjs</code>.</p>
-</main>
-</body>
-</html>
-`;
-}
-
 /** The product's root package.json: the base's, under the product's name. */
 function packageJson(ctx) {
   const manifest = JSON.parse(readFileSync(join(ctx.root, 'package.json'), 'utf8'));
@@ -239,8 +210,6 @@ export const GENERATORS = {
   'CLAUDE.md': claudeMd,
   'README.md': readme,
   'docs/data-governance.md': () => DATA_GOVERNANCE,
-  'docs/adoption.md': () => ADOPTION,
-  'index.html': stepZero,
   'package.json': packageJson,
   'project.json': (ctx) => `${JSON.stringify(ctx.project, null, 2)}\n`,
 };
@@ -354,7 +323,11 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
     apps: Object.fromEntries(
       chosen.map(({ app, entry }) => {
         const { deploy: _deploy, ...rest } = entry;
-        return [app, rest];
+        // A build input that is the base's own file (the web starter reads the
+        // root index.html, which only the base has) names nothing in a product:
+        // the build skips it there, and a read of nothing is not a read.
+        const reads = entry.reads.filter((path) => !catalogue.base.paths.some((own) => under(own, path)));
+        return [app, { ...rest, reads }];
       }),
     ),
   };
@@ -393,7 +366,7 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
       copy(walk(root, path, { tracked, skip: { names, paths: starter.build }, limits, count }), `starter ${starter.key}`);
     }
   }
-  for (const path of [...catalogue.generated.paths, ...chosen.flatMap((s) => s.stubs)]) {
+  for (const path of catalogue.generated.paths) {
     const generate = GENERATORS[path];
     if (!generate) throw new Error(`assemble: the catalogue generates "${path}" but assemble.mjs has no generator for it`);
     add({ to: path, content: generate(ctx) }, 'generated');
@@ -403,7 +376,7 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
   // from nothing. Globs in `ignores` are not paths and are not checked.
   const has = (path) => [...entries.keys()].some((to) => under(path, to));
   for (const { key, entry, app } of chosen) {
-    for (const path of [...entry.reads, ...(entry.smoke ? [entry.smoke] : [])]) {
+    for (const path of [...project.apps[app].reads, ...(entry.smoke ? [entry.smoke] : [])]) {
       if (!has(path)) throw new Error(`assemble: app "${app}" (starter ${key}) reads "${path}", which the product would not have`);
     }
   }

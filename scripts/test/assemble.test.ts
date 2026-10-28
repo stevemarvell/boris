@@ -66,7 +66,6 @@ function expectedFiles(chosen: string[]): string[] {
     if (engine || seeded || owned) out.add(file);
   }
   for (const generated of catalogue.generated.paths) out.add(generated);
-  for (const s of starters) for (const stub of s.stubs) out.add(stub);
   return [...out].sort();
 }
 
@@ -126,13 +125,10 @@ describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
     expect(used.size).toBeGreaterThan(0);
     expect([...used].filter((secret) => !governance.includes(secret))).toEqual([]);
     expect(readFileSync(join(target, 'docs/data-governance.md'), 'utf8')).not.toBe(readFileSync(join(ROOT, 'docs/data-governance.md'), 'utf8'));
-    if (chosen.includes('node-react')) {
-      expect(readFileSync(join(target, 'docs/adoption.md'), 'utf8')).not.toBe(readFileSync(join(ROOT, 'docs/adoption.md'), 'utf8'));
-      expect(readFileSync(join(target, 'index.html'), 'utf8')).not.toBe(readFileSync(join(ROOT, 'index.html'), 'utf8'));
-    } else {
-      expect(onDisk).not.toContain('docs/adoption.md');
-      expect(onDisk).not.toContain('index.html');
-    }
+    // The base's adoption ladder and step-0 page are the base's alone, whatever starter is chosen:
+    // a placeholder for either would misrepresent a document that preserves its source's wording.
+    expect(onDisk).not.toContain('docs/adoption.md');
+    expect(onDisk).not.toContain('index.html');
   });
 
   it("writes a project.json that validates, names the product, and holds only the chosen apps, each as the base declares it", () => {
@@ -140,7 +136,16 @@ describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
     expect(written.name).toBe('widgets');
     const apps = chosen.map((key) => catalogue.starters[key]!.app).sort();
     expect(Object.keys(written.apps).sort()).toEqual(apps);
-    for (const app of apps) expect(written.apps[app]).toEqual(project.apps[app]);
+    // As the base declares it, less what only the base has: the web starter reads the base's root index.html.
+    for (const app of apps) {
+      const own = project.apps[app]!;
+      expect(written.apps[app]).toEqual({ ...own, reads: own.reads.filter((path) => !catalogue.base.paths.some((b) => under(b, path))) });
+    }
+    if (chosen.includes('node-react')) {
+      expect(project.apps['web']!.reads).toContain('index.html');
+      expect(written.apps['web']!.reads).not.toContain('index.html');
+      expect(written.apps['web']!.reads).toContain('docs');
+    }
   });
 
   it("has everything each app's project.json entry reads or smoke-tests", () => {
@@ -211,7 +216,7 @@ function fakeCatalogue(): Catalogue {
     generated: { description: 'g', paths: ['CLAUDE.md', 'README.md', 'package.json', 'project.json'] },
     base: { description: 'b', paths: ['catalogue.json', 'tools/base-only.txt'] },
     starters: {
-      svc: { description: 'A service.', app: 'svc', files: [], build: ['apps/svc/out'], stubs: [] },
+      svc: { description: 'A service.', app: 'svc', files: [], build: ['apps/svc/out'] },
     },
     providers: { cloud: { description: 'c', path: 'tools/cloud', template: 'tools/cloud/template' } },
   };
@@ -483,6 +488,16 @@ describe('assemble in a small repository', () => {
     manifest.apps.svc.reads.push('docs');
     writeFileSync(join(root, 'project.json'), JSON.stringify(manifest));
     expect(() => plan({ root, catalogue, name: 'p', starters: ['svc'] })).toThrow(/app "svc" \(starter svc\) reads "docs"/);
+  });
+
+  it("drops an app's read of a base-only file from the product's project.json, rather than refusing or shipping a stand-in", () => {
+    const { root, catalogue } = fakeRepo();
+    const manifest = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+    manifest.apps.svc.reads.push('tools/base-only.txt');
+    writeFileSync(join(root, 'project.json'), JSON.stringify(manifest));
+    const { entries, project } = plan({ root, catalogue, name: 'p', starters: ['svc'] });
+    expect(project.apps['svc']!.reads).toEqual(['apps/svc']);
+    expect(entries.map((e: { to: string }) => e.to)).not.toContain('tools/base-only.txt');
   });
 
   it('refuses a CLAUDE.md with no shared block', () => {

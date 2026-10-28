@@ -5,7 +5,6 @@ export interface Starter {
   app: string;
   files: string[];
   build: string[];
-  stubs: string[];
 }
 export interface Section {
   description: string;

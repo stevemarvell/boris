@@ -26,8 +26,10 @@ are in the root `CLAUDE.md` and hold here too.
 
 The build puts the project documentation at `/docs/`. It reads `docs/`, the
 root `index.html` and `scripts/markdown.mjs`, none of which live in this
-directory, so a product carries them (placeholders for the pages that are one
-repository's own). Adding a page touches six files and missing one means a
+directory. A page whose source is absent is skipped, not stubbed: a product
+carries `docs/sops.md`, `docs/data-governance.md` and `scripts/markdown.mjs`
+and has no `docs/adoption.md` or `index.html`, so it has no page for them.
+Adding a page touches six files and missing one means a
 page that builds locally and 404s wherever it is live — **read the
 `docs-site` skill** in `.claude/skills/` here.
 
@@ -38,5 +40,5 @@ npm install && npm run dev      # on http://localhost:5173
 node scripts/verify-apps.mjs web   # typecheck, eslint, vitest, build, e2e
 ```
 
-Once deployed, read the `deployment` skill under `apps/.claude/skills/`
+Once deployed, read the `deployment` skill under `.claude/skills/` here
 (written by `deploy:add`) before changing anything that deploys.

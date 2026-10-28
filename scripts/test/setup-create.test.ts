@@ -16,14 +16,12 @@ describe('checkChoices', () => {
 
   it('accepts starters and a provider the catalogue offers, and no provider at all', () => {
     expect(() => checkChoices({ catalogue, starters: ['python-fastapi'] })).not.toThrow();
-    // node-react is held back (below) until #231; an empty hold-back list shows the rest accepts it.
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'], deploy: 'vercel', heldBack: {} })).not.toThrow();
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'], deploy: 'vercel' })).not.toThrow();
   });
 
-  it('refuses node-react, naming #231, until the web starter can pass its own verify in a product', () => {
-    expect(() => checkChoices({ catalogue, starters: ['node-react'] })).toThrow(/node-react.*#231/);
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'] })).toThrow(/#231/);
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi'] })).not.toThrow();
+  it('accepts node-react, alone and with the API: no starter is held back', () => {
+    expect(() => checkChoices({ catalogue, starters: ['node-react'] })).not.toThrow();
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'] })).not.toThrow();
   });
 
   it('names what catalogue.json offers when a starter is unknown', () => {
@@ -165,14 +163,6 @@ describe('create', () => {
       await expect(create(python(dir, { deploy: 'heroku' }), w)).rejects.toThrow(
         'no provider named "heroku" (catalogue.json offers: vercel)',
       );
-      expect(w.timeline).toEqual([]);
-      expect(existsSync(dir)).toBe(false);
-    });
-
-    it('on node-react, naming #231, having run nothing and written nothing', async () => {
-      const w = world();
-      const dir = freshDir();
-      await expect(create(python(dir, { starters: ['node-react'] }), w)).rejects.toThrow(/node-react.*#231/);
       expect(w.timeline).toEqual([]);
       expect(existsSync(dir)).toBe(false);
     });
@@ -322,10 +312,22 @@ describe('create', () => {
 
       const withNode = world();
       const dir = freshDir();
-      await create(python(dir, { starters: ['python-fastapi', 'node-react'] }), { ...withNode, heldBack: {} });
+      await create(python(dir, { starters: ['python-fastapi', 'node-react'] }), withNode);
       expect(existsSync(join(dir, 'package-lock.json'))).toBe(true);
       expect(withNode.spawned.map((s) => s.key)).not.toContain('npx npm@11 install');
       expect(Object.keys(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps).sort()).toEqual(['api', 'web']);
+    });
+
+    it('creates a node-react-only product: nothing is refused, and the product holds the web app and no API', async () => {
+      const w = world();
+      const dir = freshDir();
+      expect(await create(python(dir, { starters: ['node-react'] }), w)).toBe(0);
+      expect(Object.keys(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps)).toEqual(['web']);
+      expect(existsSync(join(dir, 'apps/web/package.json'))).toBe(true);
+      expect(existsSync(join(dir, 'apps/api'))).toBe(false);
+      // The base's own pages are not copied, and nothing stands in for them.
+      expect(existsSync(join(dir, 'docs/adoption.md'))).toBe(false);
+      expect(existsSync(join(dir, 'index.html'))).toBe(false);
     });
 
     it("returns the product's own check exit code, run from the product and not from this checkout", async () => {
@@ -429,7 +431,7 @@ describe('create', () => {
   describe('--deploy', () => {
     it('prints the deploy:add command for each app, and sets nothing up', async () => {
       const w = world();
-      await create(python(freshDir(), { starters: ['python-fastapi', 'node-react'], deploy: 'vercel' }), { ...w, heldBack: {} });
+      await create(python(freshDir(), { starters: ['python-fastapi', 'node-react'], deploy: 'vercel' }), w);
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app api');
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app web');
       expect(w.timeline.filter((entry) => /deploy|vercel/.test(entry))).toEqual([]);
