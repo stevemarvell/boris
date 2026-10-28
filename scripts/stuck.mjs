@@ -128,15 +128,19 @@ export async function behindMergeCount(run, develop, ref) {
 
 /**
  * Registered worktrees, from `git worktree list --porcelain`:
- * `[{ path, branch }]`. `branch` is `null` for a detached worktree.
+ * `[{ path, branch, head }]`. `branch` is `null` for a detached worktree;
+ * `head` is the commit it is at, `null` if git printed none. The first entry
+ * is always the main working tree.
  */
 export function parseWorktreeList(porcelain) {
   const entries = [];
   let current = null;
   for (const line of String(porcelain ?? '').split('\n')) {
     if (line.startsWith('worktree ')) {
-      current = { path: line.slice('worktree '.length).trim(), branch: null };
+      current = { path: line.slice('worktree '.length).trim(), branch: null, head: null };
       entries.push(current);
+    } else if (line.startsWith('HEAD ') && current) {
+      current.head = line.slice('HEAD '.length).trim() || null;
     } else if (line.startsWith('branch ') && current) {
       current.branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
     } else if (line.trim() === '') {
@@ -259,14 +263,36 @@ export function untrackedWorktreeFolders(diskNames, registeredPaths) {
 }
 
 /**
- * Registered worktrees whose branch's pull request has already merged —
- * (b) in the issue, the "stale registration" half.
+ * Linked worktrees whose work has already merged — (b) in the issue, the
+ * "stale registration" half.
+ *
+ * A worktree is stale only when its HEAD *is* the head commit of a merged
+ * pull request for its branch. Matching on the branch name alone is wrong:
+ * a cloud session reuses one branch name for successive pull requests and
+ * resets it to `develop` after each merge, so the name keeps having a merged
+ * pull request long after the checkout holds new work (#233). The other
+ * rule on offer, "HEAD is contained in `develop`", is not used: this
+ * repository squash-merges, so a merged PR's own head is never in `develop`,
+ * and the rule would only ever match a worktree sitting at or behind
+ * `develop` with no work of its own — a fresh checkout, not a stale one.
+ *
+ * The first entry of `git worktree list` is the main working tree. It is
+ * never reported, whatever its branch: `git worktree remove` refuses it.
  */
 export function mergedWorktrees(worktrees, prs) {
-  const mergedByHead = new Map(prs.filter((pr) => pr.state === 'MERGED').map((pr) => [pr.headRefName, pr]));
+  const mergedHeads = new Map();
+  for (const pr of prs) {
+    if (pr.state !== 'MERGED' || !pr.headRefOid) continue;
+    mergedHeads.set(`${pr.headRefName}\0${pr.headRefOid}`, pr);
+  }
   return (worktrees ?? [])
-    .filter((worktree) => worktree.branch && mergedByHead.has(worktree.branch))
-    .map((worktree) => ({ path: worktree.path, branch: worktree.branch, pr: mergedByHead.get(worktree.branch).number }));
+    .slice(1)
+    .filter((worktree) => worktree.branch && worktree.head && mergedHeads.has(`${worktree.branch}\0${worktree.head}`))
+    .map((worktree) => ({
+      path: worktree.path,
+      branch: worktree.branch,
+      pr: mergedHeads.get(`${worktree.branch}\0${worktree.head}`).number,
+    }));
 }
 
 /**

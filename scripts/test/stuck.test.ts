@@ -91,9 +91,9 @@ describe('parseWorktreeList', () => {
       '',
     ].join('\n');
     expect(parseWorktreeList(porcelain)).toEqual([
-      { path: '/repo', branch: 'develop' },
-      { path: '/repo/.claude/worktrees/agent-1', branch: 'feat/x' },
-      { path: '/repo/.claude/worktrees/detached', branch: null },
+      { path: '/repo', branch: 'develop', head: 'abc123' },
+      { path: '/repo/.claude/worktrees/agent-1', branch: 'feat/x', head: 'def456' },
+      { path: '/repo/.claude/worktrees/detached', branch: null, head: 'abc123' },
     ]);
   });
 });
@@ -297,20 +297,51 @@ describe('untrackedWorktreeFolders', () => {
 });
 
 describe('mergedWorktrees', () => {
-  it('reports a registered worktree whose branch pull request has merged', () => {
-    const worktrees = [{ path: '/repo/.claude/worktrees/agent-1', branch: 'feat/done' }];
-    const prs = [pr({ number: 42, headRefName: 'feat/done', state: 'MERGED' })];
+  const main = { path: '/repo', branch: 'develop', head: 'dev1' };
+
+  it('reports a linked worktree whose HEAD is the merged pull request head', () => {
+    const worktrees = [main, { path: '/repo/.claude/worktrees/agent-1', branch: 'feat/done', head: 'sha42' }];
+    const prs = [pr({ number: 42, headRefName: 'feat/done', headRefOid: 'sha42', state: 'MERGED' })];
     expect(mergedWorktrees(worktrees, prs)).toEqual([{ path: '/repo/.claude/worktrees/agent-1', branch: 'feat/done', pr: 42 }]);
   });
 
-  it('does not report a worktree whose pull request is still open', () => {
-    const worktrees = [{ path: '/repo/.claude/worktrees/agent-1', branch: 'feat/wip' }];
-    const prs = [pr({ headRefName: 'feat/wip', state: 'OPEN' })];
+  it('never reports the main working tree, whatever its branch (#233)', () => {
+    // The main tree is on a branch name that has a merged pull request, and
+    // is even at that pull request's head: still the first entry, still skipped.
+    const worktrees = [{ path: '/repo', branch: 'feat/reused', head: 'sha229' }];
+    const prs = [pr({ number: 229, headRefName: 'feat/reused', headRefOid: 'sha229', state: 'MERGED' })];
     expect(mergedWorktrees(worktrees, prs)).toEqual([]);
   });
 
+  it('does not report a reused branch name whose HEAD is not the merged pull request head (#233)', () => {
+    const worktrees = [main, { path: '/repo/.claude/worktrees/agent-1', branch: 'feat/reused', head: 'newwork' }];
+    const prs = [pr({ number: 229, headRefName: 'feat/reused', headRefOid: 'sha229', state: 'MERGED' })];
+    expect(mergedWorktrees(worktrees, prs)).toEqual([]);
+  });
+
+  it('reports a reused branch name when HEAD is the head of any one of its merged pull requests', () => {
+    const worktrees = [main, { path: '/repo/.claude/worktrees/agent-1', branch: 'feat/reused', head: 'sha230' }];
+    const prs = [
+      pr({ number: 229, headRefName: 'feat/reused', headRefOid: 'sha229', state: 'MERGED' }),
+      pr({ number: 230, headRefName: 'feat/reused', headRefOid: 'sha230', state: 'MERGED' }),
+    ];
+    expect(mergedWorktrees(worktrees, prs)).toEqual([{ path: '/repo/.claude/worktrees/agent-1', branch: 'feat/reused', pr: 230 }]);
+  });
+
+  it('does not report a worktree whose pull request is still open', () => {
+    const worktrees = [main, { path: '/repo/.claude/worktrees/agent-1', branch: 'feat/wip', head: 'sha1' }];
+    const prs = [pr({ headRefName: 'feat/wip', headRefOid: 'sha1', state: 'OPEN' })];
+    expect(mergedWorktrees(worktrees, prs)).toEqual([]);
+  });
+
+  it('does not report a worktree with no recorded HEAD, or a merged pull request with no head SHA', () => {
+    const prs = [pr({ headRefName: 'feat/done', state: 'MERGED' })];
+    expect(mergedWorktrees([main, { path: '/repo/x', branch: 'feat/done', head: null }], prs)).toEqual([]);
+    expect(mergedWorktrees([main, { path: '/repo/x', branch: 'feat/done', head: 'sha1' }], prs)).toEqual([]);
+  });
+
   it('does not report a detached worktree, which has no branch to check', () => {
-    expect(mergedWorktrees([{ path: '/repo/x', branch: null }], [])).toEqual([]);
+    expect(mergedWorktrees([main, { path: '/repo/x', branch: null, head: 'sha1' }], [])).toEqual([]);
   });
 });
 
@@ -457,7 +488,16 @@ describe('find', () => {
       if (args[0] === 'worktree') {
         return {
           status: 0,
-          stdout: ['worktree /repo', 'branch refs/heads/develop', '', 'worktree /repo/.claude/worktrees/agent-1', 'branch refs/heads/feat/merged', ''].join('\n'),
+          stdout: [
+            'worktree /repo',
+            'HEAD dev1',
+            'branch refs/heads/feat/merged',
+            '',
+            'worktree /repo/.claude/worktrees/agent-1',
+            'HEAD sha42',
+            'branch refs/heads/feat/merged',
+            '',
+          ].join('\n'),
           stderr: '',
         };
       }
