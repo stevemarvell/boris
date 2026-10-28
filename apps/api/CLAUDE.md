@@ -29,5 +29,5 @@ uv run ruff check . && uv run pytest -q                            # its checks
 `API_ENVIRONMENT=development` opts back into Swagger UI, ReDoc and
 `/openapi.json`, all three off by default.
 
-Once deployed, read the `deployment` skill under `apps/.claude/skills/`
+Once deployed, read the `deployment` skill under `apps/api/.claude/skills/`
 (written by `deploy:add`) before changing anything that deploys.
