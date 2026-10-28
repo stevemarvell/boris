@@ -586,9 +586,9 @@ describe('splitDependabot', () => {
     expect(() => splitDependabot(`${DEPENDABOT}  - directory: /\n`)).toThrow(/does not understand/);
     expect(() => splitDependabot('version: 2\nupdates:\n    directory: /\n')).toThrow(/before the first "- package-ecosystem:" entry/);
     // A comment outside any entry cannot be placed: dropped before the first entry, or glued to the previous one if kept.
-    expect(() => splitDependabot(DEPENDABOT.replace('updates:\n', 'updates:\n  # about github-actions\n'))).toThrow(/"  # about github-actions", a comment before the first entry/);
+    expect(() => splitDependabot(DEPENDABOT.replace('updates:\n', 'updates:\n  # about github-actions\n'))).toThrow(/" {2}# about github-actions", a comment before the first entry/);
     expect(() => splitDependabot(DEPENDABOT.replace('  - package-ecosystem: uv', '  # about uv\n  - package-ecosystem: uv'))).toThrow(
-      /"  # about uv", a comment between entries/,
+      /" {2}# about uv", a comment between entries/,
     );
     expect(() => splitDependabot(`${DEPENDABOT}# trailing\n`)).toThrow(/"# trailing", a comment between entries/);
     expect(() => splitDependabot('version: 2\nupdates:\n')).toThrow(/no "- package-ecosystem:" entries/);
