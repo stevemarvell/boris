@@ -235,13 +235,18 @@ export function splitDependabot(source) {
   const entries = [];
   for (const line of lines.slice(start + 1)) {
     const item = /^ {2}- package-ecosystem: (\S+)$/.exec(line);
+    const last = entries[entries.length - 1];
     if (item) entries.push({ ecosystem: item[1], lines: [line] });
-    else if (/^\s*$/.test(line) || /^\s*#/.test(line) || line.startsWith('    ')) {
-      const last = entries[entries.length - 1];
-      if (last) last.lines.push(line);
-      else if (line.trim() && !line.trim().startsWith('#')) {
-        throw new Error(`assemble: .github/dependabot.yml has "${line}" before the first "- package-ecosystem:" entry; cannot split it`);
-      }
+    else if (/^\s*$/.test(line)) last?.lines.push(line);
+    else if (/^\s*#/.test(line) && !line.startsWith('    ')) {
+      // Which entry it describes cannot be told from its position: dropping it
+      // or attaching it to the previous entry would be a guess.
+      throw new Error(
+        `assemble: .github/dependabot.yml has "${line}", a comment ${last ? 'between entries' : 'before the first entry'}; indent it inside the entry it describes`,
+      );
+    } else if (line.startsWith('    ')) {
+      if (!last) throw new Error(`assemble: .github/dependabot.yml has "${line}" before the first "- package-ecosystem:" entry; cannot split it`);
+      last.lines.push(line);
     } else {
       throw new Error(`assemble: .github/dependabot.yml has "${line}", which assemble.mjs does not understand; entries are "  - package-ecosystem: <name>" items`);
     }

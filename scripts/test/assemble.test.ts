@@ -194,7 +194,7 @@ describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
     const ecosystems = [...written.matchAll(/^ {2}- package-ecosystem: (\S+)$/gm)].map((m) => m[1]);
     const hasPython = chosen.includes('python-fastapi');
     expect(ecosystems).toEqual(['github-actions', 'npm', ...(hasPython ? ['uv'] : [])]);
-    expect(written).not.toMatch(hasPython ? /^$/ : /uv-minor-patch|directories:/m);
+    if (!hasPython) expect(written).not.toMatch(/uv-minor-patch|directories:/);
     // Every kept entry is the base's own text, so the configuration is written once.
     const base = readFileSync(join(ROOT, '.github/dependabot.yml'), 'utf8');
     for (const entry of written.split(/^(?= {2}- package-ecosystem: )/m).slice(1)) expect(base, entry).toContain(entry.trimEnd());
@@ -585,6 +585,12 @@ describe('splitDependabot', () => {
     expect(() => splitDependabot(`${DEPENDABOT}other: 1\n`)).toThrow(/"other: 1", which assemble\.mjs does not understand/);
     expect(() => splitDependabot(`${DEPENDABOT}  - directory: /\n`)).toThrow(/does not understand/);
     expect(() => splitDependabot('version: 2\nupdates:\n    directory: /\n')).toThrow(/before the first "- package-ecosystem:" entry/);
+    // A comment outside any entry cannot be placed: dropped before the first entry, or glued to the previous one if kept.
+    expect(() => splitDependabot(DEPENDABOT.replace('updates:\n', 'updates:\n  # about github-actions\n'))).toThrow(/"  # about github-actions", a comment before the first entry/);
+    expect(() => splitDependabot(DEPENDABOT.replace('  - package-ecosystem: uv', '  # about uv\n  - package-ecosystem: uv'))).toThrow(
+      /"  # about uv", a comment between entries/,
+    );
+    expect(() => splitDependabot(`${DEPENDABOT}# trailing\n`)).toThrow(/"# trailing", a comment between entries/);
     expect(() => splitDependabot('version: 2\nupdates:\n')).toThrow(/no "- package-ecosystem:" entries/);
     expect(() => splitDependabot(DEPENDABOT.replace('      interval: weekly', '\tinterval: weekly'))).toThrow(/tab/);
   });
