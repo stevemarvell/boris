@@ -33,7 +33,8 @@ sources, never the output.
 
 1. `apps/web/scripts/build-docs.mjs` — the `MARKDOWN_PAGES` entry
 2. `apps/web/src/build-docs.test.ts` — the stand-in repository and its assertions
-3. `apps/web/e2e/docs.spec.ts` — the index link list, and a render test
+3. `apps/web/e2e/docs.spec.ts` — the `MARKDOWN` table of page and source; the
+   index and render tests are generated from it for whichever sources exist
 4. `apps/web/smoke.sh` — the deployed path loop
 5. `CLAUDE.md` — the Layout row, if the source file is new
 6. the Markdown source itself
@@ -41,8 +42,12 @@ sources, never the output.
 This skill belongs to the web starter and moves with it. The build reads
 `docs/`, the root `index.html` and `scripts/markdown.mjs`, none of which are in
 `apps/web/`: a product gets `docs/sops.md` and `scripts/markdown.mjs` from the
-engine, and placeholder `docs/adoption.md`, `docs/data-governance.md` and
-`index.html` written when it is assembled (`catalogue.json`).
+engine and a `docs/data-governance.md` written when it is assembled
+(`catalogue.json`). It has no `docs/adoption.md` or root `index.html`, those
+being the base repository's own, so the build skips those two pages and the
+product publishes neither: nothing stands in for them. A page added to
+`MARKDOWN_PAGES` whose source a product will not have is skipped there the same
+way.
 
 `scripts/markdown.mjs` renders a deliberate subset. Check what it supports
 before using a construct; an unsupported one renders as literal text.

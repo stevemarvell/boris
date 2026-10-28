@@ -5,7 +5,8 @@ description: The non-obvious settings behind this app's Vercel deployment — Ro
 
 # Deploying <app>
 
-`npm run deploy:add -- vercel --app <app> ...` wrote this file (from
+`npm run deploy:add -- vercel --app <app> ...` wrote this file (to
+`apps/<app>/.claude/skills/deployment/`, from
 `scripts/deploy/vercel/template/SKILL.md`) and the `deploy` block in
 `project.json` it describes. Replace every `<placeholder>` below with the
 real value once you know it, the same way the owner steps that command

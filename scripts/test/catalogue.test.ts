@@ -43,7 +43,7 @@ describe('the committed catalogue.json', () => {
       expect(app, key).toBeDefined();
       expect(existsSync(join(ROOT, app?.path ?? 'missing')), key).toBe(true);
       // The entry is referenced, never repeated: nothing in a starter restates it.
-      expect(Object.keys(starter).sort(), key).toEqual(['app', 'build', 'description', 'files', 'stubs']);
+      expect(Object.keys(starter).sort(), key).toEqual(['app', 'build', 'description', 'files']);
     }
   });
 
@@ -75,8 +75,7 @@ describe('the committed catalogue.json', () => {
   });
 
   it('has a generator for every file it says is generated, and none that nothing asks for', () => {
-    const asked = [...catalogue.generated.paths, ...Object.values(catalogue.starters).flatMap((s) => s.stubs)];
-    expect(Object.keys(GENERATORS).sort()).toEqual([...new Set(asked)].sort());
+    expect(Object.keys(GENERATORS).sort()).toEqual([...catalogue.generated.paths].sort());
   });
 
   it('keeps the base-only files the issue names out of the engine', () => {

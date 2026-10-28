@@ -7,7 +7,12 @@
 //
 // The output directory is generated and gitignored. It is deleted and rebuilt
 // on every run, so a page removed from this script cannot linger in a build.
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+//
+// A page whose source file is absent is skipped, not an error, and not
+// replaced with a placeholder: `docs/adoption.md` and the root `index.html`
+// belong to the repository this starter was written in, and a product built
+// from the starter does not carry them. `buildDocs` reports what it skipped.
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -22,7 +27,7 @@ function projectName(root) {
   return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).name;
 }
 
-/** The Markdown documents, in the order the index lists them. */
+/** The Markdown documents, in the order the index lists them. A document whose source is absent is left out of a build. */
 export const MARKDOWN_PAGES = [
   {
     slug: 'adoption',
@@ -107,18 +112,22 @@ ${crumbs ? `<nav class="crumbs"><a href="./">${escapeHtml(name)} docs</a></nav>\
  * `rendered` carries each Markdown page's own H1, so the index names a
  * document the way the document names itself.
  */
-export function indexPage(rendered = [], name) {
+export function indexPage(rendered = [], name, { stepZero = true } = {}) {
   const cards = [
     ...rendered.map((entry) => ({
       href: `${entry.slug}.html`,
       title: entry.title,
       blurb: entry.blurb,
     })),
-    {
-      href: 'step-0.html',
-      title: 'The step-0 page',
-      blurb: 'The first artifact this project ever published, kept as it was.',
-    },
+    ...(stepZero
+      ? [
+          {
+            href: 'step-0.html',
+            title: 'The step-0 page',
+            blurb: 'The first artifact this project ever published, kept as it was.',
+          },
+        ]
+      : []),
   ];
 
   const body = `<h1>${escapeHtml(name)} docs</h1>
@@ -138,7 +147,8 @@ ${cards
 
 /**
  * Renders the whole docs site into `out`, returning the paths written relative
- * to it — so a test can assert what a build produces without re-reading it.
+ * to it — so a test can assert what a build produces without re-reading it —
+ * and the sources it skipped because they are absent.
  */
 export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env } = {}) {
   rmSync(out, { recursive: true, force: true });
@@ -147,8 +157,13 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   const name = projectName(root);
   const written = [];
   const rendered = [];
+  const skipped = [];
 
   for (const entry of MARKDOWN_PAGES) {
+    if (!existsSync(join(root, entry.source))) {
+      skipped.push(entry.source);
+      continue;
+    }
     const markdown = readFileSync(join(root, entry.source), 'utf8');
     const title = firstHeading(markdown) ?? entry.slug;
     const body = renderMarkdown(markdown);
@@ -159,10 +174,15 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
 
   // The step-0 artifact is published as it was written, not restyled: it is a
   // record of what this project looked like at step 0.
-  writeFileSync(join(out, 'step-0.html'), readFileSync(join(root, 'index.html'), 'utf8'), 'utf8');
-  written.push('step-0.html');
+  const stepZero = existsSync(join(root, 'index.html'));
+  if (stepZero) {
+    writeFileSync(join(out, 'step-0.html'), readFileSync(join(root, 'index.html'), 'utf8'), 'utf8');
+    written.push('step-0.html');
+  } else {
+    skipped.push('index.html');
+  }
 
-  writeFileSync(join(out, 'index.html'), indexPage(rendered, name), 'utf8');
+  writeFileSync(join(out, 'index.html'), indexPage(rendered, name, { stepZero }), 'utf8');
   written.push('index.html');
 
   // The commit this build is of, for smoke.yml's web freshness gate — the web
@@ -174,10 +194,11 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   writeFileSync(join(out, 'version.json'), JSON.stringify({ commit }) + '\n', 'utf8');
   written.push('version.json');
 
-  return { out, written };
+  return { out, written, skipped };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { out, written } = buildDocs();
+  const { out, written, skipped } = buildDocs();
   console.log(`built ${written.length} doc pages into ${out}`);
+  if (skipped.length > 0) console.log(`skipped, as absent here: ${skipped.join(', ')}`);
 }

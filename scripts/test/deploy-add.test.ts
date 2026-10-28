@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -126,10 +126,24 @@ describe('addDeploy', () => {
     expect(vercelJson).toContain('vercel-ignore.mjs api');
     expect(vercelJson).not.toContain('<app>');
 
-    const skill = readFileSync(join(root, 'apps/.claude/skills/deployment/SKILL.md'), 'utf8');
+    const skill = readFileSync(join(root, 'apps/api/.claude/skills/deployment/SKILL.md'), 'utf8');
     expect(skill).toContain('thing-api');
     expect(skill).not.toContain('<project>');
     expect(skill).not.toContain('<app>');
+  });
+
+  it("puts the skill inside the app it is about, one per app, and writes none under apps/ itself", () => {
+    mkdirSync(join(root, 'apps/web'), { recursive: true });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.apps.web = { path: 'apps/web', toolchain: 'node', reads: ['apps/web'] };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+    addDeploy({ provider: 'vercel', app: 'api', project: 'thing-api', root, manifestPath });
+    addDeploy({ provider: 'vercel', app: 'web', project: 'thing-web', root, manifestPath });
+
+    expect(readFileSync(join(root, 'apps/api/.claude/skills/deployment/SKILL.md'), 'utf8')).toContain('thing-api');
+    expect(readFileSync(join(root, 'apps/web/.claude/skills/deployment/SKILL.md'), 'utf8')).toContain('thing-web');
+    expect(existsSync(join(root, 'apps/.claude'))).toBe(false);
   });
 
   it('fills in obvious placeholders, never a guess at the real values, when flags are left out', () => {

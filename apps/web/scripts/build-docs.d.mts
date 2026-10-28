@@ -10,9 +10,10 @@ export declare function page(options: {
 export declare function indexPage(
   rendered?: { slug: string; title: string; blurb: string }[],
   name?: string,
+  options?: { stepZero?: boolean },
 ): string;
 export declare function buildDocs(options?: {
   root?: string;
   out?: string;
   env?: Record<string, string | undefined>;
-}): { out: string; written: string[] };
+}): { out: string; written: string[]; skipped: string[] };

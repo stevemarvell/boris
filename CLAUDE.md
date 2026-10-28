@@ -179,6 +179,6 @@ one: it writes that app's `deploy` block, drops in the provider's template
 files (`scripts/deploy/vercel/template/`), and prints the steps that are a
 person's to do. What deploys where, once something does, is application
 knowledge: `apps/CLAUDE.md`, the `docs-site` skill in `apps/web/.claude/skills/`,
-and (once added) the `deployment` skill in `apps/.claude/skills/`. The AI layer's view of it is
+and (once added) the `deployment` skill in `apps/<app>/.claude/skills/`. The AI layer's view of it is
 `project.json`, read through `scripts/project.mjs`; provider code lives
 behind the registry in `scripts/deploy/index.mjs`.

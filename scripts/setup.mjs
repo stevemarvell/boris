@@ -651,18 +651,11 @@ export function checkOwner(owner) {
 }
 
 /**
- * Starters `create` cannot yet finish, each with why. TEMPORARY: #231 deletes
- * this table, the check in `checkChoices` that reads it, and the `heldBack`
- * parameters (only tests pass one).
- */
-export const HELD_BACK = { 'node-react': "the web starter's docs e2e asserts the base's own documents, which a product does not have (#231)" };
-
-/**
  * Throws, naming what catalogue.json offers, unless every one of `starters`
  * and `deploy` (when given) is in `catalogue`. Run before anything is read from
  * git or the network, so a mistyped name costs nothing.
  */
-export function checkChoices({ catalogue, starters, deploy, heldBack = HELD_BACK }) {
+export function checkChoices({ catalogue, starters, deploy }) {
   const offered = (entries) => Object.keys(entries).join(', ');
   if (starters.length === 0) {
     throw new Error(`setup create: choose at least one --starter (catalogue.json offers: ${offered(catalogue.starters)})`);
@@ -671,9 +664,6 @@ export function checkChoices({ catalogue, starters, deploy, heldBack = HELD_BACK
     if (!catalogue.starters[starter]) {
       throw new Error(`setup create: no starter named "${starter}" (catalogue.json offers: ${offered(catalogue.starters)})`);
     }
-  }
-  for (const starter of starters) {
-    if (heldBack[starter]) throw new Error(`setup create: --starter ${starter} cannot be used yet: ${heldBack[starter]}. Use the other starters until then`);
   }
   if (deploy !== undefined && !catalogue.providers[deploy]) {
     throw new Error(`setup create: no provider named "${deploy}" (catalogue.json offers: ${offered(catalogue.providers)})`);
@@ -720,14 +710,14 @@ export function withoutCredentials(url) {
  * and the README read would all inspect this checkout — the base — not the
  * new repository `check` is meant to grade.
  */
-export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log, heldBack } = {}) {
+export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log } = {}) {
   const catalogueFile = join(root, 'catalogue.json');
   if (!existsSync(catalogueFile)) {
     throw new Error(`setup create: ${root} has no catalogue.json; create runs from the base checkout, which says what a product can be made of`);
   }
   const catalogue = loadCatalogue(catalogueFile);
   checkOwner(opts.owner);
-  checkChoices({ catalogue, starters: opts.starters, deploy: opts.deploy, ...(heldBack ? { heldBack } : {}) });
+  checkChoices({ catalogue, starters: opts.starters, deploy: opts.deploy });
   const dir = resolve(opts.dir);
   // The same refusals assemble would make, taken now (a bad name, a missing
   // file, a target with anything in it) instead of after the network calls.
