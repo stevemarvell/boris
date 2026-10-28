@@ -5,9 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
 
-// .github/dependabot.yml ships in the engine to every product, so what it names
-// has to be true of the repository it lands in: this test reads project.json
-// and the tree it sits in, and holds in a product assembled from any starter.
+// .github/dependabot.yml is written for each product by scripts/assemble.mjs,
+// from the base's own file, keeping the ecosystems the product has. What it
+// names has to be true of the repository it lands in: this test reads
+// project.json and the tree it sits in, and holds in the base and in a product
+// assembled from any starter.
 //
 // There is no YAML parser among the dependencies and none is added for this:
 // the file is read by a small indentation-based reader that understands only
@@ -183,8 +185,8 @@ export function problems(source: string, project: Project, root: string): string
   // Every uv glob must find a directory holding a pyproject.toml. Dependabot
   // skips a directory with no manifest but fails the job when none of the
   // directories has one (dependabot-core, file_fetcher_command.rb), so a
-  // product with no Python app is red here on purpose: the engine's file cannot
-  // fit it. #236 tracks assemble.mjs writing a dependabot.yml per product.
+  // product with no Python app is red here on purpose: a file with a uv entry
+  // cannot fit it. assemble.mjs leaves the entry out of such a product (#236).
   for (const entry of uv) {
     for (const pattern of dirsOf(entry)) {
       const found = resolved({ directories: [pattern] }, root);
@@ -213,7 +215,8 @@ export function problems(source: string, project: Project, root: string): string
   // Each new ecosystem groups minor and patch updates, and not major ones:
   // a major is opened on its own.
   for (const [ecosystem, found] of [['npm', npm], ['uv', uv]] as const) {
-    if (found.length === 0) out.push(`${ecosystem}: no entry`);
+    // npm is in every product; uv only where there is a Python app, which the check above has already held to a uv entry.
+    if (found.length === 0 && (ecosystem === 'npm' || apps(project, 'python').length > 0)) out.push(`${ecosystem}: no entry`);
     for (const entry of found) {
       const groups = Object.values(entry.groups ?? {});
       const grouped = groups.some((group) => {
@@ -238,7 +241,9 @@ const source = readFileSync(join(ROOT, '.github/dependabot.yml'), 'utf8');
 describe('the committed .github/dependabot.yml', () => {
   it('reads as the structure the checks expect', () => {
     const config = parseYaml(source) as { updates: Entry[] };
-    expect(config.updates.map((entry) => entry['package-ecosystem'])).toEqual(['github-actions', 'npm', 'uv']);
+    // The base and a python or both-starters product have a uv entry; a web-only product has none.
+    const hasPython = apps(loadProject(), 'python').length > 0;
+    expect(config.updates.map((entry) => entry['package-ecosystem'])).toEqual(['github-actions', 'npm', ...(hasPython ? ['uv'] : [])]);
   });
 
   it('holds for this repository: coverage, groups, and no path that is not there', () => {
@@ -372,9 +377,17 @@ describe('problems()', () => {
   it('flags a glob in "directory", a missing ecosystem and a schedule that is not weekly', () => {
     const dir = tree({ 'package.json': rootPackage, ...python() });
     expect(problems(config().replace('directory: /\n', "directory: '/*'\n"), project({}), dir)).toContain('npm: a glob in "directory" is not supported, use "directories"');
-    expect(problems('version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: daily\n', project({}), dir)).toEqual(
+    expect(problems('version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n    schedule:\n      interval: daily\n', project({ api: 'python' }), dir)).toEqual(
       expect.arrayContaining(['npm: not weekly', 'uv: no entry']),
     );
+  });
+
+  it('accepts a web-only product with no uv entry, and flags one with no npm entry', () => {
+    const webOnly = tree({ 'package.json': rootPackage, 'apps/web/package.json': '{}' });
+    const noUv = config().slice(0, config().indexOf('  - package-ecosystem: uv')).trimEnd();
+    expect(problems(noUv, project({ web: 'node' }), webOnly)).toEqual([]);
+    const noNpm = noUv.replace(/ {2}- package-ecosystem: npm[\s\S]*$/, '').trimEnd();
+    expect(problems(noNpm, project({ web: 'node' }), webOnly)).toEqual(expect.arrayContaining(['npm: no entry']));
   });
 });
 
