@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { LIMITS, ROOT, assemble, loadCatalogue, parseArgs, plan, sharedBlock, under, type Catalogue } from '../assemble.mjs';
+import { LIMITS, ROOT, assemble, dependabotYml, loadCatalogue, parseArgs, plan, sharedBlock, splitDependabot, under, type Catalogue } from '../assemble.mjs';
 import { loadProject } from '../project.mjs';
 
 const made: string[] = [];
@@ -186,6 +186,20 @@ describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
       if (!onDisk.includes(script)) continue;
       expect(statSync(join(target, script)).mode & 0o111, script).toBe(statSync(join(ROOT, script)).mode & 0o111);
     }
+  });
+
+  it("writes a dependabot.yml with the ecosystems the product has: uv only with a Python app", () => {
+    const written = readFileSync(join(target, '.github/dependabot.yml'), 'utf8');
+    // Read with a pattern of its own, not with the splitter that wrote it.
+    const ecosystems = [...written.matchAll(/^ {2}- package-ecosystem: (\S+)$/gm)].map((m) => m[1]);
+    const hasPython = chosen.includes('python-fastapi');
+    expect(ecosystems).toEqual(['github-actions', 'npm', ...(hasPython ? ['uv'] : [])]);
+    expect(written).not.toMatch(hasPython ? /^$/ : /uv-minor-patch|directories:/m);
+    // Every kept entry is the base's own text, so the configuration is written once.
+    const base = readFileSync(join(ROOT, '.github/dependabot.yml'), 'utf8');
+    for (const entry of written.split(/^(?= {2}- package-ecosystem: )/m).slice(1)) expect(base, entry).toContain(entry.trimEnd());
+    expect(written.startsWith('version: 2\n')).toBe(true);
+    expect(written.endsWith('\n')).toBe(true);
   });
 
   it('refuses to assemble into what it just built', () => {
@@ -511,6 +525,110 @@ describe('assemble in a small repository', () => {
 function loadFake(root: string): Catalogue {
   return JSON.parse(readFileSync(join(root, 'catalogue.json'), 'utf8')) as Catalogue;
 }
+
+const DEPENDABOT = [
+  'version: 2',
+  '# header comment',
+  'updates:',
+  '  - package-ecosystem: github-actions',
+  '    directory: /',
+  '    # inside the entry',
+  '    schedule:',
+  '      interval: weekly',
+  '',
+  '  - package-ecosystem: npm',
+  '    directory: /',
+  '',
+  '  - package-ecosystem: uv',
+  '    directories:',
+  "      - '/apps/*'",
+  '',
+].join('\n');
+
+describe('dependabotYml', () => {
+  it('keeps the entries of the ecosystems the product has, byte for byte, and drops uv without Python', () => {
+    const withPython = dependabotYml(DEPENDABOT, { python: true });
+    expect(withPython).toBe(DEPENDABOT);
+    const without = dependabotYml(DEPENDABOT, { python: false });
+    expect(without).toBe(DEPENDABOT.slice(0, DEPENDABOT.indexOf('  - package-ecosystem: uv')).trimEnd() + '\n');
+    expect(without).toContain('# header comment');
+    expect(without).toContain('    # inside the entry');
+    expect(without).not.toContain('uv');
+  });
+
+  it('refuses an entry for an ecosystem it does not know, rather than keep or drop it unseen', () => {
+    const pip = `${DEPENDABOT}  - package-ecosystem: pip\n    directory: /\n`;
+    expect(() => dependabotYml(pip, { python: true })).toThrow(/entry for "pip", and assemble\.mjs does not know/);
+  });
+
+  it('refuses a file lacking an entry the product needs', () => {
+    const noNpm = DEPENDABOT.replace('  - package-ecosystem: npm\n    directory: /\n\n', '');
+    expect(() => dependabotYml(noNpm, { python: false })).toThrow(/no "npm" entry/);
+    const noUv = DEPENDABOT.slice(0, DEPENDABOT.indexOf('  - package-ecosystem: uv'));
+    expect(() => dependabotYml(noUv, { python: true })).toThrow(/no "uv" entry/);
+    expect(dependabotYml(noUv, { python: false })).toContain('github-actions');
+  });
+});
+
+describe('splitDependabot', () => {
+  it('splits at the top-level entries, keeping the comments in each', () => {
+    const { header, entries } = splitDependabot(DEPENDABOT);
+    expect(header).toEqual(['version: 2', '# header comment', 'updates:']);
+    expect(entries.map((e: { ecosystem: string }) => e.ecosystem)).toEqual(['github-actions', 'npm', 'uv']);
+    expect(entries[0]!.lines).toContain('    # inside the entry');
+  });
+
+  it('throws on what it does not understand rather than dropping it', () => {
+    expect(() => splitDependabot(DEPENDABOT.replace('updates:', 'registries:\n  x: y\nupdates:'))).toThrow(/"registries:" before "updates:"/);
+    expect(() => splitDependabot('version: 2\n')).toThrow(/exactly one top-level "updates:"/);
+    expect(() => splitDependabot('updates:\nupdates:\n')).toThrow(/exactly one top-level "updates:"/);
+    expect(() => splitDependabot(`${DEPENDABOT}other: 1\n`)).toThrow(/"other: 1", which assemble\.mjs does not understand/);
+    expect(() => splitDependabot(`${DEPENDABOT}  - directory: /\n`)).toThrow(/does not understand/);
+    expect(() => splitDependabot('version: 2\nupdates:\n    directory: /\n')).toThrow(/before the first "- package-ecosystem:" entry/);
+    expect(() => splitDependabot('version: 2\nupdates:\n')).toThrow(/no "- package-ecosystem:" entries/);
+    expect(() => splitDependabot(DEPENDABOT.replace('      interval: weekly', '\tinterval: weekly'))).toThrow(/tab/);
+  });
+});
+
+describe('a product built from a repository whose engine holds .github but not its dependabot.yml', () => {
+  /** The small repository, with a .github directory in the engine and the base's dependabot.yml generated per product. */
+  function withGithub(toolchain: 'python' | 'node', file = DEPENDABOT) {
+    const { root, catalogue } = fakeRepo((c) => {
+      c.engine.paths.push('.github');
+      c.generated.paths.push('.github/dependabot.yml');
+    });
+    const manifest = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+    manifest.apps.svc.toolchain = toolchain;
+    writeFileSync(join(root, 'project.json'), JSON.stringify(manifest));
+    mkdirSync(join(root, '.github/workflows'), { recursive: true });
+    writeFileSync(join(root, '.github/workflows/verify.yml'), 'name: verify\n');
+    writeFileSync(join(root, '.github/dependabot.yml'), file);
+    execFileSync('git', ['add', '-A', '--force'], { cwd: root });
+    const target = join(scratch(), 'out');
+    return { root, target, run: () => assemble({ root, catalogue, target, name: 'prod', starters: ['svc'] }) };
+  }
+
+  it('keeps the rest of .github, and writes the dependabot.yml once, without uv for a product with no Python app', () => {
+    const { target, run } = withGithub('node');
+    const { files } = run();
+    expect(files.filter((f: string) => f.startsWith('.github/'))).toEqual(['.github/dependabot.yml', '.github/workflows/verify.yml']);
+    const written = readFileSync(join(target, '.github/dependabot.yml'), 'utf8');
+    expect(written).toContain('package-ecosystem: npm');
+    expect(written).not.toContain('uv');
+  });
+
+  it('keeps the uv entry for a product with a Python app', () => {
+    const { target, run } = withGithub('python');
+    run();
+    expect(readFileSync(join(target, '.github/dependabot.yml'), 'utf8')).toBe(DEPENDABOT);
+  });
+
+  it('refuses, writing nothing, when the base\'s dependabot.yml is a shape it cannot split', () => {
+    const { target, run } = withGithub('node', `${DEPENDABOT}registries:\n  x: y\n`);
+    expect(run).toThrow(/"registries:", which assemble\.mjs does not understand/);
+    expect(existsSync(target)).toBe(false);
+  });
+});
 
 describe('sharedBlock', () => {
   it('returns the markers and everything between them, and nothing outside', () => {

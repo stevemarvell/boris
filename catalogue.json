@@ -29,8 +29,9 @@
     ]
   },
   "generated": {
-    "description": "Written fresh for each product, never copied: the base's own copy describes the base.",
+    "description": "Written fresh for each product, never copied: the base's own copy describes the base. `.github/dependabot.yml` is the one file taken out of the engine's `.github` directory: it is the base's own file cut down to the ecosystems the product has.",
     "paths": [
+      ".github/dependabot.yml",
       "CLAUDE.md",
       "README.md",
       "docs/data-governance.md",

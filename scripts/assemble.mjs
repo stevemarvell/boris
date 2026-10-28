@@ -205,8 +205,80 @@ function packageJson(ctx) {
   return `${JSON.stringify({ ...manifest, name: ctx.name }, null, 2)}\n`;
 }
 
+// Ecosystems a product can have a dependabot.yml entry for. github-actions and
+// npm every product has (the engine's workflows; the generated root
+// package.json), uv only with a Python app.
+const DEPENDABOT_ECOSYSTEMS = ['github-actions', 'npm', 'uv'];
+
+/**
+ * The base's .github/dependabot.yml cut at its top-level `updates:` list into
+ * `{ header, entries }`: `header` the lines up to and including `updates:`,
+ * `entries` one `{ ecosystem, lines }` per `- package-ecosystem:` item with the
+ * comments that sit inside it. There is no YAML parser among the dependencies;
+ * the file is split by indentation and anything this does not understand
+ * throws, so a shape change in the base's file cannot be silently dropped from
+ * a product's.
+ */
+export function splitDependabot(source) {
+  if (source.includes('\t')) throw new Error('assemble: .github/dependabot.yml has a tab; cannot split it');
+  const lines = source.split('\n');
+  const start = lines.indexOf('updates:');
+  if (start === -1 || lines.indexOf('updates:', start + 1) !== -1) {
+    throw new Error('assemble: .github/dependabot.yml must have exactly one top-level "updates:" line; cannot split it');
+  }
+  const header = lines.slice(0, start + 1);
+  for (const line of header) {
+    if (!/^(\s*#.*|\s*|version: 2|updates:)$/.test(line)) {
+      throw new Error(`assemble: .github/dependabot.yml has "${line}" before "updates:", which assemble.mjs does not understand`);
+    }
+  }
+  const entries = [];
+  for (const line of lines.slice(start + 1)) {
+    const item = /^ {2}- package-ecosystem: (\S+)$/.exec(line);
+    if (item) entries.push({ ecosystem: item[1], lines: [line] });
+    else if (/^\s*$/.test(line) || /^\s*#/.test(line) || line.startsWith('    ')) {
+      const last = entries[entries.length - 1];
+      if (last) last.lines.push(line);
+      else if (line.trim() && !line.trim().startsWith('#')) {
+        throw new Error(`assemble: .github/dependabot.yml has "${line}" before the first "- package-ecosystem:" entry; cannot split it`);
+      }
+    } else {
+      throw new Error(`assemble: .github/dependabot.yml has "${line}", which assemble.mjs does not understand; entries are "  - package-ecosystem: <name>" items`);
+    }
+  }
+  if (entries.length === 0) throw new Error('assemble: .github/dependabot.yml has no "- package-ecosystem:" entries');
+  for (const { ecosystem } of entries) {
+    if (!DEPENDABOT_ECOSYSTEMS.includes(ecosystem)) {
+      throw new Error(`assemble: .github/dependabot.yml has an entry for "${ecosystem}", and assemble.mjs does not know whether a product has it (known: ${DEPENDABOT_ECOSYSTEMS.join(', ')})`);
+    }
+  }
+  return { header, entries };
+}
+
+/**
+ * A product's .github/dependabot.yml: the base's, less the entries of
+ * ecosystems the product lacks. The base's file stays the one place the
+ * configuration is written. Throws when the base's file lacks an entry the
+ * product needs.
+ */
+export function dependabotYml(source, { python }) {
+  const { header, entries } = splitDependabot(source);
+  const wanted = DEPENDABOT_ECOSYSTEMS.filter((ecosystem) => ecosystem !== 'uv' || python);
+  for (const ecosystem of wanted) {
+    if (!entries.some((entry) => entry.ecosystem === ecosystem)) throw new Error(`assemble: .github/dependabot.yml has no "${ecosystem}" entry for a product to keep`);
+  }
+  const kept = entries.filter((entry) => wanted.includes(entry.ecosystem)).map((entry) => entry.lines.join('\n').trimEnd());
+  return `${header.join('\n')}\n${kept.join('\n\n')}\n`;
+}
+
+function dependabot(ctx) {
+  const python = Object.values(ctx.project.apps).some((app) => app.toolchain === 'python');
+  return dependabotYml(readFileSync(join(ctx.root, '.github/dependabot.yml'), 'utf8'), { python });
+}
+
 /** Every generated file's path, to the function that writes it. A catalogue path with no entry here is an error. */
 export const GENERATORS = {
+  '.github/dependabot.yml': dependabot,
   'CLAUDE.md': claudeMd,
   'README.md': readme,
   'docs/data-governance.md': () => DATA_GOVERNANCE,
