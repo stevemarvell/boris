@@ -84,7 +84,7 @@ describe('verify.yml', () => {
     for (const gated of [uv(), sync(), playwright(), report()]) expect(all.findIndex((s) => s.text === gated.text)).toBeGreaterThan(at);
   });
 
-  it("keeps every step in boris itself, which has both a node and a python app", () => {
+  it("keeps every step in the base itself, which has both a node and a python app", () => {
     const outputs = outputsFor(loadProject());
     expect(outputs).toEqual({ node: 'true', python: 'true' });
     // Every step but the failure-only report runs on a green build.
