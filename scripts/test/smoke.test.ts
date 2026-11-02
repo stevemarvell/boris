@@ -1,7 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
 import { GATE_ATTEMPTS, appUrls, gateForEvent, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
@@ -240,4 +244,98 @@ describe("each app's smoke script", () => {
       expect(code, script).not.toMatch(/pipefail|set -[a-z]*o /);
     }
   });
+});
+
+describe("the web app's docs_served check", () => {
+  // Run for real: apps/web/smoke.sh against a local server that serves a
+  // fresh build of this checkout's docs. The script asks build-docs.mjs which
+  // pages that build publishes, so this holds in the base (four pages) and in
+  // a product (two) alike, and the failures below are the check doing its job
+  // rather than a test computing its own expectation.
+  const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const SCRIPT = join(ROOT, 'apps', 'web', 'smoke.sh');
+  const tmp: string[] = [];
+  const servers: Server[] = [];
+
+  afterEach(() => {
+    for (const server of servers.splice(0)) server.close();
+    for (const dir of tmp.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Serves `docs` at /docs/, and the shell bundle the first check looks for.
+  async function serve(docs: string, omit: string[] = [], shelled: string[] = []): Promise<string> {
+    const server = createServer((req, res) => {
+      const path = (req.url ?? '/').split('?')[0]!;
+      const reply = (type: string, body: string | Buffer) => (res.writeHead(200, { 'content-type': type }), res.end(body));
+      // A host that falls back to the app shell, with a 200, for a file it lacks (vite preview does; a Vercel SPA rewrite would).
+      const shell = '<script src="/assets/index-abc123.js"></script>';
+      if (path === '/') return reply('text/html', '<script src="/assets/index-abc123.js"></script>');
+      if (path === '/assets/index-abc123.js') return reply('text/javascript', 'No application here yet');
+      const file = path.replace(/^\/docs\//, '') || 'index.html';
+      const name = file === '' ? 'index.html' : file;
+      if (path.startsWith('/docs/') && shelled.includes(name)) return reply('text/html', `<!doctype html><title>the app shell</title><div id="root"></div>${shell}`);
+      if (path.startsWith('/docs/') && !omit.includes(name) && existsSync(join(docs, name))) {
+        return reply('text/html', readFileSync(join(docs, name)));
+      }
+      res.writeHead(404).end();
+    });
+    servers.push(server);
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+
+  async function built(): Promise<string> {
+    const { buildDocs } = await import('../../apps/web/scripts/build-docs.mjs');
+    const out = join(mkdtempSync(join(tmpdir(), 'smoke-docs-')), 'docs');
+    tmp.push(dirname(out));
+    buildDocs({ root: ROOT, out, env: {} });
+    return out;
+  }
+
+  const run = (web: string) =>
+    new Promise<{ code: number; output: string }>((done) => {
+      execFile(
+        'bash',
+        [SCRIPT],
+        { env: { ...process.env, WEB: web, SMOKE_DOCS_ATTEMPTS: '2', SMOKE_DOCS_INTERVAL: '0' }, timeout: 60_000 },
+        (error, stdout, stderr) => {
+          const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0;
+          done({ code, output: stdout + stderr });
+        },
+      );
+    });
+
+  it('passes against the pages this repository builds, whichever those are', async () => {
+    const docs = await built();
+    const result = await run(await serve(docs));
+    expect(result.output).toContain('every doc page served');
+    expect(result.code).toBe(0);
+  });
+
+  it('fails when a page the build publishes is not served', async () => {
+    const docs = await built();
+    const result = await run(await serve(docs, ['sops.html']));
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatch(/missing.*\/docs\/sops\.html/);
+  });
+
+  it('fails when a page is served without the heading its source gives it', async () => {
+    const docs = await built();
+    const page = join(docs, 'sops.html');
+    writeFileSync(page, readFileSync(page, 'utf8').replace(/<title>.*<\/title>/, '<title>Something else</title>'));
+    const result = await run(await serve(docs));
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatch(/sops\.html did not render its heading/);
+  });
+
+  // step-0 exists only where the repository holds a root index.html, the base.
+  it.skipIf(!existsSync(join(ROOT, 'index.html')))(
+    'fails when step-0.html is the app shell served with a 200, not the page',
+    async () => {
+      const docs = await built();
+      const result = await run(await serve(docs, [], ['step-0.html']));
+      expect(result.code).not.toBe(0);
+      expect(result.output).toMatch(/step-0\.html did not render its heading/);
+    },
+  );
 });
