@@ -20,6 +20,7 @@
 // CLI, for workflows and shells:
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
+//     node scripts/project.mjs toolchains         # node=true / python=false, for $GITHUB_OUTPUT
 //     node scripts/project.mjs --has-deploy       # true/false; exit 0 iff true
 import { readFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
@@ -184,7 +185,11 @@ export function verifiedPaths(project) {
 /** The CLI's answer as lines. Only subcommands something calls are here. */
 export function cli([command, ...args], project = loadProject()) {
   if (command === 'apps') return apps(project, args[0]).map(([, app]) => app.path);
-  throw new Error('usage: project.mjs apps [toolchain] | --has-deploy');
+  // One `<toolchain>=<true|false>` line per toolchain, whether any app uses it:
+  // appended as-is to $GITHUB_OUTPUT, it is what verify.yml's later steps gate
+  // on, so a product with no node app never installs a browser.
+  if (command === 'toolchains') return [...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`);
+  throw new Error('usage: project.mjs apps [toolchain] | toolchains | --has-deploy');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
