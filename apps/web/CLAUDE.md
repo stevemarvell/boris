@@ -29,7 +29,7 @@ root `index.html` and `scripts/markdown.mjs`, none of which live in this
 directory. A page whose source is absent is skipped, not stubbed: a product
 carries `docs/sops.md`, `docs/data-governance.md` and `scripts/markdown.mjs`
 and has no `docs/adoption.md` or `index.html`, so it has no page for them.
-Adding a page touches six files and missing one means a
+Adding a page touches five files and missing one means a
 page that builds locally and 404s wherever it is live — **read the
 `docs-site` skill** in `.claude/skills/` here.
 
