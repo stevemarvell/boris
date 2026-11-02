@@ -33,6 +33,17 @@ name: Claude Code Review
 # below. Branch protection is not changed here; see the pull request body for
 # what would be worth changing and when.
 #
+# NO CREDENTIAL ON A DEPENDABOT PR, NO REVIEW. A run triggered by
+# `dependabot[bot]` gets Dependabot's secrets, not this repository's, so
+# CLAUDE_CODE_OAUTH_TOKEN is empty there and no session can start (#244). Each
+# review job asks first (the "Is the review credential available?" step) and,
+# when the token is empty and the author is Dependabot, skips everything else
+# including the assertion, and ends green with a notice that says why. An
+# empty token on any other pull request still fails, with a warning naming the
+# cause. A token present means a review exactly as before, Dependabot's pull
+# requests included, so adding the token as a Dependabot secret turns those
+# reviews on with no change here.
+#
 # SANDBOXED. Both jobs read a pull request's head — untrusted content, by
 # `docs/data-governance.md`'s own definition — with a Bash tool `gh pr diff`
 # and `gh pr view` can run, and two credentials live in the step around it.
@@ -153,13 +164,51 @@ jobs:
       CI_TELEMETRY_WORKFLOW: claude-code-review
 
     steps:
+      # Is the credential here at all? `secrets` is not available to a job-level
+      # `if:`, so the question is asked in a step and answered as an output that
+      # every later step reads. `dependabot[bot]` runs get Dependabot's own
+      # secrets, not this repository's, so on its pull requests
+      # CLAUDE_CODE_OAUTH_TOKEN is empty and a review cannot start (#244). The
+      # job then ends green with a notice that says why, rather than red with a
+      # failure that means nothing. The secret reaches this step only through
+      # `env:`, is tested for emptiness and is never printed.
+      #
+      # Dependabot's pull requests only. An empty token on anyone else's pull
+      # request means the repository secret has expired or been deleted, and
+      # that must stay red: skipping on "empty" alone would turn the loss of
+      # every review into a green tick with a notice nobody reads. So that case
+      # writes available=true, warns, and lets the review step and the
+      # assertion fail as they always have. The author arrives through `env:`
+      # too, never interpolated into the script.
+      #
+      # `!= 'false'` everywhere below, as with the scope outputs: if this step
+      # dies the output is empty, and empty must mean "review it" so the
+      # assertion at the end fails loudly instead of the job skipping silently.
+      - name: Is the review credential available?
+        id: token
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Code review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run: a Dependabot pull request gets Dependabot's own secrets rather than this repository's. No code review ran; review this pull request by hand. See #244."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Code review has no credential::CLAUDE_CODE_OAUTH_TOKEN is missing on a pull request that is not Dependabot's, so no review can start and the assertion below will fail. The repository secret has probably expired or been deleted. See #244."
+          fi
+
       - name: Checkout repository
+        if: steps.token.outputs.available != 'false'
         # Pinned to a commit SHA rather than the tag — see verify.yml.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
       - name: Point this session's telemetry at Grafana Cloud
+        if: steps.token.outputs.available != 'false'
         run: node scripts/write-ci-telemetry-settings.mjs
 
       # This job reads a pull request's head to review it — see the comment
@@ -172,6 +221,7 @@ jobs:
       # just wrote (see that script's header for why it is not
       # `.claude/settings.json`), and `docs/sops.md` SOP 10 has the rest.
       - name: Install the sandbox's OS dependencies
+        if: steps.token.outputs.available != 'false'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
           # With failIfUnavailable set, a sandbox that cannot start fails the
@@ -190,9 +240,11 @@ jobs:
           echo "bubblewrap started a network-isolated sandbox"
 
       - name: Enable the sandbox for this session's Bash tool
+        if: steps.token.outputs.available != 'false'
         run: node scripts/write-ci-sandbox-settings.mjs
 
       - name: Review the change against this repository's rubric
+        if: steps.token.outputs.available != 'false'
         id: review
         # So the assertion below always runs and explains what happened,
         # rather than the job dying on the action's own error text.
@@ -244,7 +296,7 @@ jobs:
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
 
       - name: Check a review was actually produced
-        if: always()
+        if: always() && steps.token.outputs.available != 'false'
         env:
           KIND: code
           CONCLUSION: ${{ steps.review.outputs.conclusion }}
@@ -274,17 +326,48 @@ jobs:
       CI_TELEMETRY_WORKFLOW: claude-security-review
 
     steps:
+      # Is the credential here at all? `secrets` is not available to a job-level
+      # `if:`, so the question is asked in a step and answered as an output that
+      # every later step reads. `dependabot[bot]` runs get Dependabot's own
+      # secrets, not this repository's, so on its pull requests
+      # CLAUDE_CODE_OAUTH_TOKEN is empty and a review cannot start (#244). The
+      # job then ends green with a notice that says why, rather than red with a
+      # failure that means nothing. The secret reaches this step only through
+      # `env:`, is tested for emptiness and is never printed.
+      #
+      # `!= 'false'` everywhere below, as with the scope outputs: if this step
+      # dies the output is empty, and empty must mean "review it" so the
+      # assertion at the end fails loudly instead of the job skipping silently.
+      - name: Is the review credential available?
+        id: token
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Security review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run: a Dependabot pull request gets Dependabot's own secrets rather than this repository's. No security review ran; review this pull request by hand. See #244."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Security review has no credential::CLAUDE_CODE_OAUTH_TOKEN is missing on a pull request that is not Dependabot's, so no review can start and the assertion below will fail. The repository secret has probably expired or been deleted. See #244."
+          fi
+
       - name: Checkout repository
+        if: steps.token.outputs.available != 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
       - name: Point this session's telemetry at Grafana Cloud
+        if: steps.token.outputs.available != 'false'
         run: node scripts/write-ci-telemetry-settings.mjs
 
       # See the same two steps in the code-review job above for why:
       # docs/sops.md SOP 10.
       - name: Install the sandbox's OS dependencies
+        if: steps.token.outputs.available != 'false'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
           # With failIfUnavailable set, a sandbox that cannot start fails the
@@ -303,9 +386,11 @@ jobs:
           echo "bubblewrap started a network-isolated sandbox"
 
       - name: Enable the sandbox for this session's Bash tool
+        if: steps.token.outputs.available != 'false'
         run: node scripts/write-ci-sandbox-settings.mjs
 
       - name: Review the change for exposure
+        if: steps.token.outputs.available != 'false'
         id: review
         continue-on-error: true
         uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1
@@ -340,7 +425,7 @@ jobs:
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
 
       - name: Check a review was actually produced
-        if: always()
+        if: always() && steps.token.outputs.available != 'false'
         env:
           KIND: security
           CONCLUSION: ${{ steps.review.outputs.conclusion }}
