@@ -96,6 +96,11 @@ export function gateForEvent(eventName) {
  * logged for the record, and its own checks run regardless of whether that
  * commit matches `sha`. */
 export async function smoke({ project, sha, fetchJson, git, sleep, run, log, gate = true }) {
+  // Nothing deployed (an engine-only product, or an app not yet through
+  // `deploy:add`) leaves nothing to wait for or check, so no commit is needed
+  // either: the answer does not depend on $GITHUB_SHA. Anything deployed still
+  // fails closed without one, just below.
+  if (deployed(project).length === 0) return { ok: true, reason: 'nothing is deployed (no app has a deploy block): nothing to check' };
   if (gate && !sha) return { ok: false, reason: 'no commit to check: GITHUB_SHA is not set' };
   const urls = appUrls(project);
   for (const [name, app] of deployed(project)) {

@@ -94,6 +94,13 @@ describe('preflight', () => {
     expect(results.map((r) => r.name)).toEqual(['gh api user', 'git', 'node >= 22', 'uv', 'npx npm@11']);
   });
 
+  it('leaves uv out when the product has no Python app, so a machine without it can still make one', async () => {
+    const run: Run = async (cmd) => (cmd === 'uv' ? { status: 1, stdout: '', stderr: 'not found' } : { status: 0, stdout: 'x', stderr: '' });
+    const results = await preflight({ run, nodeVersion: 'v22.1.0', python: false });
+    expect(missingPreflight(results)).toEqual([]);
+    expect(results.map((r) => r.name)).toEqual(['gh api user', 'git', 'node >= 22', 'npx npm@11']);
+  });
+
   it('names what failed when a command fails, with its stderr', async () => {
     const run: Run = async (cmd) => (cmd === 'uv' ? { status: 1, stdout: '', stderr: 'not found' } : { status: 0, stdout: 'x', stderr: '' });
     const results = await preflight({ run, nodeVersion: 'v22.1.0' });

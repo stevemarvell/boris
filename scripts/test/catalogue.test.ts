@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PROVIDERS } from '../deploy/index.mjs';
 import { GENERATORS, ROOT, loadCatalogue, under, validateCatalogue, type Catalogue } from '../assemble.mjs';
-import { loadProject } from '../project.mjs';
+import { loadProject, validate } from '../project.mjs';
 
 const catalogue = loadCatalogue();
 const project = loadProject();
@@ -45,6 +45,14 @@ describe('the committed catalogue.json', () => {
       // The entry is referenced, never repeated: nothing in a starter restates it.
       expect(Object.keys(starter).sort(), key).toEqual(['app', 'build', 'description', 'files']);
     }
+  });
+
+  it("is the base: it records no engine.commit and keeps both apps, so an empty `apps` stays refused here", () => {
+    // A product may declare no apps (an engine-only product); the base may not.
+    // `validate` tells them apart by engine.commit, which only a product has.
+    expect(project.engine).toBeUndefined();
+    expect(Object.keys(project.apps).sort()).toEqual(['api', 'web']);
+    expect(() => validate({ ...project, apps: {} })).toThrow(/at least one app/);
   });
 
   it('gives every file in the repository exactly one home', () => {

@@ -6,7 +6,7 @@
 // repository from this base took days of hand work before this existed.
 //
 // Usage:
-//     npm run setup -- create --name <n> --owner <o> --starter <s> [--starter <s> ...]
+//     npm run setup -- create --name <n> --owner <o> [--starter <s> ...]
 //                             [--deploy <provider>] [--dir <path>] [--public]
 //     npm run setup -- check [--skip-verify] [--dry-run] [--repo owner/name]
 //
@@ -34,7 +34,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assemble, checkTarget, loadCatalogue, plan } from './assemble.mjs';
 import { apply as applyLabels, loadManifest as loadLabelManifest } from './labels.mjs';
-import { ROOT, deployed, loadProject } from './project.mjs';
+import { ROOT, apps, deployed, loadProject } from './project.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const STORY_TEMPLATE_PATH = join(HERE, 'setup/story-template.md');
@@ -47,7 +47,7 @@ export const BASE_REMOTE = 'boris';
 
 export const PREFLIGHT_NODE_MAJOR = 22;
 
-const CREATE_USAGE = 'create --name <n> --owner <o> --starter <s> [--starter <s> ...] [--deploy <provider>] [--dir <path>] [--public]';
+const CREATE_USAGE = 'create --name <n> --owner <o> [--starter <s> ...] [--deploy <provider>] [--dir <path>] [--public]';
 
 /** Runs `cmd args` and resolves to its exit status, stdout and stderr. Never rejects. */
 export function exec(cmd, args) {
@@ -127,7 +127,7 @@ export function parseCheckArgs(argv) {
  * test can assert both sides of the >= 22 check without the test runner's
  * own Node version deciding the answer.
  */
-export async function preflight({ run = exec, nodeVersion = process.version } = {}) {
+export async function preflight({ run = exec, nodeVersion = process.version, python = true } = {}) {
   const results = [];
 
   // `gh api user`, not `gh auth status`: a cloud session authenticates through
@@ -147,8 +147,11 @@ export async function preflight({ run = exec, nodeVersion = process.version } = 
   const nodeOk = Number.isFinite(major) && major >= PREFLIGHT_NODE_MAJOR;
   results.push({ name: `node >= ${PREFLIGHT_NODE_MAJOR}`, ok: nodeOk, detail: nodeVersion });
 
-  const uv = await run('uv', ['--version']);
-  results.push({ name: 'uv', ok: uv.status === 0, detail: uv.status === 0 ? uv.stdout.trim() : reason(uv) });
+  // uv installs a Python app's dependencies; a product with none does not need it.
+  if (python) {
+    const uv = await run('uv', ['--version']);
+    results.push({ name: 'uv', ok: uv.status === 0, detail: uv.status === 0 ? uv.stdout.trim() : reason(uv) });
+  }
 
   const npm11 = await run('npx', ['npm@11', '--version']);
   results.push({ name: 'npx npm@11', ok: npm11.status === 0, detail: npm11.status === 0 ? npm11.stdout.trim() : reason(npm11) });
@@ -657,9 +660,7 @@ export function checkOwner(owner) {
  */
 export function checkChoices({ catalogue, starters, deploy }) {
   const offered = (entries) => Object.keys(entries).join(', ');
-  if (starters.length === 0) {
-    throw new Error(`setup create: choose at least one --starter (catalogue.json offers: ${offered(catalogue.starters)})`);
-  }
+  // No --starter is an engine-only product, so an empty list is not refused.
   for (const starter of starters) {
     if (!catalogue.starters[starter]) {
       throw new Error(`setup create: no starter named "${starter}" (catalogue.json offers: ${offered(catalogue.starters)})`);
@@ -721,10 +722,12 @@ export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT,
   const dir = resolve(opts.dir);
   // The same refusals assemble would make, taken now (a bad name, a missing
   // file, a target with anything in it) instead of after the network calls.
-  plan({ root, catalogue, name: opts.name, starters: opts.starters });
+  // engineCommit is only known once git is asked, below; any full SHA stands in
+  // for it, since an engine-only product's project.json needs one to validate.
+  const planned = plan({ root, catalogue, name: opts.name, starters: opts.starters, engineCommit: '0'.repeat(40) });
   checkTarget(dir, root);
 
-  const results = await preflight({ run });
+  const results = await preflight({ run, python: apps(planned.project, 'python').length > 0 });
   const missing = missingPreflight(results);
   if (missing.length > 0) {
     throw new Error(`setup create: missing ${missing.map((m) => m.name).join(', ')}`);
@@ -751,7 +754,7 @@ export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT,
   const { exists } = await ensureEmptyTarget({ run, target });
 
   const { project } = assemble({ root, catalogue, target: dir, name: opts.name, starters: opts.starters, engineCommit });
-  log(`Assembled ${opts.starters.join(' + ')} into ${dir}, recording engine.commit ${short(engineCommit)}`);
+  log(`Assembled ${opts.starters.length ? opts.starters.join(' + ') : 'the engine alone (no starter)'} into ${dir}, recording engine.commit ${short(engineCommit)}`);
 
   const git = async (args) => {
     const result = await run('git', ['-C', dir, ...args]);
@@ -800,7 +803,9 @@ export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT,
     );
   }
 
-  if (opts.deploy) {
+  if (opts.deploy && Object.keys(project.apps).length === 0) {
+    log(`\n${opts.deploy} is not set up: ${opts.name} has no apps, so there is nothing to deploy yet. \`deploy:add\` needs an app to deploy.`);
+  } else if (opts.deploy) {
     log(`\n${opts.deploy} is not set up: the project is yours to create. In ${dir}, for each app to deploy:`);
     for (const app of Object.keys(project.apps)) log(`  npm run deploy:add -- ${opts.deploy} --app ${app}`);
   }

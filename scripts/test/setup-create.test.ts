@@ -36,8 +36,11 @@ describe('checkChoices', () => {
     );
   });
 
-  it('asks for a starter when none is chosen', () => {
-    expect(() => checkChoices({ catalogue, starters: [] })).toThrow(/choose at least one --starter \(catalogue\.json offers: python-fastapi, node-react\)/);
+  it('accepts no starter at all: that is an engine-only product', () => {
+    expect(() => checkChoices({ catalogue, starters: [] })).not.toThrow();
+    expect(() => checkChoices({ catalogue, starters: [], deploy: 'vercel' })).not.toThrow();
+    // A provider is still checked, with or without starters.
+    expect(() => checkChoices({ catalogue, starters: [], deploy: 'heroku' })).toThrow(/no provider named "heroku"/);
   });
 });
 
@@ -177,12 +180,6 @@ describe('create', () => {
       }
     });
 
-    it('when no starter is chosen', async () => {
-      const w = world();
-      await expect(create(python(freshDir(), { starters: [] }), w)).rejects.toThrow(/choose at least one --starter/);
-      expect(w.timeline).toEqual([]);
-    });
-
     it('on a name the product cannot have', async () => {
       const w = world();
       const dir = freshDir();
@@ -318,6 +315,35 @@ describe('create', () => {
       expect(Object.keys(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps).sort()).toEqual(['api', 'web']);
     });
 
+    it('creates an engine-only product when no --starter is given: no apps, no apps directory, no uv asked for, and locked before verify', async () => {
+      // uv installs a Python app's dependencies, so a machine without it can still make a product that has none.
+      const w = world({ 'uv --version': fail('uv: not found') });
+      const dir = freshDir();
+      expect(await create(python(dir, { starters: [] }), w)).toBe(0);
+
+      const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+      expect(written.apps).toEqual({});
+      expect(written.engine).toEqual({ commit: SHA });
+      expect(existsSync(join(dir, 'apps'))).toBe(false);
+      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      expect(manifest).not.toHaveProperty('workspaces');
+      expect(existsSync(join(dir, 'package-lock.json'))).toBe(false); // written by the npm 11 install, which is pretend here
+      expect(w.lines[0]).toContain('the engine alone (no starter)');
+
+      const keys = w.spawned.map((s) => s.key);
+      expect(keys).toEqual(['npx npm@11 install', 'npm run bootstrap', 'npm run verify', 'node scripts/setup.mjs check']);
+      expect(w.calls.some((c) => c[0] === 'uv')).toBe(false);
+      expect(w.calls).toContainEqual(['gh', 'api', 'user/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=true']);
+    });
+
+    it('still needs uv for a product with a Python app', async () => {
+      const w = world({ 'uv --version': fail('uv: not found') });
+      await expect(create(python(freshDir(), { starters: ['python-fastapi'] }), w)).rejects.toThrow(/missing uv/);
+      const node = world({ 'uv --version': fail('uv: not found') });
+      expect(await create(python(freshDir(), { starters: ['node-react'] }), node)).toBe(0);
+      expect(node.calls.some((c) => c[0] === 'uv')).toBe(false);
+    });
+
     it('creates a node-react-only product: nothing is refused, and the product holds the web app and no API', async () => {
       const w = world();
       const dir = freshDir();
@@ -435,6 +461,13 @@ describe('create', () => {
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app api');
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app web');
       expect(w.timeline.filter((entry) => /deploy|vercel/.test(entry))).toEqual([]);
+    });
+
+    it('says there is nothing to deploy for a product with no apps, rather than print an empty list', async () => {
+      const w = world();
+      await create(python(freshDir(), { starters: [], deploy: 'vercel' }), w);
+      expect(w.lines.some((line) => /has no apps, so there is nothing to deploy yet/.test(line))).toBe(true);
+      expect(w.lines.some((line) => line.includes('deploy:add -- vercel --app'))).toBe(false);
     });
 
     it('prints nothing about a provider when none was asked for', async () => {

@@ -149,6 +149,27 @@ describe('smoke', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('passes with nothing deployed, with or without a commit, asking nobody anything', async () => {
+    // An engine-only product has no apps at all; an undeployed app has no deploy block. Neither has anything to wait for.
+    const engineOnly: Project = { name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} };
+    const undeployed: Project = { name: 'thing', apps: { tool: project().apps.tool! } };
+    for (const p of [engineOnly, undeployed]) {
+      for (const [sha, gate] of [[undefined, true], ['new', true], [undefined, false]] as const) {
+        const { fetchJson, asked } = server({});
+        const result = await smoke({ project: p, sha, gate, fetchJson, git: gitSays(1), sleep: noSleep, run: () => 1, log: quiet });
+        expect(result, `${sha} ${gate}`).toEqual({ ok: true, reason: 'nothing is deployed (no app has a deploy block): nothing to check' });
+        expect(asked).toEqual([]);
+      }
+    }
+  });
+
+  it('still refuses to gate a deployed app without a commit, though nothing-deployed no longer does', async () => {
+    const { fetchJson, asked } = server(answers());
+    const result = await smoke({ project: project(), sha: undefined, gate: true, fetchJson, git: gitSays(0), sleep: noSleep, run: () => 0, log: quiet });
+    expect(result).toEqual({ ok: false, reason: 'no commit to check: GITHUB_SHA is not set' });
+    expect(asked).toEqual([]);
+  });
+
   it('skips the freshness gate when gate is false, checking whatever is currently deployed', async () => {
     const ran: [string, Record<string, string>][] = [];
     // The old commit would fail waitForCommit's gate; gate: false never calls it.
@@ -208,7 +229,8 @@ describe("each app's smoke script", () => {
     // Every app's own smoke script, deployed or not: `verify` keeps an
     // undeployed app's checks around so deploy:add has something to run.
     const scripts = apps(loadProject()).flatMap(([, app]) => (app.smoke ? [app.smoke] : []));
-    expect(scripts.length).toBeGreaterThan(0);
+    // An engine-only product has no app and so no script; every other project must have found one.
+    if (apps(loadProject()).length > 0) expect(scripts.length).toBeGreaterThan(0);
     for (const script of scripts) {
       const code = readFileSync(join(ROOT, script), 'utf8')
         .split('\n')

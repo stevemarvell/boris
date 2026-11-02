@@ -149,12 +149,17 @@ describe('runFixes', () => {
     const markerB = join(tmpdir(), `ai-layer-hook-test-pwned-${process.pid}-b`);
     // Inside a real Python app — whichever project.json declares first — so
     // ruff really is invoked with it. Outside every app the route is empty
-    // and this would prove nothing.
-    const [, pythonApp] = apps(loadProject(), 'python')[0]!;
+    // and this would prove nothing. A product with no Python app (an
+    // engine-only one, say) has none to use, so a declared one stands in: the
+    // routing and the argv are the same, though `uv` has no such directory.
+    const real = apps(loadProject(), 'python')[0];
+    const stand: Project = { name: 't', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
+    const project = real ? loadProject() : stand;
+    const [, pythonApp] = real ?? apps(stand, 'python')[0]!;
     const malicious = `${pythonApp.path}/a\`touch ${markerA}\`$(touch ${markerB}).py`;
-    expect(fixCommands(malicious)).toHaveLength(2);
+    expect(fixCommands(malicious, project)).toHaveLength(2);
 
-    expect(() => runFixes(malicious)).not.toThrow();
+    expect(() => runFixes(malicious, { project })).not.toThrow();
 
     expect(existsSync(markerA)).toBe(false);
     expect(existsSync(markerB)).toBe(false);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
-import { plan, run, type Step } from '../verify-apps.mjs';
+import { nothingToRun, plan, run, type Step } from '../verify-apps.mjs';
 
 const project = (): Project => ({
   name: 'thing',
@@ -26,6 +26,27 @@ describe('plan', () => {
 
   it('refuses an app project.json does not declare, rather than skipping it', () => {
     expect(() => plan(project(), ['nope'])).toThrow(/no app named "nope"/);
+  });
+});
+
+describe('a project with no apps (an engine-only product)', () => {
+  const engineOnly = (): Project => ({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
+
+  it('plans nothing, and says why so that passing is not mistaken for having run something', () => {
+    const steps = plan(engineOnly());
+    expect(steps).toEqual([]);
+    expect(nothingToRun(engineOnly(), steps)).toBe('verify:apps: project.json declares no apps; nothing to run');
+    expect(run(steps, { exec: () => { throw new Error('ran something'); }, log: () => {} })).toBeNull();
+  });
+
+  it('says nothing about an empty plan when there is something to run, and tells no-verify apps from no apps', () => {
+    expect(nothingToRun(project(), plan(project()))).toBeNull();
+    const quiet: Project = { name: 'thing', apps: { quiet: project().apps.quiet! } };
+    expect(nothingToRun(quiet, plan(quiet))).toBe('verify:apps: no app declares any verify command; nothing to run');
+  });
+
+  it('still refuses a named app, saying there are none', () => {
+    expect(() => plan(engineOnly(), ['web'])).toThrow(/no app named "web".*it declares no apps/);
   });
 });
 
