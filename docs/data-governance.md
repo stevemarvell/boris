@@ -106,7 +106,15 @@ Two things, and only one of them is written in the configuration:
   the repository's Actions secrets ("Dependabot on GitHub Actions",
   docs.github.com/en/code-security/reference/supply-chain-security/dependabot-on-actions).
   That is GitHub's documented behaviour, taken from its documentation source;
-  it has not been verified here.
+  it has not been verified here. One consequence follows:
+  `CLAUDE_CODE_OAUTH_TOKEN` is a repository secret, so it is not there either,
+  and the code and security reviews do not run on a `dependabot[bot]` pull
+  request. Each review job checks whether the token is available and, when it
+  is not, skips the review and ends green with a notice naming #244
+  (`.github/workflows/claude-code-review.yml`); those pull requests are
+  reviewed by hand. Adding the token as a Dependabot secret would start the
+  reviews with no workflow change, and would put the token in runs whose diff is
+  third-party package content; that is the owner's call.
 
 The scope job is not in this list: it checks out the base commit, so the
 rule deciding which reviews run is not the branch's copy. The
