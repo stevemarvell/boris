@@ -221,12 +221,22 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
 
 /**
  * What `--list` prints, one line per page: the file name, a tab, and the text
- * the served page must contain — the `<title>` the build gives a Markdown page
- * (its own first heading, escaped), or nothing for step-0. smoke.sh reads it.
+ * the served page must contain. For a Markdown page that is the `<title>` the
+ * build gives it (its own first heading, escaped). Step-0 is served as written,
+ * so it is the source's own first `<h1>`: not its `<title>`, which a host that
+ * answers a missing file with the app shell and a 200 would satisfy, the
+ * shell's title being the project's name too. A page with nothing to mark it
+ * by is an error here, never an empty expectation smoke.sh would skip.
  */
-export function listing(options) {
-  return plannedPages(options)
-    .pages.map((entry) => `${entry.page}\t${entry.title === null ? '' : `<title>${escapeHtml(entry.title)}</title>`}`)
+export function listing({ root = REPO_ROOT } = {}) {
+  return plannedPages({ root })
+    .pages.map((entry) => {
+      if (entry.title !== null) return `${entry.page}\t<title>${escapeHtml(entry.title)}</title>`;
+      const source = readFileSync(join(root, entry.source), 'utf8');
+      const marker = /<h1\b[^>\n\t]*>[^\n\t]*?<\/h1>/i.exec(source)?.[0];
+      if (!marker) throw new Error(`${entry.source} has no single-line <h1> to check ${entry.page} by`);
+      return `${entry.page}\t${marker}`;
+    })
     .join('\n');
 }
 

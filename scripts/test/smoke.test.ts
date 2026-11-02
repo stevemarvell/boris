@@ -263,14 +263,17 @@ describe("the web app's docs_served check", () => {
   });
 
   // Serves `docs` at /docs/, and the shell bundle the first check looks for.
-  async function serve(docs: string, omit: string[] = []): Promise<string> {
+  async function serve(docs: string, omit: string[] = [], shelled: string[] = []): Promise<string> {
     const server = createServer((req, res) => {
       const path = (req.url ?? '/').split('?')[0]!;
       const reply = (type: string, body: string | Buffer) => (res.writeHead(200, { 'content-type': type }), res.end(body));
+      // A host that falls back to the app shell, with a 200, for a file it lacks (vite preview does; a Vercel SPA rewrite would).
+      const shell = '<script src="/assets/index-abc123.js"></script>';
       if (path === '/') return reply('text/html', '<script src="/assets/index-abc123.js"></script>');
       if (path === '/assets/index-abc123.js') return reply('text/javascript', 'No application here yet');
       const file = path.replace(/^\/docs\//, '') || 'index.html';
       const name = file === '' ? 'index.html' : file;
+      if (path.startsWith('/docs/') && shelled.includes(name)) return reply('text/html', `<!doctype html><title>the app shell</title><div id="root"></div>${shell}`);
       if (path.startsWith('/docs/') && !omit.includes(name) && existsSync(join(docs, name))) {
         return reply('text/html', readFileSync(join(docs, name)));
       }
@@ -324,4 +327,15 @@ describe("the web app's docs_served check", () => {
     expect(result.code).not.toBe(0);
     expect(result.output).toMatch(/sops\.html did not render its heading/);
   });
+
+  // step-0 exists only where the repository holds a root index.html, the base.
+  it.skipIf(!existsSync(join(ROOT, 'index.html')))(
+    'fails when step-0.html is the app shell served with a 200, not the page',
+    async () => {
+      const docs = await built();
+      const result = await run(await serve(docs, [], ['step-0.html']));
+      expect(result.code).not.toBe(0);
+      expect(result.output).toMatch(/step-0\.html did not render its heading/);
+    },
+  );
 });

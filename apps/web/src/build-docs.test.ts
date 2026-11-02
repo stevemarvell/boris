@@ -175,8 +175,14 @@ describe('plannedPages and listing: what smoke.sh expects served', () => {
     writeFileSync(join(root, 'docs', 'sops.md'), '# Plans & `loops` <b>\n');
     build();
     const lines = Object.fromEntries(listing({ root }).split('\n').map((l) => l.split('\t') as [string, string]));
-    expect(lines['step-0.html']).toBe('');
+    // Step-0 is marked by its own <h1>, which an app shell served in its place lacks.
+    expect(lines['step-0.html']).toBe('<h1>Hello, world</h1>');
     expect(read('sops.html')).toContain(lines['sops.html']);
+  });
+
+  it('refuses to list step-0 with nothing to check it by, rather than leave it unchecked', () => {
+    writeFileSync(join(root, 'index.html'), '<title>x</title><p>no heading</p>');
+    expect(() => listing({ root })).toThrow(/step-0\.html/);
   });
 
   it('plans nothing it does not hold: with no sources the list is empty, which smoke.sh refuses', () => {
