@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule } from '../deploy/add.mjs';
+import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule, smokeScheduleProblem } from '../deploy/add.mjs';
+import { loadProject, type Project } from '../project.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SMOKE = '.github/workflows/smoke.yml';
@@ -237,6 +238,15 @@ describe('the scheduled smoke run (#254)', () => {
     expect(withSmokeSchedule(custom)).toBe(custom);
   });
 
+  it('withSmokeSchedule ignores a job named schedule: only the triggers before jobs: count', () => {
+    const text = realSmoke().replace('\njobs:\n', '\njobs:\n  schedule:\n    runs-on: ubuntu-latest\n    steps: []\n');
+    expect(scheduleLines(text)).toHaveLength(1); // the job, which is not a trigger
+    const scheduled = withSmokeSchedule(text);
+    expect(scheduled).not.toBe(text);
+    expect(scheduled.slice(0, scheduled.indexOf('\njobs:'))).toContain("- cron: '17 */3 * * *'");
+    expect(withSmokeSchedule(scheduled)).toBe(scheduled);
+  });
+
   it('withSmokeSchedule refuses a workflow with nowhere to put the schedule, rather than guess', () => {
     expect(() => withSmokeSchedule('name: smoke\non:\n  push:\n')).toThrow(/workflow_dispatch/);
   });
@@ -301,5 +311,49 @@ describe('the scheduled smoke run (#254)', () => {
       expect(JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.provider).toBe('vercel');
       expect(existsSync(join(root, SMOKE))).toBe(false);
     });
+  });
+});
+
+describe('smokeScheduleProblem: a sync must not silently drop the uptime check', () => {
+  const deployedProject = (): Project => ({
+    name: 'thing',
+    apps: {
+      api: {
+        path: 'apps/api',
+        toolchain: 'python',
+        reads: ['apps/api'],
+        deploy: { provider: 'vercel', team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/health' },
+      },
+    },
+  });
+  const undeployedProject = (): Project => ({ name: 'thing', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } });
+
+  it('passes in this repository, where nothing is deployed and smoke.yml has no schedule', () => {
+    expect(smokeScheduleProblem(loadProject(), realSmoke())).toBeNull();
+  });
+
+  it('flags an app with a deploy block when smoke.yml has no schedule, naming the fix', () => {
+    const problem = smokeScheduleProblem(deployedProject(), realSmoke());
+    expect(problem).toMatch(/deploy/);
+    expect(problem).toContain('npm run deploy:add');
+    expect(problem).toContain('withSmokeSchedule');
+  });
+
+  it('flags it when the only "schedule:" is a job, not a trigger', () => {
+    const text = realSmoke().replace('\njobs:\n', '\njobs:\n  schedule:\n    runs-on: ubuntu-latest\n    steps: []\n');
+    expect(smokeScheduleProblem(deployedProject(), text)).not.toBeNull();
+  });
+
+  it('passes once the schedule is there, which is what deploy:add leaves', () => {
+    expect(smokeScheduleProblem(deployedProject(), withSmokeSchedule(realSmoke()))).toBeNull();
+  });
+
+  it('does not mind a schedule where nothing is deployed', () => {
+    expect(smokeScheduleProblem(undeployedProject(), withSmokeSchedule(realSmoke()))).toBeNull();
+  });
+
+  it('is what the committed files satisfy', () => {
+    const project = loadProject();
+    expect(smokeScheduleProblem(project, realSmoke()), 'run npm run deploy:add again').toBeNull();
   });
 });

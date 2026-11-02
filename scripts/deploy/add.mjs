@@ -34,7 +34,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MANIFEST, ROOT, validate } from '../project.mjs';
+import { MANIFEST, ROOT, hasDeploy, validate } from '../project.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -57,17 +57,43 @@ export const SMOKE_SCHEDULE = `  schedule:
 const SMOKE_WORKFLOW = '.github/workflows/smoke.yml';
 const WORKFLOW_DISPATCH = /^ {2}workflow_dispatch:/m;
 
+/** The part of a workflow that holds its triggers: everything before the first top-level `jobs:`. */
+function triggers(text) {
+  const jobs = text.search(/^jobs:/m);
+  return jobs === -1 ? text : text.slice(0, jobs);
+}
+
+/** Whether `text` (smoke.yml) has a top-level `schedule:` trigger. A job named `schedule` under `jobs:` is not one. */
+export function hasSmokeSchedule(text) {
+  return /^ {2}schedule:/m.test(triggers(text));
+}
+
 /**
  * `text` (smoke.yml) with SMOKE_SCHEDULE inserted directly above its
  * `workflow_dispatch:` trigger. Returns `text` untouched if a top-level
- * `schedule:` is already there, so a second run changes nothing. Throws if
- * there is neither, rather than guess where a trigger belongs.
+ * `schedule:` trigger is already there, so a second run changes nothing.
+ * Throws if there is neither, rather than guess where a trigger belongs.
  */
 export function withSmokeSchedule(text) {
-  if (/^ {2}schedule:/m.test(text)) return text;
-  const at = text.search(WORKFLOW_DISPATCH);
+  if (hasSmokeSchedule(text)) return text;
+  const at = triggers(text).search(WORKFLOW_DISPATCH);
   if (at === -1) throw new Error(`${SMOKE_WORKFLOW} has no "  workflow_dispatch:" line to put the schedule above`);
   return text.slice(0, at) + SMOKE_SCHEDULE + text.slice(at);
+}
+
+/**
+ * What is wrong, if anything, between `project` and `text` (smoke.yml): an app
+ * with a `deploy` block needs the scheduled uptime check, and smoke.yml is an
+ * engine file that a sync copies down without it. Null when all is well,
+ * including in the base, where nothing is deployed and nothing is scheduled.
+ */
+export function smokeScheduleProblem(project, text) {
+  if (!hasDeploy(project) || hasSmokeSchedule(text)) return null;
+  return (
+    `project.json has an app with a deploy block, but ${SMOKE_WORKFLOW} has no top-level "schedule:" trigger, ` +
+    'so the uptime check is not running (a sync of the engine copies the base file, which ships without one). ' +
+    'Put it back by running `npm run deploy:add` again for that app, or withSmokeSchedule() from scripts/deploy/add.mjs on the file.'
+  );
 }
 
 const FLAGS = { '--app': 'app', '--team': 'team', '--project': 'project', '--url': 'url', '--commit-endpoint': 'commitEndpoint' };

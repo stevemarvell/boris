@@ -74,7 +74,10 @@ on.
    `project.json` to the full SHA of the boris `develop` commit you copied from
    (`git rev-parse` it in boris at the moment of the copy, never from memory),
    and commit it in the same pull request: a copy that leaves the old SHA in
-   place makes `check` report drift that is already gone. Open a pull request;
+   place makes `check` report drift that is already gone. The copy also drops
+   `smoke.yml`'s schedule, which only `deploy:add` writes: a product whose
+   `project.json` has a `deploy` block reinstates it (`npm run deploy:add`
+   again; `verify` fails until it does). Open a pull request;
    its body lists any file that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only files outside the
    catalogue's engine list may still differ. Then run
