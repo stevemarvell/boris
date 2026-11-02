@@ -77,8 +77,15 @@ export function validate(project) {
       fail('"engine.commit" must be a full 40-character lowercase hex commit SHA');
     }
   }
-  const apps = Object.entries(project.apps ?? {});
-  if (apps.length === 0) fail('"apps" must declare at least one app');
+  // `apps` must be an object. An empty one is an engine-only product: the
+  // engine and no application, what `setup create` makes without a --starter.
+  // Only a product says so, by carrying engine.commit; the base never does, so
+  // its own project.json is still held to declaring its apps.
+  if (!project.apps || typeof project.apps !== 'object' || Array.isArray(project.apps)) fail('"apps" must be an object');
+  const apps = Object.entries(project.apps);
+  if (apps.length === 0 && project.engine === undefined) {
+    fail('"apps" must declare at least one app (only a product, which records "engine.commit", may declare none)');
+  }
   for (const [name, app] of apps) {
     const at = `apps.${name}`;
     if (!isContainedPath(app.path)) fail(`${at}.path must be a relative path inside the repository`);

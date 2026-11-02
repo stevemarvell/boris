@@ -36,6 +36,12 @@ describe('shared tool versions', () => {
   it('match wherever the root and a workspace declare the same package', () => {
     const root = read('.');
     const rootDeps = declared(root);
+    // An engine-only product has no apps, so no workspaces for the root to
+    // name; every other project must have some, or nothing below is compared.
+    if (Object.keys(loadProject().apps).length === 0) {
+      expect(root.workspaces).toBeUndefined();
+      return;
+    }
     expect(root.workspaces?.length ?? 0).toBeGreaterThan(0);
     const mismatches: string[] = [];
     const workspaces = (root.workspaces ?? []).flatMap(expand);

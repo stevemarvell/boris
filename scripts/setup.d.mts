@@ -49,7 +49,7 @@ export declare function exec(cmd: string, args: string[]): Promise<RunResult>;
 export declare function parseCreateArgs(argv: string[]): CreateArgs;
 export declare function parseCheckArgs(argv: string[]): CheckArgs;
 
-export declare function preflight(options?: { run?: Run; nodeVersion?: string }): Promise<PreflightResult[]>;
+export declare function preflight(options?: { run?: Run; nodeVersion?: string; python?: boolean }): Promise<PreflightResult[]>;
 export declare function missingPreflight(results: PreflightResult[]): PreflightResult[];
 
 export declare function renderCheck(results: CheckLine[]): CheckResult;

@@ -195,8 +195,25 @@ describe('validate', () => {
     }
   });
 
-  it('refuses a project with no apps', () => {
+  it('refuses a project with no apps, unless it is a product (it records engine.commit)', () => {
     expect(() => validate({ ...minimal(), apps: {} })).toThrow(/at least one app/);
+    const sha = 'a'.repeat(40);
+    const engineOnly = validate({ name: 'thing', engine: { commit: sha }, apps: {} });
+    expect(engineOnly.apps).toEqual({});
+    expect(apps(engineOnly)).toEqual([]);
+    expect(deployed(engineOnly)).toEqual([]);
+    expect(hasDeploy(engineOnly)).toBe(false);
+    expect(verifiedPaths(engineOnly)).toEqual(HARNESS_CODE);
+    expect(appFor(engineOnly, 'apps/svc/x.py')).toBeNull();
+    expect(cli(['apps'], engineOnly)).toEqual([]);
+  });
+
+  it('still refuses a missing or non-object "apps", even in a product', () => {
+    const engine = { commit: 'a'.repeat(40) };
+    for (const bad of [undefined, null, [], 'api']) {
+      expect(() => validate({ name: 'thing', engine, apps: bad }), JSON.stringify(bad)).toThrow(/"apps" must be an object/);
+    }
+    expect(() => validate({ name: 'thing', engine })).toThrow(/"apps" must be an object/);
   });
 });
 

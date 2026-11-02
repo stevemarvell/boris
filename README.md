@@ -12,8 +12,8 @@ Two commands get a new project from an empty folder to picking its first
 issue. Steps marked **[you]** need a person: an agent may not handle
 credentials, money, or a dashboard behind a login.
 
-**Before you start:** Node 22, [uv](https://docs.astral.sh/uv/), Python 3.12,
-`gh` logged in (`gh auth status`), and a Claude subscription to pay for CI
+**Before you start:** Node 22, [uv](https://docs.astral.sh/uv/) and Python 3.12
+(only for a product with a Python app), `gh` logged in (`gh auth status`), and a Claude subscription to pay for CI
 reviews.
 
 1. **Create the project.** From a clone of this repository, choose its parts.
@@ -24,15 +24,19 @@ reviews.
    gh repo clone stevemarvell/boris
    npm run bootstrap
    npm run setup -- create --name <project> --owner <github-owner> \
-     --starter python-fastapi [--starter <another>] [--deploy vercel] [--dir <path>] [--public]
+     [--starter python-fastapi] [--starter <another>] [--deploy vercel] [--dir <path>] [--public]
    ```
 
-   Give `--starter` once for each app, at least one. Until #231 lands,
-   `node-react` is refused up front: the web starter's docs end-to-end test
-   asserts this base's own documents, so a product with it cannot pass
-   `verify`. An unknown starter or provider stops `create` before anything is
-   created, naming what the catalogue offers; so does an `--owner` that is not
-   a GitHub name, a `--dir` that is not empty, and a checkout of this base with
+   Give `--starter` once for each app. With none, `create` builds an
+   **engine-only** product: the engine and the generated files, a
+   `project.json` with `"apps": {}`, no `apps/` directory and no `workspaces` in
+   its root `package.json`, so its `verify` is the AI layer's own checks, and
+   `verify:apps` says it has no app to run. Nothing in it installs Python or a
+   browser, and its `dependabot.yml` has no `uv` entry. Use it for a product
+   that is not a web or API app. An unknown starter or provider stops `create`
+   before anything is created, naming what the catalogue offers; so does an
+   `--owner` that is not a GitHub name, a `--dir` that is not empty, and a
+   checkout of this base with
    uncommitted changes to tracked files. `create`
    does the following:
    - builds the project into `--dir` (default `../<project>`) from the engine,
@@ -41,7 +45,7 @@ reviews.
    - records the base commit it was built from as `engine.commit` in
      `project.json`;
    - locks a project without a `package-lock.json` (one with only Python
-     starters) with `npx npm@11 install`, so its CI can run `npm ci`;
+     starters, or none) with `npx npm@11 install`, so its CI can run `npm ci`;
    - runs `verify`, and stops there, with nothing created on GitHub, if it fails;
    - makes one commit, with this base as a fetch-only remote, so you can pull
      updates and measure how far behind you are but never push to it;
@@ -55,7 +59,8 @@ reviews.
 
    `--deploy` deploys nothing: a Vercel project is yours to create. It checks
    the provider exists and prints the `npm run deploy:add -- <provider> --app
-   <app>` command for each app, to run in the new repository.
+   <app>` command for each app, to run in the new repository (for an
+   engine-only product it says there is nothing to deploy yet).
 
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
    Run `claude setup-token`, then

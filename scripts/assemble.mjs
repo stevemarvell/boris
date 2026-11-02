@@ -21,10 +21,15 @@
 // `ignoredNames` is never copied, tracked or not. The limits turn a surprise
 // (a stray link, a generated tree committed by mistake) into a message.
 //
+// A product with no starter is an engine-only product: the engine, the
+// generated files, `"apps": {}` in project.json and no `apps/` directory. It
+// needs an engine commit, which is what project.mjs's validate() takes as the
+// mark of a product (the base itself must declare its apps).
+//
 // CLI:
 //
 //     node scripts/assemble.mjs --list
-//     node scripts/assemble.mjs --target <dir> --name <name> --starter <s> [--starter <s> ...] [--engine-commit <sha>]
+//     node scripts/assemble.mjs --target <dir> --name <name> [--starter <s> ...] [--engine-commit <sha>]
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -131,23 +136,25 @@ function claudeMd(ctx) {
   const rows = ctx.starters.map(
     (s) => `| \`${s.path}/\` | ${s.description} Its own rules are in \`${s.path}/CLAUDE.md\`. |`,
   );
+  const built = ctx.starters.length === 0 ? 'a shared engine and no starter' : 'a shared engine and the starters listed below';
+  const apps =
+    ctx.starters.length === 0
+      ? 'It has no apps yet: `project.json` declares none, and `npm run verify:apps` says so and runs nothing.'
+      : "It learns about the apps only from `project.json`. Each app's own rules, layout and run\ncommands are in the `CLAUDE.md` inside its directory; read it before working\nthere.";
   return `# ${ctx.name}
 
-${ctx.name} is assembled from a shared engine and the starters listed below.
+${ctx.name} is assembled from ${built}.
 Replace this paragraph with what the product is for.
 
 The AI layer — \`.claude/\`, \`scripts/\`, \`.github/\`, \`telemetry/\` — is the
-engine: the loop of verify, review, isolate, deploy, smoke and triage. It learns
-about the apps only from \`project.json\`. Each app's own rules, layout and run
-commands are in the \`CLAUDE.md\` inside its directory; read it before working
-there.
+engine: the loop of verify, review, isolate, deploy, smoke and triage.
+${apps}
 
 ## Layout
 
 | Path | Holds |
 | --- | --- |
-${rows.join('\n')}
-| \`project.json\` | The one place the AI layer learns about the apps: paths, toolchains, build inputs. Read through \`scripts/project.mjs\`. |
+${rows.map((row) => `${row}\n`).join('')}| \`project.json\` | The one place the AI layer learns about the apps: paths, toolchains, build inputs. Read through \`scripts/project.mjs\`. |
 | \`docs/\` | \`sops.md\`, how agent work is run; \`data-governance.md\`, a stub to rewrite before anything real is deployed. |
 
 ${sharedBlock(ctx.baseClaudeMd)}
@@ -157,7 +164,7 @@ ${sharedBlock(ctx.baseClaudeMd)}
 function readme(ctx) {
   return `# ${ctx.name}
 
-Assembled from the starters ${ctx.starters.map((s) => `\`${s.key}\``).join(', ')}. Rewrite this README around the
+${ctx.starters.length === 0 ? 'Assembled from the engine alone, with no starter.' : `Assembled from the starters ${ctx.starters.map((s) => `\`${s.key}\``).join(', ')}.`} Rewrite this README around the
 product.
 
 \`npm run bootstrap\` installs everything; \`npm run verify\` is the contract.
@@ -199,10 +206,25 @@ credentialed jobs or pass the secrets only to the action's own step, and
 rewrite this section.
 `;
 
-/** The product's root package.json: the base's, under the product's name. */
+/**
+ * The product's root package.json: the base's, under the product's name. With
+ * no apps there is nothing for `workspaces` to find, and npm fails ("No
+ * workspaces found!") on any script that runs `--workspaces`, so both go.
+ */
 function packageJson(ctx) {
   const manifest = JSON.parse(readFileSync(join(ctx.root, 'package.json'), 'utf8'));
-  return `${JSON.stringify({ ...manifest, name: ctx.name }, null, 2)}\n`;
+  const withApps = Object.keys(ctx.project.apps).length > 0;
+  const result = {};
+  // Key order is the base's.
+  for (const [key, value] of Object.entries(manifest)) {
+    if (key === 'name') result.name = ctx.name;
+    else if (key === 'workspaces') {
+      if (withApps) result.workspaces = value;
+    } else if (key === 'scripts' && !withApps) {
+      result.scripts = Object.fromEntries(Object.entries(value).filter(([, command]) => !String(command).includes('--workspaces')));
+    } else result[key] = value;
+  }
+  return `${JSON.stringify(result, null, 2)}\n`;
 }
 
 // Ecosystems a product can have a dependabot.yml entry for. github-actions and
@@ -364,16 +386,17 @@ function walk(root, rel, { tracked, skip, limits, count }) {
  * What a product of `starters` holds, without writing anything:
  * `{ entries: [{ to, from } | { to, content }], project }`, entries sorted by
  * `to`. `engineCommit`, when given, is recorded as `engine.commit` in the
- * product's project.json. Throws on an unknown starter, a name nothing can use,
+ * product's project.json; it is required when `starters` is empty. Throws on an unknown starter, a name nothing can use,
  * an engine commit that is not a full SHA, a catalogue path
  * that does not exist, two sources for one file, or an app that reads or
  * smoke-tests something the product would not have.
  */
 export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalogue.json')), name, starters, engineCommit, limits = LIMITS }) {
   if (typeof name !== 'string' || !NAME.test(name)) throw new Error(`assemble: name "${String(name)}" must be lowercase letters, digits, "." "_" or "-"`);
-  if (!Array.isArray(starters) || starters.length === 0) {
-    throw new Error(`assemble: choose at least one starter (have: ${Object.keys(catalogue.starters).join(', ')})`);
-  }
+  // No starter is allowed: an engine-only product. It is marked by its engine
+  // commit, so validate() below refuses it without one (an empty `apps` is
+  // only a product's).
+  if (!Array.isArray(starters)) throw new Error('assemble: starters must be a list (empty for an engine-only product)');
   if (new Set(starters).size !== starters.length) throw new Error('assemble: a starter is chosen twice');
   for (const key of starters) {
     if (!catalogue.starters[key]) throw new Error(`assemble: no starter named "${key}" (have: ${Object.keys(catalogue.starters).join(', ')})`);
@@ -535,7 +558,7 @@ export function parseArgs(argv) {
       else opts[flag.slice(2)] = value;
     } else {
       throw new Error(
-        `usage: assemble.mjs --list | --target <dir> --name <name> --starter <s> [--starter <s> ...] [--engine-commit <sha>]: unknown argument "${flag}"`,
+        `usage: assemble.mjs --list | --target <dir> --name <name> [--starter <s> ...] [--engine-commit <sha>]: unknown argument "${flag}"`,
       );
     }
   }

@@ -69,11 +69,13 @@ function expectedFiles(chosen: string[]): string[] {
   return [...out].sort();
 }
 
-const COMBINATIONS: string[][] = [['python-fastapi'], ['node-react'], ['python-fastapi', 'node-react']];
+// No starter at all is a combination too: an engine-only product.
+const COMBINATIONS: string[][] = [['python-fastapi'], ['node-react'], ['python-fastapi', 'node-react'], []];
+const ENGINE_COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
-describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
+describe.each(COMBINATIONS.map((starters) => [starters.length ? starters.join(' + ') : 'no starter (engine only)', starters] as const))('assembling %s', (_label, chosen) => {
   const target = join(scratch(), 'product');
-  const result = assemble({ target, name: 'widgets', starters: chosen });
+  const result = assemble({ target, name: 'widgets', starters: chosen, engineCommit: ENGINE_COMMIT });
   const onDisk = listing(target);
 
   it('writes exactly the engine, the starters and the generated files: every one present, nothing else', () => {
@@ -203,8 +205,40 @@ describe.each(COMBINATIONS)('assembling %s', (...chosen) => {
   });
 
   it('refuses to assemble into what it just built', () => {
-    expect(() => assemble({ target, name: 'widgets', starters: chosen })).toThrow(/is not empty/);
+    expect(() => assemble({ target, name: 'widgets', starters: chosen, engineCommit: ENGINE_COMMIT })).toThrow(/is not empty/);
     expect(listing(target)).toEqual(onDisk);
+  });
+
+  it('has a root package.json with workspaces only when there are apps, and no script that needs them otherwise', () => {
+    const manifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')) as { workspaces?: string[]; scripts: Record<string, string> };
+    const base = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { workspaces: string[]; scripts: Record<string, string> };
+    if (chosen.length > 0) {
+      expect(manifest.workspaces).toEqual(base.workspaces);
+      expect(manifest.scripts).toEqual(base.scripts);
+    } else {
+      // npm fails ("No workspaces found!") on `--workspaces` with none, so those scripts go, and the rest stay.
+      expect(manifest).not.toHaveProperty('workspaces');
+      expect(Object.values(manifest.scripts).filter((command) => command.includes('--workspaces'))).toEqual([]);
+      expect(manifest.scripts).toEqual(Object.fromEntries(Object.entries(base.scripts).filter(([, command]) => !command.includes('--workspaces'))));
+      expect(manifest.scripts['verify']).toBe(base.scripts['verify']);
+      expect(manifest.scripts['verify:harness']).toBe(base.scripts['verify:harness']);
+      expect(manifest.scripts['verify:apps']).toBe(base.scripts['verify:apps']);
+    }
+  });
+
+  it('has no apps directory when no starter brings one', () => {
+    expect(onDisk.some((f) => f.startsWith('apps/'))).toBe(chosen.length > 0);
+    if (chosen.length === 0) {
+      const written = JSON.parse(readFileSync(join(target, 'project.json'), 'utf8')) as { apps: unknown; engine: unknown };
+      expect(written.apps).toEqual({});
+      expect(written.engine).toEqual({ commit: ENGINE_COMMIT });
+      // The Layout table has no starter rows, and is still one table: no blank line splits it.
+      const product = readFileSync(join(target, 'CLAUDE.md'), 'utf8');
+      expect(product).toContain('a shared engine and no starter');
+      expect(product).not.toMatch(/\| --- \| --- \|\n\n/);
+      expect(product).toMatch(/\| Path \| Holds \|\n\| --- \| --- \|\n\| `project\.json` \|/);
+      expect(readFileSync(join(target, 'README.md'), 'utf8')).toContain('the engine alone, with no starter');
+    }
   });
 });
 
@@ -333,6 +367,21 @@ describe('assemble in a small repository', () => {
     expect(JSON.parse(readFileSync(join(without.target, 'project.json'), 'utf8')).engine).toBeUndefined();
   });
 
+  it('assembles an engine-only product when no starter is chosen, and the engine commit marks it as one', () => {
+    const { target, run } = build(undefined, { starters: [], engineCommit: ENGINE_COMMIT });
+    run();
+    expect(listing(target)).toEqual(['CLAUDE.md', 'README.md', 'package.json', 'project.json', 'settings.json', 'tools/a.mjs', 'tools/cloud/template/t', 'tools/deep/b.mjs']);
+    const written = loadProject(join(target, 'project.json'));
+    expect(written.apps).toEqual({});
+    expect(written.engine).toEqual({ commit: ENGINE_COMMIT });
+    // Without the commit it is not a product, and an empty `apps` is refused, writing nothing.
+    const bare = build(undefined, { starters: [] });
+    expect(bare.run).toThrow(/"apps" must declare at least one app/);
+    expect(existsSync(bare.target)).toBe(false);
+    // Starters must still be a list.
+    expect(build(undefined, { starters: undefined as never }).run).toThrow(/starters must be a list/);
+  });
+
   it('refuses an engine commit that is not a full SHA before writing anything', () => {
     for (const engineCommit of ['abc1234', 'main', '', 'Z'.repeat(40)]) {
       const { target, run } = build(undefined, { engineCommit });
@@ -443,7 +492,7 @@ describe('assemble in a small repository', () => {
   it('refuses before writing anything: an unknown starter, none, a repeat, or a bad name', () => {
     for (const [overrides, message] of [
       [{ starters: ['nope'] }, /no starter named "nope"/],
-      [{ starters: [] }, /choose at least one starter/],
+      [{ starters: [], engineCommit: undefined }, /"apps" must declare at least one app/],
       [{ starters: ['svc', 'svc'] }, /chosen twice/],
       [{ name: 'Bad Name' }, /name "Bad Name"/],
       [{ name: '../x' }, /name "\.\.\/x"/],
@@ -696,6 +745,15 @@ describe('the command line', () => {
     );
     expect(badSha.status).toBe(1);
     expect(badSha.stderr).toMatch(/engine\.commit/);
+
+    const bare = join(scratch(), 'cli-engine-only');
+    const engineOnly = spawnSync('node', ['scripts/assemble.mjs', '--target', bare, '--name', 'cli-product', '--engine-commit', sha], { cwd: ROOT, encoding: 'utf8' });
+    expect(engineOnly.status).toBe(0);
+    expect(existsSync(join(bare, 'apps'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(bare, 'project.json'), 'utf8')).apps).toEqual({});
+    const noCommit = spawnSync('node', ['scripts/assemble.mjs', '--target', join(scratch(), 'cli-no-commit'), '--name', 'cli-product'], { cwd: ROOT, encoding: 'utf8' });
+    expect(noCommit.status).toBe(1);
+    expect(noCommit.stderr).toMatch(/at least one app/);
 
     const again = spawnSync('node', ['scripts/assemble.mjs', '--target', target, '--name', 'cli-product', '--starter', 'python-fastapi'], {
       cwd: ROOT,
