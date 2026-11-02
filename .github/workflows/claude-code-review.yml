@@ -33,14 +33,16 @@ name: Claude Code Review
 # below. Branch protection is not changed here; see the pull request body for
 # what would be worth changing and when.
 #
-# NO CREDENTIAL, NO REVIEW. A run triggered by `dependabot[bot]` gets
-# Dependabot's secrets, not this repository's, so CLAUDE_CODE_OAUTH_TOKEN is
-# empty there and no session can start (#244). Each review job asks first
-# (the "Is the review credential available?" step) and, when the answer is
-# no, skips everything else including the assertion, and ends green with a
-# notice that says why. A token present means a review exactly as before, so
-# adding the token as a Dependabot secret turns these reviews on with no
-# change here.
+# NO CREDENTIAL ON A DEPENDABOT PR, NO REVIEW. A run triggered by
+# `dependabot[bot]` gets Dependabot's secrets, not this repository's, so
+# CLAUDE_CODE_OAUTH_TOKEN is empty there and no session can start (#244). Each
+# review job asks first (the "Is the review credential available?" step) and,
+# when the token is empty and the author is Dependabot, skips everything else
+# including the assertion, and ends green with a notice that says why. An
+# empty token on any other pull request still fails, with a warning naming the
+# cause. A token present means a review exactly as before, Dependabot's pull
+# requests included, so adding the token as a Dependabot secret turns those
+# reviews on with no change here.
 #
 # SANDBOXED. Both jobs read a pull request's head — untrusted content, by
 # `docs/data-governance.md`'s own definition — with a Bash tool `gh pr diff`
@@ -171,6 +173,14 @@ jobs:
       # failure that means nothing. The secret reaches this step only through
       # `env:`, is tested for emptiness and is never printed.
       #
+      # Dependabot's pull requests only. An empty token on anyone else's pull
+      # request means the repository secret has expired or been deleted, and
+      # that must stay red: skipping on "empty" alone would turn the loss of
+      # every review into a green tick with a notice nobody reads. So that case
+      # writes available=true, warns, and lets the review step and the
+      # assertion fail as they always have. The author arrives through `env:`
+      # too, never interpolated into the script.
+      #
       # `!= 'false'` everywhere below, as with the scope outputs: if this step
       # dies the output is empty, and empty must mean "review it" so the
       # assertion at the end fails loudly instead of the job skipping silently.
@@ -178,12 +188,16 @@ jobs:
         id: token
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Code review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run, as on a Dependabot pull request, which gets Dependabot's own secrets rather than this repository's. No code review ran; review this pull request by hand. See #244."
+            echo "::notice title=Code review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run: a Dependabot pull request gets Dependabot's own secrets rather than this repository's. No code review ran; review this pull request by hand. See #244."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Code review has no credential::CLAUDE_CODE_OAUTH_TOKEN is missing on a pull request that is not Dependabot's, so no review can start and the assertion below will fail. The repository secret has probably expired or been deleted. See #244."
           fi
 
       - name: Checkout repository
@@ -328,12 +342,16 @@ jobs:
         id: token
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Security review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run, as on a Dependabot pull request, which gets Dependabot's own secrets rather than this repository's. No security review ran; review this pull request by hand. See #244."
+            echo "::notice title=Security review skipped::CLAUDE_CODE_OAUTH_TOKEN is not available to this run: a Dependabot pull request gets Dependabot's own secrets rather than this repository's. No security review ran; review this pull request by hand. See #244."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Security review has no credential::CLAUDE_CODE_OAUTH_TOKEN is missing on a pull request that is not Dependabot's, so no review can start and the assertion below will fail. The repository secret has probably expired or been deleted. See #244."
           fi
 
       - name: Checkout repository

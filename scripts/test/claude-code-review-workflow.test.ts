@@ -55,8 +55,13 @@ function script(step: Step): string {
   return body.join("\n");
 }
 
-/** Run the token step's shell with `token` as the secret ('' = absent). */
-function runTokenStep(job: string, token: string) {
+const DEPENDABOT = "dependabot[bot]";
+
+/**
+ * Run the token step's shell with `token` as the secret ('' = absent) on a
+ * pull request opened by `author`.
+ */
+function runTokenStep(job: string, token: string, author: string) {
   const step = steps(job).find((s) => s.id === "token");
   if (!step) throw new Error(`${job} has no step with id: token`);
   const dir = mkdtempSync(join(tmpdir(), "review-token-"));
@@ -66,6 +71,7 @@ function runTokenStep(job: string, token: string) {
       env: {
         PATH: process.env["PATH"] ?? "",
         CLAUDE_CODE_OAUTH_TOKEN: token,
+        PR_AUTHOR: author,
         GITHUB_OUTPUT: out,
       },
       encoding: "utf8",
@@ -117,28 +123,59 @@ for (const job of JOBS) {
       );
     });
 
-    it("reports available=true and no notice when the token is present", () => {
-      const run = runTokenStep(job, "sekret-value-123");
-      expect(run.status).toBe(0);
-      expect(run.outputs.trim()).toBe("available=true");
-      expect(run.stdout).not.toContain("::notice");
+    it("takes the author through env, never interpolated into the script", () => {
+      const step = steps(job)[0] as Step;
+      expect(step.text).toContain(
+        "PR_AUTHOR: ${{ github.event.pull_request.user.login }}",
+      );
+      expect(script(step)).not.toContain("${{");
     });
 
-    it("reports available=false with a notice naming #244 when the token is absent", () => {
-      const run = runTokenStep(job, "");
+    it("skips with a notice naming #244 only for Dependabot with no token", () => {
+      const run = runTokenStep(job, "", DEPENDABOT);
       expect(run.status).toBe(0);
       expect(run.outputs.trim()).toBe("available=false");
       expect(run.stdout).toMatch(/^::notice title=.* skipped::/m);
       expect(run.stdout).toContain("#244");
       expect(run.stdout).toContain("CLAUDE_CODE_OAUTH_TOKEN is not available");
+      expect(run.stdout).not.toContain("::warning");
+    });
+
+    it("reviews Dependabot when the token is present, so a Dependabot secret turns reviews on", () => {
+      const run = runTokenStep(job, "sekret-value-123", DEPENDABOT);
+      expect(run.status).toBe(0);
+      expect(run.outputs.trim()).toBe("available=true");
+      expect(run.stdout).not.toContain("::notice");
+      expect(run.stdout).not.toContain("::warning");
+    });
+
+    it("keeps reviewing, and warns, when anyone else has no token, so the red stays red", () => {
+      for (const author of ["stevemarvell", "dependabot-preview[bot]", ""]) {
+        const run = runTokenStep(job, "", author);
+        expect(run.status).toBe(0);
+        expect(run.outputs.trim(), `author "${author}"`).toBe("available=true");
+        expect(run.stdout).toMatch(/^::warning title=.*::/m);
+        expect(run.stdout).toContain("CLAUDE_CODE_OAUTH_TOKEN is missing");
+        expect(run.stdout).not.toContain("::notice");
+      }
+    });
+
+    it("reviews anyone else with a token, silently", () => {
+      const run = runTokenStep(job, "sekret-value-123", "stevemarvell");
+      expect(run.status).toBe(0);
+      expect(run.outputs.trim()).toBe("available=true");
+      expect(run.stdout).not.toContain("::notice");
+      expect(run.stdout).not.toContain("::warning");
     });
 
     it("never prints the secret, present or absent", () => {
       for (const token of ["sekret-value-123", ""]) {
-        const run = runTokenStep(job, token);
-        expect(run.stdout + run.stderr + run.outputs).not.toContain(
-          "sekret-value-123",
-        );
+        for (const author of [DEPENDABOT, "stevemarvell"]) {
+          const run = runTokenStep(job, token, author);
+          expect(run.stdout + run.stderr + run.outputs).not.toContain(
+            "sekret-value-123",
+          );
+        }
       }
     });
   });
