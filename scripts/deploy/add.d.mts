@@ -19,4 +19,6 @@ export declare function parseArgs(argv: string[]): { provider: string; app: stri
 export declare function withPlaceholders(options: Partial<DeployValues> & { existing?: Partial<DeployValues> }): DeployValues;
 export declare function renderTemplate(text: string, values: Record<string, string>): string;
 export declare function ownerSteps(options: { app: string; team: string; project: string }): string[];
-export declare function addDeploy(options: AddDeployOptions): { manifest: unknown; values: DeployValues };
+export declare const SMOKE_SCHEDULE: string;
+export declare function withSmokeSchedule(text: string): string;
+export declare function addDeploy(options: AddDeployOptions): { manifest: unknown; values: DeployValues; smoke: 'scheduled' | 'unchanged' | 'absent' };

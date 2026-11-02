@@ -277,6 +277,18 @@ describe('cli', () => {
     expect(cli(['apps', 'node'], minimal())).toEqual(['apps/ui']);
   });
 
+  it('says, per toolchain, whether any app uses it, as lines $GITHUB_OUTPUT takes as they are', () => {
+    expect(cli(['toolchains'], minimal())).toEqual(['node=true', 'python=true']);
+    const { svc, ui } = minimal().apps;
+    expect(cli(['toolchains'], { ...minimal(), apps: { svc: svc! } })).toEqual(['node=false', 'python=true']);
+    expect(cli(['toolchains'], { ...minimal(), apps: { ui: ui! } })).toEqual(['node=true', 'python=false']);
+  });
+
+  it('says false for both in an engine-only product, which has no app at all', () => {
+    const engineOnly = validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
+    expect(cli(['toolchains'], engineOnly)).toEqual(['node=false', 'python=false']);
+  });
+
   it('refuses a subcommand it does not have', () => {
     expect(() => cli(['get', 'ui', 'url'], minimal())).toThrow(/usage/);
   });

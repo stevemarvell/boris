@@ -2,7 +2,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders } from '../deploy/add.mjs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule } from '../deploy/add.mjs';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const SMOKE = '.github/workflows/smoke.yml';
+const realSmoke = () => readFileSync(join(REPO_ROOT, SMOKE), 'utf8');
+/** Top-level `schedule:` trigger lines: two-space indent, so a comment or a nested key never counts. */
+const scheduleLines = (text: string) => text.split('\n').filter((line) => /^ {2}schedule:/.test(line));
 
 describe('parseArgs', () => {
   it('parses the provider, --app and the optional flags', () => {
@@ -200,5 +208,98 @@ describe('addDeploy', () => {
     expect(() => addDeploy({ provider: 'nope', app: 'api', root, manifestPath })).toThrow(/unknown deploy provider "nope"/);
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.apps.api.deploy).toBeUndefined();
+  });
+});
+
+describe('the scheduled smoke run (#254)', () => {
+  it('is not in the committed smoke.yml: with nothing deployed, a schedule would start a runner for nothing', () => {
+    const text = realSmoke();
+    expect(scheduleLines(text)).toEqual([]);
+    expect(text).not.toMatch(/^\s*-?\s*cron:/m);
+    // The triggers that cost nothing while nothing is deployed stay.
+    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(text).toMatch(/^ {2}workflow_dispatch:/m);
+  });
+
+  it('withSmokeSchedule adds exactly the schedule block, above workflow_dispatch, and nothing else', () => {
+    const base = realSmoke();
+    const scheduled = withSmokeSchedule(base);
+    expect(scheduleLines(scheduled)).toHaveLength(1);
+    expect(scheduled).toContain("- cron: '17 */3 * * *'");
+    expect(scheduled.indexOf('  schedule:')).toBeLessThan(scheduled.indexOf('  workflow_dispatch:'));
+    expect(scheduled.replace(SMOKE_SCHEDULE, '')).toBe(base);
+  });
+
+  it('withSmokeSchedule is idempotent, and leaves an existing schedule alone, whatever its cron', () => {
+    const once = withSmokeSchedule(realSmoke());
+    expect(withSmokeSchedule(once)).toBe(once);
+    const custom = realSmoke().replace('  workflow_dispatch:', "  schedule:\n    - cron: '0 6 * * *'\n  workflow_dispatch:");
+    expect(withSmokeSchedule(custom)).toBe(custom);
+  });
+
+  it('withSmokeSchedule refuses a workflow with nowhere to put the schedule, rather than guess', () => {
+    expect(() => withSmokeSchedule('name: smoke\non:\n  push:\n')).toThrow(/workflow_dispatch/);
+  });
+
+  describe('through addDeploy', () => {
+    let root: string;
+    let manifestPath: string;
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'deploy-add-smoke-'));
+      mkdirSync(join(root, '.github/workflows'), { recursive: true });
+      writeFileSync(join(root, SMOKE), realSmoke());
+      manifestPath = join(root, 'project.json');
+      writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            name: 'thing',
+            apps: {
+              api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] },
+              web: { path: 'apps/web', toolchain: 'node', reads: ['apps/web'] },
+            },
+          },
+          null,
+          2,
+        ),
+      );
+    });
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it('a repo that has never run deploy:add has no schedule; the first run gives it back', () => {
+      expect(scheduleLines(readFileSync(join(root, SMOKE), 'utf8'))).toEqual([]);
+      const { smoke } = addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+      expect(smoke).toBe('scheduled');
+      expect(scheduleLines(readFileSync(join(root, SMOKE), 'utf8'))).toHaveLength(1);
+      expect(readFileSync(join(root, SMOKE), 'utf8')).toBe(withSmokeSchedule(realSmoke()));
+    });
+
+    it('running it again, or for a second app, leaves one schedule and the file byte-identical', () => {
+      addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+      const after = readFileSync(join(root, SMOKE), 'utf8');
+      expect(addDeploy({ provider: 'vercel', app: 'api', root, manifestPath }).smoke).toBe('unchanged');
+      expect(addDeploy({ provider: 'vercel', app: 'web', root, manifestPath }).smoke).toBe('unchanged');
+      expect(readFileSync(join(root, SMOKE), 'utf8')).toBe(after);
+      expect(scheduleLines(after)).toHaveLength(1);
+    });
+
+    it('stops with nothing written when smoke.yml has nowhere to put the schedule', () => {
+      writeFileSync(join(root, SMOKE), 'name: smoke\non:\n  push:\n');
+      expect(() => addDeploy({ provider: 'vercel', app: 'api', root, manifestPath })).toThrow(/workflow_dispatch/);
+      expect(JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy).toBeUndefined();
+      expect(existsSync(join(root, 'apps/api/vercel.json'))).toBe(false);
+    });
+
+    it('a repo with no smoke.yml gets its deploy block and says it added no schedule', () => {
+      rmSync(join(root, SMOKE));
+      const { smoke } = addDeploy({ provider: 'vercel', app: 'api', root, manifestPath });
+      expect(smoke).toBe('absent');
+      expect(JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.provider).toBe('vercel');
+      expect(existsSync(join(root, SMOKE))).toBe(false);
+    });
   });
 });
