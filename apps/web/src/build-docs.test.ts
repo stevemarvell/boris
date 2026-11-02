@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildDocs, indexPage, MARKDOWN_PAGES } from '../scripts/build-docs.mjs';
+import { buildDocs, indexPage, listing, MARKDOWN_PAGES, plannedPages } from '../scripts/build-docs.mjs';
 
 // A stand-in repository, so a test never depends on what docs/ happens to say
 // today — only on what the build does with it.
@@ -144,6 +144,45 @@ describe('buildDocs', () => {
 
   it('reports nothing skipped when every source is there', () => {
     expect(build().skipped).toEqual([]);
+  });
+});
+
+describe('plannedPages and listing: what smoke.sh expects served', () => {
+  it('plans exactly the pages a build writes, each with its own first heading', () => {
+    const { pages, skipped } = plannedPages({ root });
+    expect(skipped).toEqual([]);
+    expect(pages.map((p) => [p.page, p.title])).toEqual([
+      ['adoption.html', 'Stages'],
+      ['data-governance.html', 'Governance'],
+      ['sops.html', 'Procedures'],
+      ['step-0.html', null],
+    ]);
+    const written = build().written.filter((f) => f.endsWith('.html') && f !== 'index.html');
+    expect(pages.map((p) => p.page)).toEqual(written);
+  });
+
+  it('leaves out a base-only page whose source is absent, as a product has it', () => {
+    rmSync(join(root, 'docs', 'adoption.md'));
+    rmSync(join(root, 'index.html'));
+    expect(plannedPages({ root }).pages.map((p) => p.page)).toEqual(['data-governance.html', 'sops.html']);
+    expect(listing({ root }).split('\n')).toEqual([
+      'data-governance.html\t<title>Governance</title>',
+      'sops.html\t<title>Procedures</title>',
+    ]);
+  });
+
+  it('lists the title exactly as the built page carries it, escaped, and nothing for step-0', () => {
+    writeFileSync(join(root, 'docs', 'sops.md'), '# Plans & `loops` <b>\n');
+    build();
+    const lines = Object.fromEntries(listing({ root }).split('\n').map((l) => l.split('\t') as [string, string]));
+    expect(lines['step-0.html']).toBe('');
+    expect(read('sops.html')).toContain(lines['sops.html']);
+  });
+
+  it('plans nothing it does not hold: with no sources the list is empty, which smoke.sh refuses', () => {
+    rmSync(join(root, 'docs'), { recursive: true });
+    rmSync(join(root, 'index.html'));
+    expect(listing({ root })).toBe('');
   });
 });
 

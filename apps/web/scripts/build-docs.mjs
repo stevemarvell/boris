@@ -146,6 +146,39 @@ ${cards
 }
 
 /**
+ * The pages a build of `root` publishes, in the order the index lists them,
+ * and the sources it skips because they are absent. Read from the sources, so
+ * it is the one answer both the build and `apps/web/smoke.sh` use: what smoke
+ * expects to find served is exactly what the build was going to publish.
+ *
+ * `title` is each Markdown page's own first heading (null for step-0, which
+ * is served as it was written and has none the build reads).
+ */
+export function plannedPages({ root = REPO_ROOT } = {}) {
+  const pages = [];
+  const skipped = [];
+
+  for (const entry of MARKDOWN_PAGES) {
+    if (!existsSync(join(root, entry.source))) {
+      skipped.push(entry.source);
+      continue;
+    }
+    const markdown = readFileSync(join(root, entry.source), 'utf8');
+    pages.push({ ...entry, page: `${entry.slug}.html`, title: firstHeading(markdown) ?? entry.slug, markdown });
+  }
+
+  // The step-0 artifact is published as it was written, not restyled: it is a
+  // record of what this project looked like at step 0.
+  if (existsSync(join(root, 'index.html'))) {
+    pages.push({ slug: 'step-0', page: 'step-0.html', source: 'index.html', title: null });
+  } else {
+    skipped.push('index.html');
+  }
+
+  return { pages, skipped };
+}
+
+/**
  * Renders the whole docs site into `out`, returning the paths written relative
  * to it — so a test can assert what a build produces without re-reading it —
  * and the sources it skipped because they are absent.
@@ -157,30 +190,19 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   const name = projectName(root);
   const written = [];
   const rendered = [];
-  const skipped = [];
+  const { pages, skipped } = plannedPages({ root });
 
-  for (const entry of MARKDOWN_PAGES) {
-    if (!existsSync(join(root, entry.source))) {
-      skipped.push(entry.source);
-      continue;
+  for (const entry of pages) {
+    if (entry.slug === 'step-0') {
+      writeFileSync(join(out, entry.page), readFileSync(join(root, entry.source), 'utf8'), 'utf8');
+    } else {
+      const body = renderMarkdown(entry.markdown);
+      writeFileSync(join(out, entry.page), page({ title: entry.title, body, name }), 'utf8');
+      rendered.push({ ...entry, title: entry.title });
     }
-    const markdown = readFileSync(join(root, entry.source), 'utf8');
-    const title = firstHeading(markdown) ?? entry.slug;
-    const body = renderMarkdown(markdown);
-    writeFileSync(join(out, `${entry.slug}.html`), page({ title, body, name }), 'utf8');
-    rendered.push({ ...entry, title });
-    written.push(`${entry.slug}.html`);
+    written.push(entry.page);
   }
-
-  // The step-0 artifact is published as it was written, not restyled: it is a
-  // record of what this project looked like at step 0.
-  const stepZero = existsSync(join(root, 'index.html'));
-  if (stepZero) {
-    writeFileSync(join(out, 'step-0.html'), readFileSync(join(root, 'index.html'), 'utf8'), 'utf8');
-    written.push('step-0.html');
-  } else {
-    skipped.push('index.html');
-  }
+  const stepZero = pages.some((entry) => entry.slug === 'step-0');
 
   writeFileSync(join(out, 'index.html'), indexPage(rendered, name, { stepZero }), 'utf8');
   written.push('index.html');
@@ -197,7 +219,23 @@ export function buildDocs({ root = REPO_ROOT, out = DOCS_DIR, env = process.env 
   return { out, written, skipped };
 }
 
+/**
+ * What `--list` prints, one line per page: the file name, a tab, and the text
+ * the served page must contain — the `<title>` the build gives a Markdown page
+ * (its own first heading, escaped), or nothing for step-0. smoke.sh reads it.
+ */
+export function listing(options) {
+  return plannedPages(options)
+    .pages.map((entry) => `${entry.page}\t${entry.title === null ? '' : `<title>${escapeHtml(entry.title)}</title>`}`)
+    .join('\n');
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv.includes('--list')) {
+    // Writes nothing: smoke.sh asks what a build of this checkout publishes.
+    console.log(listing());
+    process.exit(0);
+  }
   const { out, written, skipped } = buildDocs();
   console.log(`built ${written.length} doc pages into ${out}`);
   if (skipped.length > 0) console.log(`skipped, as absent here: ${skipped.join(', ')}`);

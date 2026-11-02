@@ -17,3 +17,8 @@ export declare function buildDocs(options?: {
   out?: string;
   env?: Record<string, string | undefined>;
 }): { out: string; written: string[]; skipped: string[] };
+export declare function plannedPages(options?: { root?: string }): {
+  pages: { slug: string; page: string; source: string; title: string | null; blurb?: string; markdown?: string }[];
+  skipped: string[];
+};
+export declare function listing(options?: { root?: string }): string;
