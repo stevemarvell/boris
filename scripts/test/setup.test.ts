@@ -14,12 +14,48 @@ import {
   missingPreflight,
   needsTemplateIssue,
   parseCheckArgs,
+  exec,
+  needsShell,
+  spawnTool,
   parseCreateArgs,
   preflight,
   renderCheck,
   runCheck,
   type Run,
 } from '../setup.mjs';
+
+describe('stripped `--` (#276)', () => {
+  const stripped = ['create', 'boris-trial', 'stevemarvell', 'python-fastapi', 'node-react'];
+
+  it('create refuses bare values with the cause and the node form', () => {
+    const run = () => parseCreateArgs(stripped.slice(1));
+    expect(run).toThrow(/no flags/);
+    expect(run).toThrow(/Windows PowerShell/);
+    expect(run).toThrow(/node scripts\/setup\.mjs create --name <n> --owner <o>/);
+    expect(run).not.toThrow(/unknown flag/);
+  });
+
+  it('check refuses bare values the same way', () => {
+    const run = () => parseCheckArgs(['x', 'y']);
+    expect(run).toThrow(/node scripts\/setup\.mjs check/);
+    expect(run).not.toThrow(/unknown flag/);
+  });
+
+  it('the CLI refuses the exact stripped argv, exit non-zero, no network', () => {
+    let out = '';
+    try {
+      execFileSync('node', ['scripts/setup.mjs', ...stripped], { encoding: 'utf8', stdio: 'pipe', timeout: 20_000 });
+    } catch (e) {
+      out = String((e as { stderr?: string }).stderr);
+    }
+    expect(out).toMatch(/node scripts\/setup\.mjs create --name/);
+    expect(out).not.toMatch(/unknown flag/);
+  }, 30_000);
+
+  it('a real unknown flag still gets the usage error', () => {
+    expect(() => parseCheckArgs(['--nope'])).toThrow(/unknown flag "--nope"/);
+  });
+});
 
 describe('parseCreateArgs', () => {
   it('parses --name, --owner, --dir, --public, a repeated --starter and --deploy', () => {
@@ -718,5 +754,45 @@ describe('engineDrift', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('npm and npx on Windows (#276)', () => {
+  it('needsShell is true only for npm and npx, only on win32', () => {
+    for (const cmd of ['npm', 'npx']) {
+      expect(needsShell(cmd, 'win32'), cmd).toBe(true);
+      expect(needsShell(cmd, 'linux'), cmd).toBe(false);
+      expect(needsShell(cmd, 'darwin'), cmd).toBe(false);
+    }
+    for (const cmd of ['gh', 'git', 'uv', 'node']) expect(needsShell(cmd, 'win32'), cmd).toBe(false);
+  });
+
+  it('exec passes shell:true to execFile for npx on win32, not on linux, never for git or gh', async () => {
+    const seen: Array<[string, unknown]> = [];
+    const execFileImpl = (cmd: string, _a: string[], o: { shell: boolean }, cb: (e: null, out: string, err: string) => void) => {
+      seen.push([cmd, o.shell]);
+      cb(null, '', '');
+    };
+    await exec('npx', ['npm@11', '--version'], { platform: 'win32', execFileImpl });
+    await exec('npx', ['npm@11', '--version'], { platform: 'linux', execFileImpl });
+    await exec('git', ['--version'], { platform: 'win32', execFileImpl });
+    await exec('gh', ['api', 'user'], { platform: 'win32', execFileImpl });
+    expect(seen).toEqual([['npx', true], ['npx', false], ['git', false], ['gh', false]]);
+  }, 10_000);
+
+  it('spawnTool goes through a shell for npm on win32 only, and keeps fixed args and options', () => {
+    const calls: Array<[string, string[], Record<string, unknown>]> = [];
+    const spawnImpl = (cmd: string, args: string[], o: Record<string, unknown>) => {
+      calls.push([cmd, args, o]);
+      return { status: 0 };
+    };
+    spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }, { platform: 'win32', spawnImpl });
+    spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }, { platform: 'linux', spawnImpl });
+    spawnTool('node', ['x'], {}, { platform: 'win32', spawnImpl });
+    expect(calls).toEqual([
+      ['npm', ['run', 'verify'], { stdio: 'inherit', shell: true }],
+      ['npm', ['run', 'verify'], { stdio: 'inherit', shell: false }],
+      ['node', ['x'], { shell: false }],
+    ]);
   });
 });

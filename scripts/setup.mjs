@@ -6,9 +6,13 @@
 // repository from this base took days of hand work before this existed.
 //
 // Usage:
-//     npm run setup -- create --name <n> --owner <o> [--starter <s> ...]
-//                             [--deploy <provider>] [--dir <path>] [--public]
-//     npm run setup -- check [--skip-verify] [--dry-run] [--repo owner/name]
+//     node scripts/setup.mjs create --name <n> --owner <o> [--starter <s> ...]
+//                                   [--deploy <provider>] [--dir <path>] [--public]
+//     node scripts/setup.mjs check [--skip-verify] [--dry-run] [--repo owner/name]
+//
+// Not `npm run setup -- ...`: on Windows, npm's PowerShell shim drops the `--`,
+// npm takes the flags as its own config and strips them, and only the bare
+// values reach this script (#276). `node` bypasses npm in every shell.
 //
 // `create` is run from a checkout of this base, and is never run for real by
 // an agent: it creates a GitHub repository, which is the owner's call. It
@@ -49,13 +53,28 @@ export const PREFLIGHT_NODE_MAJOR = 22;
 
 const CREATE_USAGE = 'create --name <n> --owner <o> [--starter <s> ...] [--deploy <provider>] [--dir <path>] [--public]';
 
+/**
+ * `npm` and `npx` are `.cmd` shims on Windows, which Node cannot start without
+ * a shell (ENOENT, or EINVAL since CVE-2024-27980). Only those two, only on
+ * win32: `gh`, `git` and `uv` are executables, and a shell on Linux would add
+ * nothing. Every argument passed to them here is a fixed literal.
+ */
+export function needsShell(cmd, platform = process.platform) {
+  return platform === 'win32' && (cmd === 'npm' || cmd === 'npx');
+}
+
 /** Runs `cmd args` and resolves to its exit status, stdout and stderr. Never rejects. */
-export function exec(cmd, args) {
+export function exec(cmd, args, { platform = process.platform, execFileImpl = execFile } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFileImpl(cmd, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, shell: needsShell(cmd, platform) }, (error, stdout, stderr) => {
       resolve({ status: error?.code ?? 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
   });
+}
+
+/** `spawnSync` with inherited-stdio options, through a shell for npm/npx on Windows. */
+export function spawnTool(cmd, args, options = {}, { platform = process.platform, spawnImpl = spawnSync } = {}) {
+  return spawnImpl(cmd, args, { ...options, shell: needsShell(cmd, platform) });
 }
 
 function reason({ stdout, stderr }) {
@@ -67,11 +86,28 @@ function reason({ stdout, stderr }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Bare values and no flags at all is what a stripped `--` leaves: on Windows,
+ * `npm run setup -- create --name a --owner b` reaches us as
+ * `create a b` because npm consumed the flags as its own config (#276).
+ * Say so, instead of "unknown flag".
+ */
+function refuseStrippedFlags(command, argv) {
+  if (argv.length === 0 || argv.some((a) => a.startsWith('--'))) return;
+  throw new Error(
+    `usage: ${command} got values (${argv.join(' ')}) but no flags. ` +
+      'npm drops the flags after `npm run setup --` on Windows PowerShell. ' +
+      `Run it without npm: node scripts/setup.mjs ${command} ` +
+      (command === 'create' ? '--name <n> --owner <o> [--starter <s> ...]' : '[--skip-verify] [--dry-run] [--repo owner/name]'),
+  );
+}
+
+/**
  * `create`'s flags, defaulting `--dir` to `../<name>` and `--public` to false.
  * `--starter` may repeat. Whether the starters and the provider exist is the
  * catalogue's to say, so `create` checks that, not this.
  */
 export function parseCreateArgs(argv) {
+  refuseStrippedFlags('create', argv);
   const opts = { public: false, starters: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -98,6 +134,7 @@ export function parseCreateArgs(argv) {
 
 /** `check`'s flags. Every one is optional. */
 export function parseCheckArgs(argv) {
+  refuseStrippedFlags('check', argv);
   const opts = { skipVerify: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -390,7 +427,7 @@ export async function engineDrift({ run, root, commit }) {
 }
 
 /**
- * Runs `check` for real: every line `npm run setup -- check` prints, and the
+ * Runs `check` for real: every line `node scripts/setup.mjs check` prints, and the
  * exit code. `run` defaults to the real `gh`/`git`; `fetchUrl` to the real
  * `fetch`; `runVerify` and `runIdentityTest` to actually spawning `npm run
  * verify` and the identity test. Each is injectable so a test can drive this
@@ -581,7 +618,7 @@ export async function runCheck({
   if (skipVerify) {
     results.push({ mark: MARK.done, text: 'npm run verify: skipped (--skip-verify)' });
   } else {
-    const verify = runVerify ? runVerify() : spawnSync('npm', ['run', 'verify'], { stdio: 'inherit' }).status ?? 1;
+    const verify = runVerify ? runVerify() : spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }).status ?? 1;
     results.push(
       verify === 0
         ? { mark: MARK.done, text: 'npm run verify passes' }
@@ -711,7 +748,7 @@ export function withoutCredentials(url) {
  * and the README read would all inspect this checkout — the base — not the
  * new repository `check` is meant to grade.
  */
-export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log } = {}) {
+export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT, log = console.log } = {}) {
   const catalogueFile = join(root, 'catalogue.json');
   if (!existsSync(catalogueFile)) {
     throw new Error(`setup create: ${root} has no catalogue.json; create runs from the base checkout, which says what a product can be made of`);

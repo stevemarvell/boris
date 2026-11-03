@@ -23,9 +23,14 @@ reviews.
    ```bash
    gh repo clone stevemarvell/boris
    npm run bootstrap
-   npm run setup -- create --name <project> --owner <github-owner> \
+   node scripts/setup.mjs create --name <project> --owner <github-owner> \
      [--starter python-fastapi] [--starter <another>] [--deploy vercel] [--dir <path>] [--public]
    ```
+
+   Use `node scripts/setup.mjs`, not `npm run setup --`: on Windows, npm's
+   PowerShell shim drops the `--`, npm takes `--name`, `--owner` and the rest as
+   its own config and strips them, and the script sees only the bare values.
+   `node` bypasses npm and works in every shell.
 
    Give `--starter` once for each app. With none, `create` builds an
    **engine-only** product: the engine and the generated files, a
@@ -71,7 +76,7 @@ reviews.
 3. **Run `check` until nothing is left for you.** From the new repository:
 
    ```bash
-   npm run setup -- check          # --dry-run to change nothing, --skip-verify to skip the tests
+   node scripts/setup.mjs check          # --dry-run to change nothing, --skip-verify to skip the tests
    ```
 
    Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
@@ -309,7 +314,7 @@ own manual reachable, once there is a deployment for them to live on.
 ## Repository secrets
 
 A clone carries none of these. The owner adds each one with
-`gh secret set <name>`; an agent never handles them. `npm run setup -- check`
+`gh secret set <name>`; an agent never handles them. `node scripts/setup.mjs check`
 reports which are missing by name only.
 
 | Secret | Used by | Add it |
