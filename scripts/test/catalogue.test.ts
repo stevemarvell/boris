@@ -55,7 +55,8 @@ describe('the committed catalogue.json', () => {
     expect(() => validate({ ...project, apps: {} })).toThrow(/at least one app/);
   });
 
-  it('gives every file in the repository exactly one home', () => {
+  // Timeout: spawns git ls-files (13 ms quiet); 15 s.
+  it('gives every file in the repository exactly one home', { timeout: 15_000 }, () => {
     const appDirs = Object.values(catalogue.starters).map((s) => project.apps[s.app]?.path ?? '');
     const starterFiles = Object.values(catalogue.starters).flatMap((s) => s.files);
     const elsewhere = [...catalogue.seeded.paths, ...catalogue.generated.paths, ...catalogue.base.paths, ...starterFiles];

@@ -265,7 +265,8 @@ describe('apply', () => {
 });
 
 describe('gh', () => {
-  it('reports a real failure with a non-empty stderr, for an invocation that is safe offline', async () => {
+  // Timeout: spawns the real gh binary (59 ms quiet); 15 s.
+  it('reports a real failure with a non-empty stderr, for an invocation that is safe offline', { timeout: 15_000 }, async () => {
     // An unknown flag makes gh's own argument parser reject the command
     // before it would otherwise need the network, so this is deterministic
     // without talking to GitHub — and it is this suite's one real exercise

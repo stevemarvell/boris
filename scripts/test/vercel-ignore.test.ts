@@ -172,25 +172,30 @@ describe('pathspecs', () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it('skips both for a change only to agent configuration', () => {
+  // Timeout: spawns git in a real repository (505 ms quiet); 60 s.
+  it('skips both for a change only to agent configuration', { timeout: 60_000 }, () => {
     expect(touching('.claude/x')).toEqual({ api: false, web: false });
     expect(touching('CLAUDE.md')).toEqual({ api: false, web: false });
     expect(touching('.github/x')).toEqual({ api: false, web: false });
   });
 
-  it('builds only the API for a change under apps/api', () => {
+  // Timeout: spawns git in a real repository (261 ms quiet); 30 s.
+  it('builds only the API for a change under apps/api', { timeout: 30_000 }, () => {
     expect(touching('apps/api/x')).toEqual({ api: true, web: false });
   });
 
-  it('builds only the web app for docs, which its prebuild renders', () => {
+  // Timeout: spawns git in a real repository (284 ms quiet); 30 s.
+  it('builds only the web app for docs, which its prebuild renders', { timeout: 30_000 }, () => {
     expect(touching('docs/x')).toEqual({ api: false, web: true });
   });
 
-  it('builds both when the ignore script itself changes', () => {
+  // Timeout: spawns git in a real repository (196 ms quiet); 15 s.
+  it('builds both when the ignore script itself changes', { timeout: 15_000 }, () => {
     expect(touching('scripts/deploy/vercel/vercel-ignore.mjs')).toEqual({ api: true, web: true });
   });
 
-  it('skips the web app for tests and CI-only scripts, which never reach the bundle', () => {
+  // Timeout: spawns git in a real repository (806 ms quiet); 60 s.
+  it('skips the web app for tests and CI-only scripts, which never reach the bundle', { timeout: 60_000 }, () => {
     expect(touching('apps/web/src/thing.test.ts')).toEqual({ api: false, web: false });
     expect(touching('apps/web/e2e/docs.spec.ts')).toEqual({ api: false, web: false });
     expect(touching('scripts/pr-contention.mjs')).toEqual({ api: false, web: false });
@@ -200,18 +205,21 @@ describe('pathspecs', () => {
     expect(touching('scripts/write-ci-sandbox-settings.mjs')).toEqual({ api: false, web: false });
   });
 
-  it("builds the web app for the scripts its prebuild runs", () => {
+  // Timeout: spawns git in a real repository (327 ms quiet); 30 s.
+  it("builds the web app for the scripts its prebuild runs", { timeout: 30_000 }, () => {
     expect(touching('apps/web/scripts/build-docs.mjs')).toEqual({ api: false, web: true });
     expect(touching('scripts/markdown.mjs')).toEqual({ api: false, web: true });
   });
 
-  it('builds nothing for a path no app declares it reads', () => {
+  // Timeout: spawns git in a real repository (239 ms quiet); 15 s.
+  it('builds nothing for a path no app declares it reads', { timeout: 15_000 }, () => {
     // The manifest lists what a build reads, not what it does not. A read left
     // undeclared is caught after merge by smoke.yml's freshness gates.
     expect(touching('brand-new/x')).toEqual({ api: false, web: false });
   });
 
-  it('rebuilds both when the manifest, or the code that reads it, changes', () => {
+  // Timeout: spawns git in a real repository (295 ms quiet); 30 s.
+  it('rebuilds both when the manifest, or the code that reads it, changes', { timeout: 30_000 }, () => {
     expect(touching('project.json')).toEqual({ api: true, web: true });
     expect(touching('scripts/project.mjs')).toEqual({ api: true, web: true });
   });

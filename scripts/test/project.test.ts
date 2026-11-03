@@ -45,7 +45,8 @@ describe('the committed project.json', () => {
     }
   });
 
-  it('is valid, and every declared app directory exists', () => {
+  // Timeout: spawns git ls-files (11 ms quiet); 15 s.
+  it('is valid, and every declared app directory exists', { timeout: 15_000 }, () => {
     const project = loadProject();
     for (const [, app] of apps(project)) {
       const listed = execFileSync('git', ['ls-files', '--', app.path], { cwd: REPO_ROOT, encoding: 'utf8' });
@@ -53,7 +54,8 @@ describe('the committed project.json', () => {
     }
   });
 
-  it('deploys exactly the projects that have vercel.json ignore steps', () => {
+  // Timeout: spawns git ls-files (5 ms quiet); 15 s.
+  it('deploys exactly the projects that have vercel.json ignore steps', { timeout: 15_000 }, () => {
     const project = loadProject();
     // Every deployed app has a vercel.json running the ignore step under its name…
     for (const [name, app] of deployed(project)) {
@@ -79,7 +81,8 @@ describe('the committed project.json', () => {
 });
 
 describe('the --has-deploy CLI', () => {
-  it('prints false and exits non-zero against the committed project.json, which deploys nothing', () => {
+  // Timeout: spawns node scripts/project.mjs (35 ms quiet); 15 s.
+  it('prints false and exits non-zero against the committed project.json, which deploys nothing', { timeout: 15_000 }, () => {
     const result = spawnSync('node', ['scripts/project.mjs', '--has-deploy'], { cwd: REPO_ROOT, encoding: 'utf8' });
     expect(result.stdout.trim()).toBe('false');
     expect(result.status).toBe(1);

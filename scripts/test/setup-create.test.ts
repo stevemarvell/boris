@@ -477,7 +477,8 @@ describe('create', () => {
     });
   });
 
-  it('with real git in the product: one commit and no other history, a fetch-only base remote, the commit recorded and the tree clean', async () => {
+  // Timeout: runs real git init, add, commit and remotes (413 ms quiet); 30 s.
+  it('with real git in the product: one commit and no other history, a fetch-only base remote, the commit recorded and the tree clean', { timeout: 30_000 }, async () => {
     const w = world();
     const dir = freshDir();
     // Real git for the product, so the commit and the remotes are real; the

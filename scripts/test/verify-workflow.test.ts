@@ -117,7 +117,8 @@ describe('verify.yml', () => {
     expect(runs(report(), { node: 'true', python: 'true' }, false)).toBe(false);
   });
 
-  it('writes the outputs the workflow reads, when its step is run as written, against this repository', () => {
+  // Timeout: spawns bash on the workflow step (37 ms quiet); 15 s.
+  it('writes the outputs the workflow reads, when its step is run as written, against this repository', { timeout: 15_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'gh-output-'));
     try {
       const out = join(dir, 'output');
