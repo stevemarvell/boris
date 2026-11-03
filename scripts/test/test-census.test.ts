@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { worktreeFiles } from '../git-files.mjs';
 import { canonical } from '../paths.mjs';
 import { apps, loadProject } from '../project.mjs';
 import {
@@ -289,11 +291,10 @@ describe('the premise: this repository can actually be counted', () => {
   // have its own, and the AI layer's own live in scripts/test. A census
   // that walked a hand-written list of directories would stop seeing a
   // suite the day a new one is added, which is this repository's signature
-  // failure wearing a different hat. So this asks git for every tracked
-  // file instead.
-  const everything = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
-    .split('\n')
-    .filter(Boolean);
+  // failure wearing a different hat. So this asks git for every tracked file,
+  // and every new one not yet added: verify runs before the first commit, and
+  // a test file nobody has added must fail here as it will in CI (#257).
+  const everything = worktreeFiles(root);
   const testFiles = everything.filter(isTestFile);
 
   it("finds every suite: the AI layer's own, and one in every declared app", () => {
@@ -362,5 +363,29 @@ describe('the premise: this repository can actually be counted', () => {
       ...(buildsProducts ? ['scripts/test/assemble.test.ts'] : []),
       'scripts/test/test-census.test.ts',
     ]);
+  });
+});
+
+describe('worktreeFiles sees an untracked file (#257)', () => {
+  // Timeout: real git init and add in a temporary repository (<=100 ms quiet); 15 s.
+  it('lists tracked and new files, not ignored ones, so an unlisted test is caught', { timeout: 15_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'census-test-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+      git('init', '-q');
+      writeFileSync(join(dir, 'a.test.ts'), ts('one'));
+      git('add', 'a.test.ts');
+      mkdirSync(join(dir, 'scripts'));
+      writeFileSync(join(dir, 'scripts', 'new.test.ts'), ts('two'));
+      writeFileSync(join(dir, '.gitignore'), 'ignored.test.ts\n');
+      writeFileSync(join(dir, 'ignored.test.ts'), ts('three'));
+      const files = worktreeFiles(dir);
+      expect(files).toContain('scripts/new.test.ts');
+      expect(files).toContain('a.test.ts');
+      expect(files).not.toContain('ignored.test.ts');
+      expect(files.filter(isTestFile)).toContain('scripts/new.test.ts');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -5,7 +5,8 @@
 // instead. This test is that trail's detector, run as `git grep` sees the
 // repository rather than as a list anyone has to remember to update by hand.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ROOT } from '../project.mjs';
@@ -124,11 +125,14 @@ const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog',
  * literal old-name fixtures by design — proving a rename works needs a
  * "boris" to rename, the same way this file needs one to detect.
  */
-function grepHits() {
+function grepHits(cwd: string = ROOT) {
   const result = spawnSync(
     'git',
     [
       'grep',
+      // Untracked, non-ignored files too: verify runs before the first commit,
+      // and a new file must fail here as it will in CI (#257).
+      '--untracked',
       '-i',
       '-n',
       ...NAMES.flatMap((name) => ['-e', name]),
@@ -137,7 +141,7 @@ function grepHits() {
       ':(exclude)scripts/test/identity.test.ts',
       ':(exclude)scripts/test/setup.test.ts',
     ],
-    { cwd: ROOT, encoding: 'utf8' },
+    { cwd, encoding: 'utf8' },
   );
   // Exit code 1 means no matches, which is a valid (if surprising) outcome
   // here, not a failure of the command itself.
@@ -182,5 +186,26 @@ describe('no leftover name from NAMES outside the allowlist', () => {
       (allowed) => !hits.some((hit) => hit.file === allowed.file && allowed.pattern.test(hit.content)),
     );
     expect(stale).toEqual([]);
+  });
+});
+
+describe('an untracked file is seen (#257)', () => {
+  // Timeout: real git init and add in a temporary repository (<=100 ms quiet); 15 s.
+  it('reports a name in a file that was never git added', { timeout: 15_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'identity-test-'));
+    try {
+      const git = (...args: string[]) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+      git('init', '-q');
+      writeFileSync(join(dir, 'tracked.txt'), 'nothing here\n');
+      git('add', 'tracked.txt');
+      mkdirSync(join(dir, 'scripts'));
+      writeFileSync(join(dir, 'scripts', 'new.test.ts'), "it('mentions boris', () => {});\n");
+      writeFileSync(join(dir, '.gitignore'), 'ignored.txt\n');
+      writeFileSync(join(dir, 'ignored.txt'), 'boris\n');
+      const hits = grepHits(dir);
+      expect(hits.map((hit) => hit.file).sort()).toEqual(['scripts/new.test.ts']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
