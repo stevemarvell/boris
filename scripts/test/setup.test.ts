@@ -811,13 +811,14 @@ export function nonLiteralNpmCalls(source: string): string[] {
   const literal = /^(?:'[^'\\\n$]*'|"[^"\\\n$]*")$/;
   const arrayCall = /\b\w+\(\s*(['"])(npm|npx)\1\s*,\s*(\[[^\]]*\]|[^,)]+)/g;
   for (const m of source.matchAll(arrayCall)) {
-    const arg = m[3].trim();
+    const arg = (m[3] ?? '').trim();
     const items = arg.startsWith('[') ? arg.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean) : [arg];
     if (!items.every((i) => literal.test(i))) bad.push(m[0]);
   }
   // execSync-style single command strings: `npx ...` / `npm ...`.
   for (const m of source.matchAll(/\bexec(?:Sync)?\(\s*(`[^`]*`|'[^']*'|"[^"]*")/g)) {
-    if (/^.(?:npm|npx)\b/.test(m[1]) && (m[1].startsWith('`') || /\$\{|\+/.test(m[1]))) bad.push(m[0]);
+    const cmd = m[1] ?? '';
+    if (/^.(?:npm|npx)\b/.test(cmd) && (cmd.startsWith('`') || /\$\{|\+/.test(cmd))) bad.push(m[0]);
   }
   return bad;
 }
