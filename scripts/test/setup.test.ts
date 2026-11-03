@@ -41,7 +41,7 @@ describe('stripped `--` (#276)', () => {
   it('the CLI refuses the exact stripped argv, exit non-zero, no network', () => {
     let out = '';
     try {
-      execFileSync('node', ['scripts/setup.mjs', ...stripped], { encoding: 'utf8', stdio: 'pipe' });
+      execFileSync('node', ['scripts/setup.mjs', ...stripped], { encoding: 'utf8', stdio: 'pipe', timeout: 20_000 });
     } catch (e) {
       out = String((e as { stderr?: string }).stderr);
     }
