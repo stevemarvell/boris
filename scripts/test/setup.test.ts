@@ -16,7 +16,9 @@ import {
   needsTemplateIssue,
   parseCheckArgs,
   exec,
+  create,
   needsShell,
+  shellCommand,
   spawnTool,
   parseCreateArgs,
   preflight,
@@ -772,71 +774,85 @@ describe('npm and npx on Windows (#276)', () => {
     for (const cmd of ['gh', 'git', 'uv', 'node']) expect(needsShell(cmd, 'win32'), cmd).toBe(false);
   });
 
-  it('exec passes shell:true to execFile for npx on win32, not on linux, never for git or gh', async () => {
-    const seen: Array<[string, unknown]> = [];
-    const execFileImpl = (cmd: string, _a: string[], o: { shell: boolean }, cb: (e: null, out: string, err: string) => void) => {
-      seen.push([cmd, o.shell]);
-      cb(null, '', '');
+  it('exec on win32 passes ONE command string and shell:true to execFile, no args array (DEP0190); linux gets the array, no shell', async () => {
+    const seen: unknown[][] = [];
+    const execFileImpl = (...a: unknown[]) => {
+      seen.push(a.slice(0, -1));
+      (a[a.length - 1] as (e: null, o: string, r: string) => void)(null, '', '');
     };
     await exec('npx', ['npm@11', '--version'], { platform: 'win32', execFileImpl });
     await exec('npx', ['npm@11', '--version'], { platform: 'linux', execFileImpl });
     await exec('git', ['--version'], { platform: 'win32', execFileImpl });
-    await exec('gh', ['api', 'user'], { platform: 'win32', execFileImpl });
-    expect(seen).toEqual([['npx', true], ['npx', false], ['git', false], ['gh', false]]);
+    const opt = (shell: boolean) => expect.objectContaining({ shell });
+    expect(seen).toEqual([
+      ['npx npm@11 --version', opt(true)],
+      ['npx', ['npm@11', '--version'], opt(false)],
+      ['git', ['--version'], opt(false)],
+    ]);
   }, 10_000);
 
-  it('spawnTool goes through a shell for npm on win32 only, and keeps fixed args and options', () => {
-    const calls: Array<[string, string[], Record<string, unknown>]> = [];
-    const spawnImpl = (cmd: string, args: string[], o: Record<string, unknown>) => {
-      calls.push([cmd, args, o]);
+  it('spawnTool on win32 passes one command string and shell:true, no args array; linux the array and no shell', () => {
+    const calls: unknown[][] = [];
+    const spawnImpl = (...a: unknown[]) => {
+      calls.push(a);
       return { status: 0 };
     };
     spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }, { platform: 'win32', spawnImpl });
     spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }, { platform: 'linux', spawnImpl });
     spawnTool('node', ['x'], {}, { platform: 'win32', spawnImpl });
     expect(calls).toEqual([
-      ['npm', ['run', 'verify'], { stdio: 'inherit', shell: true }],
+      ['npm run verify', { stdio: 'inherit', shell: true }],
       ['npm', ['run', 'verify'], { stdio: 'inherit', shell: false }],
       ['node', ['x'], { shell: false }],
     ]);
   });
+
+  it('shellCommand accepts plain tokens and refuses anything a shell would interpret', () => {
+    expect(shellCommand('npx', ['npm@11', '--version'])).toBe('npx npm@11 --version');
+    expect(shellCommand('npm', ['run', 'a/b_c=1:2+3.x'])).toBe('npm run a/b_c=1:2+3.x');
+    for (const bad of ['x & calc', 'a|b', 'a^b', '%PATH%', 'a<b', 'a>b', '"q"', "'q'", 'a;b', '', '$x', '`x`', 'a\nb']) {
+      expect(() => shellCommand('npm', ['run', bad]), JSON.stringify(bad)).toThrow(/refusing/);
+    }
+  });
+
+  it('on win32 a refused argument stops exec and spawnTool before anything runs; on linux no guard', async () => {
+    let ran = 0;
+    const execFileImpl = () => { ran++; };
+    const spawnImpl = () => { ran++; return { status: 0 }; };
+    await expect(exec('npx', ['npm@11', 'x & calc'], { platform: 'win32', execFileImpl })).rejects.toThrow(/refusing/);
+    expect(() => spawnTool('npm', ['run', 'x & calc'], {}, { platform: 'win32', spawnImpl })).toThrow(/refusing/);
+    expect(ran).toBe(0);
+    spawnTool('npm', ['run', 'x & calc'], {}, { platform: 'linux', spawnImpl });
+    expect(ran).toBe(1);
+  });
 });
 
-// On win32 `npm` and `npx` run with `shell: true` (needsShell), which is safe only
-// while their arguments are fixed literals. THIS IS A TEXTUAL CHECK, not a data-flow
-// one: it scans the source for calls naming npm/npx and requires every argument to be
-// a string literal with no `${}` interpolation. It can miss a call built some other way.
-export function nonLiteralNpmCalls(source: string): string[] {
-  const bad: string[] = [];
-  const literal = /^(?:'[^'\\\n$]*'|"[^"\\\n$]*")$/;
-  const arrayCall = /\b\w+\(\s*(['"])(npm|npx)\1\s*,\s*(\[[^\]]*\]|[^,)]+)/g;
-  for (const m of source.matchAll(arrayCall)) {
-    const arg = (m[3] ?? '').trim();
-    const items = arg.startsWith('[') ? arg.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean) : [arg];
-    if (!items.every((i) => literal.test(i))) bad.push(m[0]);
-  }
-  // execSync-style single command strings: `npx ...` / `npm ...`.
-  for (const m of source.matchAll(/\bexec(?:Sync)?\(\s*(`[^`]*`|'[^']*'|"[^"]*")/g)) {
-    const cmd = m[1] ?? '';
-    if (/^.(?:npm|npx)\b/.test(cmd) && (cmd.startsWith('`') || /\$\{|\+/.test(cmd))) bad.push(m[0]);
-  }
-  return bad;
-}
+describe('create refuses a dirty base and names the files (#280)', () => {
+  const dirtyRun = (lines: string[]) => async (cmd: string, args: string[]) => {
+    const isStatus = cmd === 'git' && args.includes('status');
+    return { status: 0, stdout: isStatus ? lines.join('\n') + '\n' : 'ok', stderr: '' };
+  };
+  const attempt = (lines: string[]) => {
+    const dir = mkdtempSync(join(tmpdir(), 'setup-dirty-'));
+    const opts = { name: 'p', owner: 'o', dir: join(dir, 'p'), public: false, starters: [] as string[] };
+    const spawn = () => ({ status: 0 });
+    return create(opts, { run: dirtyRun(lines), spawn, log: () => {} }).finally(() => rmSync(dir, { recursive: true, force: true }));
+  };
 
-describe('npm/npx call sites pass only literal arguments (#278)', () => {
-  it('flags a fixture call that passes a variable', () => {
-    expect(nonLiteralNpmCalls("run('npx', ['npm@11', userValue]);")).toHaveLength(1);
-    expect(nonLiteralNpmCalls("step('npm', args, 'x');")).toHaveLength(1);
-    expect(nonLiteralNpmCalls('execSync(`npx vitest ${name}`)')).toHaveLength(1);
-  });
+  it('lists the dirty paths', async () => {
+    const err = await attempt([' M package-lock.json', 'M  docs/a b.md']).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/uncommitted changes to tracked files/);
+    expect((err as Error).message).toContain('package-lock.json');
+    expect((err as Error).message).toContain('docs/a b.md');
+    expect((err as Error).message).not.toMatch(/and \d+ more/);
+  }, 20_000);
 
-  it('accepts literal calls', () => {
-    expect(nonLiteralNpmCalls("run('npx', ['npm@11', '--version']); spawnTool('npm', ['run', 'verify'], {});")).toEqual([]);
-  });
-
-  it('finds the real call sites in scripts/setup.mjs and all are literal', () => {
-    const source = readFileSync(fileURLToPath(new URL('../setup.mjs', import.meta.url)), 'utf8');
-    expect(source.match(/\b\w+\(\s*'(npm|npx)'/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
-    expect(nonLiteralNpmCalls(source)).toEqual([]);
-  });
+  it('lists at most 10, then "and N more"', async () => {
+    const lines = Array.from({ length: 13 }, (_, i) => ` M f${String(i).padStart(2, '0')}.txt`);
+    const err = (await attempt(lines).catch((e: Error) => e)) as Error;
+    expect(err.message).toContain('f09.txt');
+    expect(err.message).not.toContain('f10.txt');
+    expect(err.message).toMatch(/and 3 more/);
+  }, 20_000);
 });

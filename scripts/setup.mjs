@@ -63,18 +63,43 @@ export function needsShell(cmd, platform = process.platform) {
   return platform === 'win32' && (cmd === 'npm' || cmd === 'npx');
 }
 
-/** Runs `cmd args` and resolves to its exit status, stdout and stderr. Never rejects. */
+const SHELL_TOKEN = /^[A-Za-z0-9@._\/=:+-]+$/;
+
+/**
+ * The one command string a shell will run for `cmd args`. A shell interprets
+ * spaces, quotes, `&`, `|`, `^`, `%`, `<`, `>` and more, so every argument must
+ * be a plain token; anything else is refused at runtime, whichever variable it
+ * came through. Used only where needsShell is true.
+ */
+export function shellCommand(cmd, args) {
+  for (const arg of args) {
+    if (!SHELL_TOKEN.test(String(arg))) {
+      throw new Error(`refusing to run ${cmd} through a shell with argument ${JSON.stringify(arg)}: only plain tokens (${SHELL_TOKEN}) are allowed`);
+    }
+  }
+  return [cmd, ...args].join(' ');
+}
+
+/**
+ * Runs `cmd args` and resolves to its exit status, stdout and stderr. Never
+ * rejects, except for a refused shell argument. Through a shell (win32 npm/npx)
+ * it passes one command string and no args array, which Node's DEP0190 asks for.
+ */
 export function exec(cmd, args, { platform = process.platform, execFileImpl = execFile } = {}) {
   return new Promise((resolve) => {
-    execFileImpl(cmd, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, shell: needsShell(cmd, platform) }, (error, stdout, stderr) => {
+    const options = { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 };
+    const done = (error, stdout, stderr) => {
       resolve({ status: error?.code ?? 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
-    });
+    };
+    if (needsShell(cmd, platform)) execFileImpl(shellCommand(cmd, args), { ...options, shell: true }, done);
+    else execFileImpl(cmd, args, { ...options, shell: false }, done);
   });
 }
 
-/** `spawnSync` with inherited-stdio options, through a shell for npm/npx on Windows. */
+/** `spawnSync` with inherited-stdio options; npm/npx on Windows as one guarded command string. */
 export function spawnTool(cmd, args, options = {}, { platform = process.platform, spawnImpl = spawnSync } = {}) {
-  return spawnImpl(cmd, args, { ...options, shell: needsShell(cmd, platform) });
+  if (needsShell(cmd, platform)) return spawnImpl(shellCommand(cmd, args), { ...options, shell: true });
+  return spawnImpl(cmd, args, { ...options, shell: false });
 }
 
 function reason({ stdout, stderr }) {
@@ -776,7 +801,10 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
   const dirty = await baseGit(['status', '--porcelain', '--untracked-files=no']);
   if (dirty.status !== 0) throw new Error(`git status failed in ${root}: ${reason(dirty)}`);
   if (dirty.stdout.trim()) {
-    throw new Error(`setup create: ${root} has uncommitted changes to tracked files; commit or stash them, so engine.commit describes what is copied`);
+    const paths = dirty.stdout.split(/\r?\n/).filter((l) => l.trim()).map((l) => l.slice(3));
+    const shown = paths.slice(0, 10).join(', ');
+    const more = paths.length > 10 ? ` and ${paths.length - 10} more` : '';
+    throw new Error(`setup create: ${root} has uncommitted changes to tracked files (${shown}${more}); commit or stash them, so engine.commit describes what is copied`);
   }
   const head = await baseGit(['rev-parse', 'HEAD']);
   const engineCommit = head.stdout.trim();

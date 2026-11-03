@@ -45,6 +45,7 @@ export declare const TEMPLATE_ISSUE_TITLE: string;
 export declare const MAX_ISSUE_PAGES: number;
 
 export declare function needsShell(cmd: string, platform?: string): boolean;
+export declare function shellCommand(cmd: string, args: string[]): string;
 export declare function exec(
   cmd: string,
   args: string[],
