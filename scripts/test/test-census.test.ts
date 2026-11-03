@@ -358,9 +358,13 @@ describe('the premise: this repository can actually be counted', () => {
     // built, so it is listed in catalogue.json's `base` and a product does not
     // have it; where it exists the list stays exact, and where it does not
     // there is nothing for the list to name.
+    //
+    // spawn-timeout.test.ts has no table either: its comments and fixtures
+    // name `it.each` because it refuses a table-driven spawner it cannot read.
     const buildsProducts = existsSync(join(root, 'scripts/test/assemble.test.ts'));
     expect(tables.filter((path) => !inApps.includes(path))).toEqual([
       ...(buildsProducts ? ['scripts/test/assemble.test.ts'] : []),
+      'scripts/test/spawn-timeout.test.ts',
       'scripts/test/test-census.test.ts',
     ]);
   });

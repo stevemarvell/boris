@@ -204,7 +204,8 @@ describe.each(COMBINATIONS.map((starters) => [starters.length ? starters.join(' 
     expect(written.endsWith('\n')).toBe(true);
   });
 
-  it('refuses to assemble into what it just built', () => {
+  // Timeout: assemble lists the source's files with git ls-files before it refuses (<=110 ms quiet); 15 s.
+  it('refuses to assemble into what it just built', { timeout: 15_000 }, () => {
     expect(() => assemble({ target, name: 'widgets', starters: chosen, engineCommit: ENGINE_COMMIT })).toThrow(/is not empty/);
     expect(listing(target)).toEqual(onDisk);
   });
@@ -444,7 +445,8 @@ describe('assemble in a small repository', () => {
     }
   });
 
-  it('says so when the source is not a git checkout, rather than guess at its files', () => {
+  // Timeout: builds a fake repository and asks git about it, which fails (<=110 ms quiet); 15 s.
+  it('says so when the source is not a git checkout, rather than guess at its files', { timeout: 15_000 }, () => {
     const { root, catalogue } = fakeRepo(undefined, false);
     const target = join(scratch(), 'out');
     expect(() => assemble({ root, catalogue, target, name: 'p', starters: ['svc'] })).toThrow(/is not a git checkout/);
@@ -703,7 +705,8 @@ describe('a product built from a repository whose engine holds .github but not i
     expect(readFileSync(join(target, '.github/dependabot.yml'), 'utf8')).toBe(DEPENDABOT);
   });
 
-  it('refuses, writing nothing, when the base\'s dependabot.yml is a shape it cannot split', () => {
+  // Timeout: builds a fake repository with real git add (<=110 ms quiet); 15 s.
+  it('refuses, writing nothing, when the base\'s dependabot.yml is a shape it cannot split', { timeout: 15_000 }, () => {
     const { target, run } = withGithub('node', `${DEPENDABOT}registries:\n  x: y\n`);
     expect(run).toThrow(/"registries:", which assemble\.mjs does not understand/);
     expect(existsSync(target)).toBe(false);
