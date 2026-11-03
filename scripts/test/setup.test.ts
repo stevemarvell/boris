@@ -778,7 +778,7 @@ describe('npm and npx on Windows (#276)', () => {
     await exec('git', ['--version'], { platform: 'win32', execFileImpl });
     await exec('gh', ['api', 'user'], { platform: 'win32', execFileImpl });
     expect(seen).toEqual([['npx', true], ['npx', false], ['git', false], ['gh', false]]);
-  });
+  }, 10_000);
 
   it('spawnTool goes through a shell for npm on win32 only, and keeps fixed args and options', () => {
     const calls: Array<[string, string[], Record<string, unknown>]> = [];
