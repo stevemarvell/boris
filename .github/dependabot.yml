@@ -62,6 +62,25 @@ updates:
         update-types:
           - minor
           - patch
+    # Majors that cannot land, so their pull requests would only sit open and
+    # come back every week (#260). Syntax: `ignore` with `dependency-name` and
+    # `update-types`, github/docs content/code-security/reference/
+    # supply-chain-security/dependabot-options-reference.md. Minor and patch
+    # updates of both are still proposed.
+    ignore:
+      # typescript-eslint@8.72.0 does not accept typescript@7 as a peer, so
+      # `npm ci` fails with ERESOLVE (#242). Remove this when typescript-eslint
+      # supports TypeScript 7.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # CI runs Node 22 (verify.yml `node-version`); types for a later major
+      # would describe APIs the runtime lacks (#249). Move this major together
+      # with that `node-version`; scripts/test/dependabot.test.ts fails if
+      # they differ.
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: deps
 
