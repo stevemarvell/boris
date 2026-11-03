@@ -55,40 +55,47 @@ function importsIn(original: string) {
  * no per-test timeout can apply. Each is named by file and by the text of the
  * call, with the reason. The list is exact: a stale entry fails too.
  */
-const COLLECTION_TIME: { file: string; name: string; reason: string }[] = [
+const COLLECTION_TIME: { file: string; name: string; count: number; reason: string }[] = [
   {
     file: 'scripts/test/assemble.test.ts',
     name: 'execFileSync',
+    count: 1,
     reason: 'module-level `git ls-files`, read once when the file loads; there is no test to hold a timeout',
   },
   {
     file: 'scripts/test/assemble.test.ts',
     name: 'assemble',
+    count: 1,
     reason: 'a describe.each body assembles each combination once at collection, to share the result between its tests',
   },
   {
     file: 'scripts/test/identity.test.ts',
     name: 'grepHits',
+    count: 1,
     reason: 'a describe body runs one `git grep` at collection to build the cases; no test owns it',
   },
   {
     file: 'scripts/test/spawn-timeout.test.ts',
     name: 'worktreeFiles',
+    count: 1,
     reason: 'this check lists the test files once, in its describe body, with a single `git ls-files`',
   },
   {
     file: 'scripts/test/test-census.test.ts',
     name: 'worktreeFiles',
+    count: 1,
     reason: 'a describe body lists the files once at collection (one `git ls-files`)',
   },
   {
     file: 'scripts/test/vercel-ignore.test.ts',
     name: 'git',
+    count: 2,
     reason: 'a beforeEach builds the temporary repository; hooks have their own timeout (10 s default) and no test owns it',
   },
   {
     file: 'scripts/test/vercel-ignore.test.ts',
     name: 'commit',
+    count: 1,
     reason: 'the same beforeEach: its helper wraps `git add` and `git commit`',
   },
 ];
@@ -223,10 +230,27 @@ const mentions = (text: string, name: string) =>
  * name) shadows the file's helper of that name: that is how a test or a helper
  * injects its own fake runner, and it must not be read as the real one.
  */
-const shadowed = (text: string, name: string) =>
-  new RegExp(
-    `(?:const|let|var|function)\\s+${esc(name)}\\b|[(,]\\s*${esc(name)}\\s*(?::[^,)=]+)?[,)]\\s*(?:=>|:|\\{)|[{,]\\s*${esc(name)}\\s*[,}]\\s*(?:=|\\)\\s*(?:=>|:|\\{))`,
-  ).test(text);
+const shadowed = (text: string, name: string): boolean => {
+  const n = esc(name);
+  const declarations = [
+    // const git = …, function git(…
+    new RegExp(`(?:const|let|var|function)\\s+${n}(?![\\w$])`),
+    // const { git } = …, const [git] = …
+    new RegExp(`(?:const|let|var)\\s*[{[][^=;]*(?<![\\w$.])${n}(?![\\w$])[^=;]*[}\\]]\\s*=`),
+    // a parameter of an arrow or function declared here: (git) =>, (a, { git }) =>, function (git) {
+    new RegExp(`\\([^()]*(?<![\\w$.])${n}(?![\\w$])[^()]*\\)\\s*(?::[^=;{()]+)?=>`),
+    new RegExp(`function\\s*[\\w$]*\\s*\\([^()]*(?<![\\w$.])${n}(?![\\w$])[^()]*\\)`),
+    new RegExp(`(?<![\\w$.])${n}\\s*=>`),
+  ];
+  const declared = Math.min(...declarations.map((re) => re.exec(text)?.index ?? Infinity));
+  if (declared === Infinity) return false;
+  // Only a declaration that comes before the first use shadows the helper.
+  for (const m of text.matchAll(new RegExp(`(?<![\\w$.])${n}(?![\\w$])(?!\\s*:)`, 'g'))) {
+    if (/(?:const|let|var|function)\s+$/.test(text.slice(0, m.index!))) continue;
+    return declared <= m.index!;
+  }
+  return true;
+};
 
 /** The innermost `{ … }` around `at`, or the whole file. */
 function enclosingBlock(clean: string, at: number): [number, number] {
@@ -251,16 +275,21 @@ function helpers(clean: string): Span[] {
     const from = m.index!;
     let depth = 0;
     let end = clean.length;
+    const opened: number[] = [];
     for (let i = from + m[0].length - 1; i < clean.length; i++) {
       const c = clean[i]!;
-      if ('([{'.includes(c)) depth++;
-      else if (')]}'.includes(c)) {
+      if ('([{'.includes(c)) {
+        depth++;
+        opened.push(i);
+      } else if (')]}'.includes(c)) {
         depth--;
+        const open = opened.pop()!;
         if (depth < 0) {
           end = i;
           break;
         }
-        if (depth === 0 && c === '}' && m[1]) {
+        // A `{ … }` that follows `:` is a return type, not the body.
+        if (depth === 0 && c === '}' && m[1] && !/:\s*$/.test(clean.slice(0, open))) {
           end = i + 1;
           break;
         }
@@ -350,7 +379,7 @@ function testsIn(clean: string, original: string): Test[] {
             else if (')]}'.includes(args[k]!)) depth--;
             else if (depth === 0) inner += args[k];
           }
-          if (/(^|[,\s])timeout\s*(:|,|$)/.test(inner) || /(^|[,{\s])timeout\s*[:,}]/.test(args.slice(i, close + 1)) && !/=>/.test(args.slice(i, close))) hasTimeout = true;
+          if (/(^|[,\s])timeout\s*(:|,|$)/.test(inner)) hasTimeout = true;
         }
         i = close;
       }
@@ -401,16 +430,32 @@ export function inspect(file: string, original: string) {
     `${SPAWN_API.source}|(?<![\\w$.])(${names.map(esc).join('|') || '(?!)'})\\s*\\(`,
     'g',
   );
-  const collection = new Set<string>();
+  const collection: Record<string, number> = {};
   for (const m of clean.matchAll(probe)) {
     const at = m.index!;
     if (inside.some(([a, b]) => at >= a && at <= b)) continue;
     const name = (m[1] ?? m[2])!;
     const def = known.find((h) => h.name === name);
     if (def && !visible(def, at)) continue;
-    collection.add(name);
+    collection[name] = (collection[name] ?? 0) + 1;
   }
-  return { findings, collection: [...collection] };
+  return { findings, collection };
+}
+
+/**
+ * Where the spawns seen at collection time differ from the declared ones, by
+ * file, name and number of occurrences: a new call behind an existing name is
+ * a difference, and so is a call that went away.
+ */
+export function collectionMismatches(
+  results: { file: string; collection: Record<string, number> }[],
+  declared: { file: string; name: string; count: number }[],
+): string[] {
+  const seen = new Map(results.flatMap((r) => Object.entries(r.collection).map(([name, n]) => [`${r.file} ${name}`, n] as const)));
+  const want = new Map(declared.map((e) => [`${e.file} ${e.name}`, e.count] as const));
+  return [...new Set([...seen.keys(), ...want.keys()])]
+    .filter((key) => (seen.get(key) ?? 0) !== (want.get(key) ?? 0))
+    .map((key) => `${key}: seen ${seen.get(key) ?? 0}, declared ${want.get(key) ?? 0}`);
 }
 
 describe('every test that spawns a process carries its own timeout', () => {
@@ -437,12 +482,9 @@ describe('every test that spawns a process carries its own timeout', () => {
     expect(all.map((f) => `${f.file}:${f.line} "${f.title}" ${f.why}`)).toEqual([]);
   });
 
-  it('knows exactly which spawns run at collection time, and why', () => {
-    const seen = new Set(results.flatMap((r) => r.collection.map((name) => `${r.file} ${name}`)));
-    const declared = new Set(COLLECTION_TIME.map((e) => `${e.file} ${e.name}`));
+  it('knows exactly which spawns run at collection time, how many, and why', () => {
     for (const e of COLLECTION_TIME) expect(e.reason.length, e.file).toBeGreaterThan(20);
-    expect([...seen].filter((s) => !declared.has(s))).toEqual([]);
-    expect([...declared].filter((d) => !seen.has(d))).toEqual([]);
+    expect(collectionMismatches(results, COLLECTION_TIME)).toEqual([]);
   });
 });
 
@@ -450,7 +492,7 @@ describe('the check itself, on fixtures', () => {
   // `${'it'}` keeps these fixtures from being read as tests by anything
   // textual, this file included.
   const fixture = (head: string, body: string) =>
-    `import { execFileSync, spawnSync } from 'node:child_process';\n${head}\n${'it'}('does a thing', ${head ? '' : ''}${body}\n`;
+    `import { execFileSync, spawnSync } from 'node:child_process';\n${head}\n${'it'}('does a thing', ${body}\n`;
 
   const verdict = (source: string) => inspect('fixture.test.ts', source).findings;
 
@@ -508,6 +550,37 @@ describe('the check itself, on fixtures', () => {
     const source = `import { execFileSync } from 'node:child_process';\nconst list = execFileSync('git', ['ls-files']);\n${'it'}('reads', () => { expect(list).toBeTruthy(); });\n`;
     const result = inspect('fixture.test.ts', source);
     expect(result.findings).toEqual([]);
-    expect(result.collection).toHaveLength(1);
+    expect(result.collection).toEqual({ execFileSync: 1 });
+  });
+
+  it('does not take a use of the name for a declaration of it (Round 1, shadowing)', () => {
+    const head = `const git = (...a: string[]) => execFileSync('git', a);`;
+    expect(verdict(fixture(head, `() => {\n  if (git) { git('x'); }\n});`))).toHaveLength(1);
+    expect(verdict(fixture(head, `() => {\n  const y = true ? f(git) : 0;\n  git('x');\n});`))).toHaveLength(1);
+  });
+
+  it('counts a declaration only if it comes before the first use (Round 1, shadowing)', () => {
+    const head = `const git = (...a: string[]) => execFileSync('git', a);`;
+    expect(verdict(fixture(head, `() => {\n  git('x');\n  const git = 1;\n});`))).toHaveLength(1);
+    expect(verdict(fixture(head, `() => {\n  const git = vi.fn();\n  git('x');\n});`))).toEqual([]);
+    expect(verdict(fixture(head, `(git: unknown) => {\n  git();\n});`))).toEqual([]);
+  });
+
+  it('accepts a shorthand { timeout } but not one nested in a spawn\'s options (Round 1, options)', () => {
+    expect(verdict(fixture('const timeout = 5000;', `{ timeout }, () => {\n  execFileSync('git');\n});`))).toEqual([]);
+    expect(verdict(fixture('', `{ retry: 1, env: { timeout: 5 } }, () => {\n  execFileSync('git');\n});`))).toHaveLength(1);
+  });
+
+  it('fails when a new collection-time call hides behind an existing entry (Round 1, exemptions)', () => {
+    const source = `import { execFileSync } from 'node:child_process';\nconst a = execFileSync('git');\nconst b = execFileSync('git');\n`;
+    const results = [{ file: 'f.test.ts', ...inspect('f.test.ts', source) }];
+    expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 2 }])).toEqual([]);
+    expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 1 }])).toHaveLength(1);
+    expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 3 }])).toHaveLength(1);
+  });
+
+  it('reads a function body that follows an object return type (Round 1, found while counting)', () => {
+    const head = `function mk(a = 1): { x: number } {\n  return { x: spawnSync('git').status ?? a };\n}`;
+    expect(verdict(fixture(head, `() => {\n  mk();\n});`))).toHaveLength(1);
   });
 });
