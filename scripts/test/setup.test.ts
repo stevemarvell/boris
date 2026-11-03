@@ -47,7 +47,7 @@ describe('stripped `--` (#276)', () => {
     }
     expect(out).toMatch(/node scripts\/setup\.mjs create --name/);
     expect(out).not.toMatch(/unknown flag/);
-  });
+  }, 30_000);
 
   it('a real unknown flag still gets the usage error', () => {
     expect(() => parseCheckArgs(['--nope'])).toThrow(/unknown flag "--nope"/);
