@@ -336,8 +336,8 @@ describe('runCheck', () => {
     expect(line).toContain('apps/web/src/leftover.ts names the base');
   });
 
-  // Timeout: runs the real identity suite, which spawns git grep (1.1 s quiet); 60 s.
-  it('runs the real identity test by default, not a re-derived allowlist', { timeout: 60_000 }, async () => {
+  // Timeout (the 30 s at the end): spawns a real vitest process on identity.test.ts (1.1 s quiet, ~27x).
+  it('runs the real identity test by default, not a re-derived allowlist', async () => {
     // No runIdentityTest override: this exercises the real default, which
     // spawns scripts/test/identity.test.ts itself via vitest — proving the
     // census is the actual test, not a second copy of what it allows.
