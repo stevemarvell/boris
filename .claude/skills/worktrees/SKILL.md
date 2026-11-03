@@ -33,7 +33,7 @@ only when it changes what that app reads
 (`scripts/deploy/vercel/vercel-ignore.mjs`). Each deployed app's preview is
 independent: nothing pairs a branch's web preview with its API preview, so
 which API a web preview calls is the application's business — its
-`deployment` skill under `apps/.claude/skills/` says, once one exists. Vercel
+`deployment` skill under `apps/<app>/.claude/skills/` says, once one exists. Vercel
 tears no preview down; the `preview-prune` workflow deletes a branch's
 previews when its pull request closes.
 

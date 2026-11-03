@@ -18,13 +18,25 @@ import { ROOT, apps, loadProject } from './project.mjs';
 export function plan(project, names = []) {
   const known = new Map(apps(project));
   for (const name of names) {
-    if (!known.has(name)) throw new Error(`no app named "${name}" in project.json (have: ${[...known.keys()].join(', ')})`);
+    if (!known.has(name)) throw new Error(`no app named "${name}" in project.json (have: ${[...known.keys()].join(', ') || 'none: it declares no apps'})`);
   }
   const chosen = names.length ? names : [...known.keys()];
   return chosen.flatMap((name) => {
     const app = known.get(name);
     return (app.verify ?? []).map((command) => ({ app: name, cwd: app.path, command }));
   });
+}
+
+/**
+ * Why `steps` is empty, as a line to print, or null when there is something to
+ * run. An engine-only product declares no apps, and `verify:apps` passing
+ * there has to say it ran nothing, not look like it ran something.
+ */
+export function nothingToRun(project, steps) {
+  if (steps.length > 0) return null;
+  return apps(project).length === 0
+    ? 'verify:apps: project.json declares no apps; nothing to run'
+    : 'verify:apps: no app declares any verify command; nothing to run';
 }
 
 /** Run the plan; returns the step that failed, or null. `exec` is injectable for tests. */
@@ -50,6 +62,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     console.error(error.message);
     process.exit(2);
   }
+  const empty = nothingToRun(loadProject(), steps);
+  if (empty) console.log(empty);
   const failed = run(steps);
   if (failed) {
     console.error(`\nverify ${failed.app} failed at: ${failed.command}`);

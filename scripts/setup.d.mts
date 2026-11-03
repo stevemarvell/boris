@@ -49,7 +49,7 @@ export declare function exec(cmd: string, args: string[]): Promise<RunResult>;
 export declare function parseCreateArgs(argv: string[]): CreateArgs;
 export declare function parseCheckArgs(argv: string[]): CheckArgs;
 
-export declare function preflight(options?: { run?: Run; nodeVersion?: string }): Promise<PreflightResult[]>;
+export declare function preflight(options?: { run?: Run; nodeVersion?: string; python?: boolean }): Promise<PreflightResult[]>;
 export declare function missingPreflight(results: PreflightResult[]): PreflightResult[];
 
 export declare function renderCheck(results: CheckLine[]): CheckResult;
@@ -69,13 +69,12 @@ export declare function runCheck(options?: {
 }): Promise<CheckResult>;
 
 export declare function engineDrift(options: { run: Run; root: string; commit: string }): Promise<CheckLine>;
-export declare const HELD_BACK: Record<string, string>;
 export declare function checkOwner(owner: unknown): void;
-export declare function checkChoices(options: { catalogue: Catalogue; starters: string[]; deploy?: string; heldBack?: Record<string, string> }): void;
+export declare function checkChoices(options: { catalogue: Catalogue; starters: string[]; deploy?: string }): void;
 export declare function withoutCredentials(url: string): string;
 export declare function ensureEmptyTarget(options: { run: Run; target: string }): Promise<{ exists: boolean }>;
 export declare function create(
   options: CreateArgs,
-  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void; heldBack?: Record<string, string> },
+  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
 ): Promise<number>;
 export declare function main(argv: string[]): Promise<number>;

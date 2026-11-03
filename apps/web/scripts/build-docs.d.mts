@@ -10,9 +10,15 @@ export declare function page(options: {
 export declare function indexPage(
   rendered?: { slug: string; title: string; blurb: string }[],
   name?: string,
+  options?: { stepZero?: boolean },
 ): string;
 export declare function buildDocs(options?: {
   root?: string;
   out?: string;
   env?: Record<string, string | undefined>;
-}): { out: string; written: string[] };
+}): { out: string; written: string[]; skipped: string[] };
+export declare function plannedPages(options?: { root?: string }): {
+  pages: { slug: string; page: string; source: string; title: string | null; blurb?: string; markdown?: string }[];
+  skipped: string[];
+};
+export declare function listing(options?: { root?: string }): string;

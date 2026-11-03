@@ -21,7 +21,9 @@ and this file.
 | --- | --- |
 | `api/` | The `python-fastapi` starter: FastAPI shell with `/health`, security headers and the developer consoles in development only. Its own `CLAUDE.md` holds its rules and run commands. |
 | `web/` | The `node-react` starter: Ionic React shell on Vite that builds the project documentation to `/docs/`. Its own `CLAUDE.md` holds its rules, and its `.claude/skills/` holds the `docs-site` skill. |
-| `.claude/skills/` | `deployment`, once `npm run deploy:add` has added one. |
+
+Each app also gets a `deployment` skill in its own `.claude/skills/`, once
+`npm run deploy:add` has added one for it.
 
 ## Rules
 
@@ -46,9 +48,10 @@ and this file.
 
 `project.json` is the AI layer's own copy of which apps are deployed, read
 through `scripts/project.mjs`. Nothing is deployed there either, by default.
-**Read the `deployment` skill under `apps/.claude/skills/` — written by
-`deploy:add` from `scripts/deploy/vercel/template/` — before changing
-anything that deploys, once one exists.**
+**Read the `deployment` skill under `apps/<app>/.claude/skills/` — written
+by `deploy:add` into each app it deploys, from
+`scripts/deploy/vercel/template/` — before changing anything that deploys,
+once one exists.**
 
 ## Documentation
 
