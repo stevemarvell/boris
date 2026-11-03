@@ -589,7 +589,8 @@ describe('find', () => {
 });
 
 describe('gh / git', () => {
-  it('reports a real failure, for an invocation that is safe offline', async () => {
+  // Timeout: spawns the real gh and git binaries, each failing on a bad flag (<=100 ms quiet); 15 s.
+  it('reports a real failure, for an invocation that is safe offline', { timeout: 15_000 }, async () => {
     const ghResult = await gh(['api', '--bogus-flag']);
     expect(ghResult.status).not.toBe(0);
 

@@ -26,8 +26,29 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { worktreeFiles } from '../git-files.mjs';
 
-/** Imported functions that spawn internally, so the file itself shows no spawn. */
-const SPAWNING_IMPORTS = ['assemble'];
+/**
+ * Imported functions that spawn internally, so the file itself shows no spawn.
+ * Only those that always do: a function that spawns through a runner it is
+ * handed (labels, triage, stuck, smoke, setup) is a spawn only when the test
+ * hands it the real one, and a test that does so says so in its own text.
+ */
+const SPAWNING_IMPORTS: { name: string; module: string; fakedBy?: RegExp }[] = [
+  { name: 'assemble', module: 'assemble.mjs' }, // lists the source's files with `git ls-files`
+  { name: 'plan', module: 'assemble.mjs' }, // the same listing; verify-apps.mjs's own `plan` does not spawn
+  { name: 'worktreeFiles', module: 'git-files.mjs' }, // `git ls-files`
+  { name: 'gh', module: 'labels.mjs' }, // the real `gh` binary
+  { name: 'gh', module: 'stuck.mjs' }, // the same
+  { name: 'git', module: 'stuck.mjs' }, // the real `git` binary
+  // The hook's fix-up runs `uv`/`npx` unless the test hands it an `exec`.
+  { name: 'runFixes', module: 'format-edited.mjs', fakedBy: /\bexec\s*[:,}]/ },
+];
+
+/** The spawning imports this file actually takes, by the module they come from. */
+function importsIn(original: string) {
+  return SPAWNING_IMPORTS.filter(({ name, module }) =>
+    new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*['"][^'"]*${module.replace('.', '\\.')}['"]`).test(original),
+  ).map((i) => ({ ...i, start: 0, end: 0, scope: [0, Infinity] as [number, number] }));
+}
 
 /**
  * Spawns outside any test body: they run while the file is collected, where
@@ -49,6 +70,11 @@ const COLLECTION_TIME: { file: string; name: string; reason: string }[] = [
     file: 'scripts/test/identity.test.ts',
     name: 'grepHits',
     reason: 'a describe body runs one `git grep` at collection to build the cases; no test owns it',
+  },
+  {
+    file: 'scripts/test/spawn-timeout.test.ts',
+    name: 'worktreeFiles',
+    reason: 'this check lists the test files once, in its describe body, with a single `git ls-files`',
   },
   {
     file: 'scripts/test/test-census.test.ts',
@@ -185,6 +211,8 @@ interface Span {
   end: number;
   /** Where the name is visible: the block the helper is defined in. */
   scope: [number, number];
+  /** An import that spawns unless the test hands it a fake: the text that says so. */
+  fakedBy?: RegExp;
 }
 
 const esc = (name: string) => name.replace(/\$/g, '\\$');
@@ -249,7 +277,7 @@ function helpers(clean: string): Span[] {
 const visible = (def: Span, at: number) => at >= def.scope[0] && at <= def.scope[1];
 
 /** The file's helpers that spawn, directly or through another helper. */
-function spawningHelpers(clean: string, defs: Span[]): Span[] {
+function spawningHelpers(clean: string, defs: Span[], imported: Span[]): Span[] {
   const spawning = new Set<Span>();
   for (let changed = true; changed; ) {
     changed = false;
@@ -264,7 +292,7 @@ function spawningHelpers(clean: string, defs: Span[]): Span[] {
           body = body.slice(0, inner.start - def.start) + ' '.repeat(inner.end - inner.start) + body.slice(inner.end - def.start);
         }
       }
-      const calls = [...spawning, ...SPAWNING_IMPORTS.map((name) => ({ name, start: 0, end: 0, scope: [0, clean.length] as [number, number] }))].some(
+      const calls = [...spawning, ...imported].some(
         (other) => other !== def && other.name !== def.name && visible(other, def.start) && mentions(body, other.name) && !shadowed(whole, other.name),
       );
       if (apiUses(body, whole).length || calls) {
@@ -344,8 +372,8 @@ export interface Finding {
 export function inspect(file: string, original: string) {
   const clean = blank(original);
   const defs = helpers(clean);
-  const spawners = spawningHelpers(clean, defs);
-  const imports = SPAWNING_IMPORTS.map((name) => ({ name, start: 0, end: 0, scope: [0, clean.length] as [number, number] }));
+  const imports = importsIn(original);
+  const spawners = spawningHelpers(clean, defs, imports);
   const known = [...spawners, ...imports];
   const tests = testsIn(clean, original);
   const findings: Finding[] = [];
@@ -355,7 +383,7 @@ export function inspect(file: string, original: string) {
     const used = apiUses(body);
     for (const h of known) {
       if (h.start >= t.start && h.end <= t.end + 1) continue; // defined inside the test: its spawns are already in the body
-      if (visible(h, t.start) && mentions(body, h.name) && !shadowed(body, h.name)) used.push(h.name);
+      if (visible(h, t.start) && mentions(body, h.name) && !shadowed(body, h.name) && !h.fakedBy?.test(body)) used.push(h.name);
     }
     if (t.unsupported) {
       findings.push({ file, line: t.line, title: t.title, why: 'is table-driven (it.each); this check cannot see its options. Write the cases out, or extend the check.' });
@@ -366,8 +394,8 @@ export function inspect(file: string, original: string) {
 
   // Spawns and spawning-helper calls outside every test body and outside
   // every helper definition: they run when the file is collected, or in a hook.
-  const imports = [...clean.matchAll(/^import\b[^;]*;/gm)].map((m) => [m.index!, m.index! + m[0].length] as const);
-  const inside = [...tests.map((t) => [t.start, t.end] as const), ...defs.map((h) => [h.start, h.end] as const), ...imports];
+  const importStatements = [...clean.matchAll(/^import\b[^;]*;/gm)].map((m) => [m.index!, m.index! + m[0].length] as const);
+  const inside = [...tests.map((t) => [t.start, t.end] as const), ...defs.map((h) => [h.start, h.end] as const), ...importStatements];
   const names = [...new Set(known.map((h) => h.name))];
   const probe = new RegExp(
     `${SPAWN_API.source}|(?<![\\w$.])(${names.map(esc).join('|') || '(?!)'})\\s*\\(`,
