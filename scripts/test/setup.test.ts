@@ -14,6 +14,9 @@ import {
   missingPreflight,
   needsTemplateIssue,
   parseCheckArgs,
+  exec,
+  needsShell,
+  spawnTool,
   parseCreateArgs,
   preflight,
   renderCheck,
@@ -751,5 +754,45 @@ describe('engineDrift', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('npm and npx on Windows (#276)', () => {
+  it('needsShell is true only for npm and npx, only on win32', () => {
+    for (const cmd of ['npm', 'npx']) {
+      expect(needsShell(cmd, 'win32'), cmd).toBe(true);
+      expect(needsShell(cmd, 'linux'), cmd).toBe(false);
+      expect(needsShell(cmd, 'darwin'), cmd).toBe(false);
+    }
+    for (const cmd of ['gh', 'git', 'uv', 'node']) expect(needsShell(cmd, 'win32'), cmd).toBe(false);
+  });
+
+  it('exec passes shell:true to execFile for npx on win32, not on linux, never for git or gh', async () => {
+    const seen: Array<[string, unknown]> = [];
+    const execFileImpl = (cmd: string, _a: string[], o: { shell: boolean }, cb: (e: null, out: string, err: string) => void) => {
+      seen.push([cmd, o.shell]);
+      cb(null, '', '');
+    };
+    await exec('npx', ['npm@11', '--version'], { platform: 'win32', execFileImpl });
+    await exec('npx', ['npm@11', '--version'], { platform: 'linux', execFileImpl });
+    await exec('git', ['--version'], { platform: 'win32', execFileImpl });
+    await exec('gh', ['api', 'user'], { platform: 'win32', execFileImpl });
+    expect(seen).toEqual([['npx', true], ['npx', false], ['git', false], ['gh', false]]);
+  });
+
+  it('spawnTool goes through a shell for npm on win32 only, and keeps fixed args and options', () => {
+    const calls: Array<[string, string[], Record<string, unknown>]> = [];
+    const spawnImpl = (cmd: string, args: string[], o: Record<string, unknown>) => {
+      calls.push([cmd, args, o]);
+      return { status: 0 };
+    };
+    spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }, { platform: 'win32', spawnImpl });
+    spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }, { platform: 'linux', spawnImpl });
+    spawnTool('node', ['x'], {}, { platform: 'win32', spawnImpl });
+    expect(calls).toEqual([
+      ['npm', ['run', 'verify'], { stdio: 'inherit', shell: true }],
+      ['npm', ['run', 'verify'], { stdio: 'inherit', shell: false }],
+      ['node', ['x'], { shell: false }],
+    ]);
   });
 });

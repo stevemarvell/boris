@@ -44,7 +44,18 @@ export declare const OWNER_ISSUES: OwnerIssue[];
 export declare const TEMPLATE_ISSUE_TITLE: string;
 export declare const MAX_ISSUE_PAGES: number;
 
-export declare function exec(cmd: string, args: string[]): Promise<RunResult>;
+export declare function needsShell(cmd: string, platform?: string): boolean;
+export declare function exec(
+  cmd: string,
+  args: string[],
+  opts?: { platform?: string; execFileImpl?: (...a: any[]) => unknown },
+): Promise<RunResult>;
+export declare function spawnTool(
+  cmd: string,
+  args: string[],
+  options?: Record<string, unknown>,
+  opts?: { platform?: string; spawnImpl?: (...a: any[]) => { status: number | null } },
+): { status: number | null };
 
 export declare function parseCreateArgs(argv: string[]): CreateArgs;
 export declare function parseCheckArgs(argv: string[]): CheckArgs;

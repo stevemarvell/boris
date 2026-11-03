@@ -53,13 +53,28 @@ export const PREFLIGHT_NODE_MAJOR = 22;
 
 const CREATE_USAGE = 'create --name <n> --owner <o> [--starter <s> ...] [--deploy <provider>] [--dir <path>] [--public]';
 
+/**
+ * `npm` and `npx` are `.cmd` shims on Windows, which Node cannot start without
+ * a shell (ENOENT, or EINVAL since CVE-2024-27980). Only those two, only on
+ * win32: `gh`, `git` and `uv` are executables, and a shell on Linux would add
+ * nothing. Every argument passed to them here is a fixed literal.
+ */
+export function needsShell(cmd, platform = process.platform) {
+  return platform === 'win32' && (cmd === 'npm' || cmd === 'npx');
+}
+
 /** Runs `cmd args` and resolves to its exit status, stdout and stderr. Never rejects. */
-export function exec(cmd, args) {
+export function exec(cmd, args, { platform = process.platform, execFileImpl = execFile } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFileImpl(cmd, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, shell: needsShell(cmd, platform) }, (error, stdout, stderr) => {
       resolve({ status: error?.code ?? 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
   });
+}
+
+/** `spawnSync` with inherited-stdio options, through a shell for npm/npx on Windows. */
+export function spawnTool(cmd, args, options = {}, { platform = process.platform, spawnImpl = spawnSync } = {}) {
+  return spawnImpl(cmd, args, { ...options, shell: needsShell(cmd, platform) });
 }
 
 function reason({ stdout, stderr }) {
@@ -603,7 +618,7 @@ export async function runCheck({
   if (skipVerify) {
     results.push({ mark: MARK.done, text: 'npm run verify: skipped (--skip-verify)' });
   } else {
-    const verify = runVerify ? runVerify() : spawnSync('npm', ['run', 'verify'], { stdio: 'inherit' }).status ?? 1;
+    const verify = runVerify ? runVerify() : spawnTool('npm', ['run', 'verify'], { stdio: 'inherit' }).status ?? 1;
     results.push(
       verify === 0
         ? { mark: MARK.done, text: 'npm run verify passes' }
@@ -733,7 +748,7 @@ export function withoutCredentials(url) {
  * and the README read would all inspect this checkout — the base — not the
  * new repository `check` is meant to grade.
  */
-export async function create(opts, { run = exec, spawn = spawnSync, root = ROOT, log = console.log } = {}) {
+export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT, log = console.log } = {}) {
   const catalogueFile = join(root, 'catalogue.json');
   if (!existsSync(catalogueFile)) {
     throw new Error(`setup create: ${root} has no catalogue.json; create runs from the base checkout, which says what a product can be made of`);
