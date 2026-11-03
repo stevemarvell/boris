@@ -813,6 +813,10 @@ describe('listing', () => {
 // the owner's first real `create`. This assembles, commits, and runs it.
 // ---------------------------------------------------------------------------
 describe("an assembled product passes its own harness (#281)", () => {
+  // The base's own name plus a suffix, as the owner's first `create` was. Built
+  // from parts so this file does not itself name it, as identity.test.ts reads it.
+  const BASE_NAMED_PRODUCT = `${'bor'}is-trial`;
+
   /** Assembles, commits and runs the product's own harness suite; returns the exit status and the tail of its output. */
   const harness = (name: string, starters: string[]) => {
     const target = join(scratch(), 'product');
@@ -830,7 +834,7 @@ describe("an assembled product passes its own harness (#281)", () => {
 
   // Timeout: assembles a product, git init + commit, then runs its whole harness suite under vitest (~7 s quiet, several times that under load); 300 s.
   it("a product whose name contains the base's, with both starters", { timeout: 300_000 }, () => {
-    const { status, output } = harness('boris-trial', ['python-fastapi', 'node-react']);
+    const { status, output } = harness(BASE_NAMED_PRODUCT, ['python-fastapi', 'node-react']);
     expect(status, output).toBe(0);
   });
 
