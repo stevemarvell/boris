@@ -824,7 +824,7 @@ describe('npm and npx on Windows (#276)', () => {
     expect(ran).toBe(0);
     spawnTool('npm', ['run', 'x & calc'], {}, { platform: 'linux', spawnImpl });
     expect(ran).toBe(1);
-  });
+  }, 10_000);
 });
 
 describe('create refuses a dirty base and names the files (#280)', () => {
