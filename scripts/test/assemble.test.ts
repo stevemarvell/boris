@@ -320,7 +320,8 @@ function build(change?: (c: Catalogue) => void, overrides: Partial<Parameters<ty
 }
 
 describe('assemble in a small repository', () => {
-  it('copies the engine and the chosen starter, generates the rest, and nothing else', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('copies the engine and the chosen starter, generates the rest, and nothing else', { timeout: 15_000 }, () => {
     const { target, run } = build();
     run();
     expect(listing(target)).toEqual([
@@ -336,14 +337,16 @@ describe('assemble in a small repository', () => {
     ]);
   });
 
-  it('never copies a local secret, an ignored name, build output or a base-only file', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('never copies a local secret, an ignored name, build output or a base-only file', { timeout: 15_000 }, () => {
     const { target, run } = build();
     run();
     const files = listing(target);
     expect(files.filter((f) => /\.env|node_modules|built\.txt|base-only/.test(f))).toEqual([]);
   });
 
-  it("writes the product's own project.json: its name, only the chosen app, and no deployment of the base's", () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it("writes the product's own project.json: its name, only the chosen app, and no deployment of the base's", { timeout: 15_000 }, () => {
     const { target, run } = build();
     run();
     const written = JSON.parse(readFileSync(join(target, 'project.json'), 'utf8'));
@@ -353,7 +356,8 @@ describe('assemble in a small repository', () => {
     expect(JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')).name).toBe('prod');
   });
 
-  it("records the engine's commit as engine.commit in the product's project.json, and only when it is given", () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it("records the engine's commit as engine.commit in the product's project.json, and only when it is given", { timeout: 15_000 }, () => {
     const sha = '0123456789abcdef0123456789abcdef01234567';
     const withSha = build(undefined, { engineCommit: sha });
     withSha.run();
@@ -367,7 +371,8 @@ describe('assemble in a small repository', () => {
     expect(JSON.parse(readFileSync(join(without.target, 'project.json'), 'utf8')).engine).toBeUndefined();
   });
 
-  it('assembles an engine-only product when no starter is chosen, and the engine commit marks it as one', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('assembles an engine-only product when no starter is chosen, and the engine commit marks it as one', { timeout: 15_000 }, () => {
     const { target, run } = build(undefined, { starters: [], engineCommit: ENGINE_COMMIT });
     run();
     expect(listing(target)).toEqual(['CLAUDE.md', 'README.md', 'package.json', 'project.json', 'settings.json', 'tools/a.mjs', 'tools/cloud/template/t', 'tools/deep/b.mjs']);
@@ -382,7 +387,8 @@ describe('assemble in a small repository', () => {
     expect(build(undefined, { starters: undefined as never }).run).toThrow(/starters must be a list/);
   });
 
-  it('refuses an engine commit that is not a full SHA before writing anything', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses an engine commit that is not a full SHA before writing anything', { timeout: 15_000 }, () => {
     for (const engineCommit of ['abc1234', 'main', '', 'Z'.repeat(40)]) {
       const { target, run } = build(undefined, { engineCommit });
       expect(run, engineCommit).toThrow(/engine\.commit/);
@@ -390,7 +396,8 @@ describe('assemble in a small repository', () => {
     }
   });
 
-  it('copies committed files only: an untracked file in an engine path or a starter never reaches a product', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('copies committed files only: an untracked file in an engine path or a starter never reaches a product', { timeout: 15_000 }, () => {
     const { root, target, run } = build();
     for (const path of ['tools/.env.production', 'tools/stray.pem', 'tools/deep/notes.txt', 'apps/svc/key.pem']) {
       writeFileSync(join(root, path), 'untracked');
@@ -400,7 +407,8 @@ describe('assemble in a small repository', () => {
     expect(listing(target)).toContain('tools/a.mjs');
   });
 
-  it('keeps the name filter as a second guard: a committed local override is still not copied', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('keeps the name filter as a second guard: a committed local override is still not copied', { timeout: 15_000 }, () => {
     const { root, target, run } = build();
     writeFileSync(join(root, 'tools/.env.local'), 'x');
     execFileSync('git', ['add', '--force', 'tools/.env.local'], { cwd: root });
@@ -408,14 +416,16 @@ describe('assemble in a small repository', () => {
     expect(listing(target).filter((f) => f.includes('.env'))).toEqual([]);
   });
 
-  it('refuses a committed file that is missing from the working tree, naming it', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a committed file that is missing from the working tree, naming it', { timeout: 15_000 }, () => {
     const { root, target, run } = build();
     rmSync(join(root, 'tools/deep/b.mjs'));
     expect(run).toThrow(/"tools\/deep\/b\.mjs" is tracked but missing from the working tree/);
     expect(existsSync(target)).toBe(false);
   });
 
-  it('lists the source root\'s own repository even when the environment points git elsewhere', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('lists the source root\'s own repository even when the environment points git elsewhere', { timeout: 15_000 }, () => {
     const { root, catalogue } = fakeRepo();
     // A different repository entirely: this one, whose files share nothing with the fake.
     const saved = { GIT_DIR: process.env['GIT_DIR'], GIT_WORK_TREE: process.env['GIT_WORK_TREE'], GIT_INDEX_FILE: process.env['GIT_INDEX_FILE'] };
@@ -441,7 +451,8 @@ describe('assemble in a small repository', () => {
     expect(existsSync(target)).toBe(false);
   });
 
-  it('refuses a target that has anything in it, and leaves it as it was', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a target that has anything in it, and leaves it as it was', { timeout: 15_000 }, () => {
     const { target, run } = build();
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, 'keep.txt'), 'mine');
@@ -449,7 +460,8 @@ describe('assemble in a small repository', () => {
     expect(listing(target)).toEqual(['keep.txt']);
   });
 
-  it('accepts an empty existing directory, and refuses a file or a target inside the source', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('accepts an empty existing directory, and refuses a file or a target inside the source', { timeout: 15_000 }, () => {
     const empty = build();
     mkdirSync(empty.target, { recursive: true });
     expect(() => empty.run()).not.toThrow();
@@ -464,7 +476,8 @@ describe('assemble in a small repository', () => {
     );
   });
 
-  it('refuses a target in a directory whose name merely starts with two dots, and one reached through a symbolic link', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a target in a directory whose name merely starts with two dots, and one reached through a symbolic link', { timeout: 15_000 }, () => {
     const odd = fakeRepo();
     mkdirSync(join(odd.root, '..x'));
     expect(() => assemble({ root: odd.root, catalogue: odd.catalogue, target: join(odd.root, '..x', 'out'), name: 'p', starters: ['svc'] })).toThrow(
@@ -482,14 +495,16 @@ describe('assemble in a small repository', () => {
     expect(existsSync(join(linked.root, 'sub', 'out'))).toBe(false);
   });
 
-  it('accepts a target beside the source whose own name starts with two dots', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('accepts a target beside the source whose own name starts with two dots', { timeout: 15_000 }, () => {
     const { root, catalogue } = fakeRepo();
     const target = join(dirname(root), `..${basename(root)}-product`);
     made.push(target);
     expect(() => assemble({ root, catalogue, target, name: 'p', starters: ['svc'] })).not.toThrow();
   });
 
-  it('refuses before writing anything: an unknown starter, none, a repeat, or a bad name', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses before writing anything: an unknown starter, none, a repeat, or a bad name', { timeout: 15_000 }, () => {
     for (const [overrides, message] of [
       [{ starters: ['nope'] }, /no starter named "nope"/],
       [{ starters: [], engineCommit: undefined }, /"apps" must declare at least one app/],
@@ -503,7 +518,8 @@ describe('assemble in a small repository', () => {
     }
   });
 
-  it('refuses a catalogue that names a path that is not there, or an app project.json lacks', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a catalogue that names a path that is not there, or an app project.json lacks', { timeout: 15_000 }, () => {
     const missing = build((c) => c.engine.paths.push('tools/nothing'));
     expect(missing.run).toThrow(/"tools\/nothing" does not exist/);
     expect(existsSync(missing.target)).toBe(false);
@@ -514,7 +530,8 @@ describe('assemble in a small repository', () => {
     expect(noApp.run).toThrow(/names app "ghost"/);
   });
 
-  it('refuses a symbolic link rather than follow it', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a symbolic link rather than follow it', { timeout: 15_000 }, () => {
     const { root, target, run } = build();
     symlinkSync('/etc', join(root, 'tools/link'));
     execFileSync('git', ['add', 'tools/link'], { cwd: root });
@@ -522,7 +539,8 @@ describe('assemble in a small repository', () => {
     expect(existsSync(target)).toBe(false);
   });
 
-  it('stops at its ceilings, saying which', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('stops at its ceilings, saying which', { timeout: 15_000 }, () => {
     const files = build();
     expect(() => plan({ root: files.root, catalogue: loadFake(files.root), name: 'p', starters: ['svc'], limits: { depth: LIMITS.depth, files: 3 } })).toThrow(
       /more than 3 files/,
@@ -533,19 +551,22 @@ describe('assemble in a small repository', () => {
     );
   });
 
-  it('refuses two sources for one file', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses two sources for one file', { timeout: 15_000 }, () => {
     const { run } = build((c) => {
       c.starters['svc']!.files.push('tools/a.mjs');
     });
     expect(run).toThrow(/"tools\/a\.mjs" would be written twice/);
   });
 
-  it('refuses a generated file it has no generator for', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a generated file it has no generator for', { timeout: 15_000 }, () => {
     const { run } = build((c) => c.generated.paths.push('NOTES.md'));
     expect(run).toThrow(/no generator for it/);
   });
 
-  it("refuses an app that reads or smoke-tests something the product would not have", () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it("refuses an app that reads or smoke-tests something the product would not have", { timeout: 15_000 }, () => {
     const { root, catalogue } = fakeRepo();
     const manifest = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
     manifest.apps.svc.reads.push('docs');
@@ -553,7 +574,8 @@ describe('assemble in a small repository', () => {
     expect(() => plan({ root, catalogue, name: 'p', starters: ['svc'] })).toThrow(/app "svc" \(starter svc\) reads "docs"/);
   });
 
-  it("drops an app's read of a base-only file from the product's project.json, rather than refusing or shipping a stand-in", () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it("drops an app's read of a base-only file from the product's project.json, rather than refusing or shipping a stand-in", { timeout: 15_000 }, () => {
     const { root, catalogue } = fakeRepo();
     const manifest = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
     manifest.apps.svc.reads.push('tools/base-only.txt');
@@ -563,7 +585,8 @@ describe('assemble in a small repository', () => {
     expect(entries.map((e: { to: string }) => e.to)).not.toContain('tools/base-only.txt');
   });
 
-  it('refuses a CLAUDE.md with no shared block', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('refuses a CLAUDE.md with no shared block', { timeout: 15_000 }, () => {
     const { root, catalogue } = fakeRepo();
     writeFileSync(join(root, 'CLAUDE.md'), '# base\n');
     expect(() => plan({ root, catalogue, name: 'p', starters: ['svc'] })).toThrow(/no <!-- shared:begin/);
@@ -663,7 +686,8 @@ describe('a product built from a repository whose engine holds .github but not i
     return { root, target, run: () => assemble({ root, catalogue, target, name: 'prod', starters: ['svc'] }) };
   }
 
-  it('keeps the rest of .github, and writes the dependabot.yml once, without uv for a product with no Python app', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('keeps the rest of .github, and writes the dependabot.yml once, without uv for a product with no Python app', { timeout: 15_000 }, () => {
     const { target, run } = withGithub('node');
     const { files } = run();
     expect(files.filter((f: string) => f.startsWith('.github/'))).toEqual(['.github/dependabot.yml', '.github/workflows/verify.yml']);
@@ -672,7 +696,8 @@ describe('a product built from a repository whose engine holds .github but not i
     expect(written).not.toContain('uv');
   });
 
-  it('keeps the uv entry for a product with a Python app', () => {
+  // Timeout: builds a fake repository with real git init and add (<=110 ms quiet); 15 s.
+  it('keeps the uv entry for a product with a Python app', { timeout: 15_000 }, () => {
     const { target, run } = withGithub('python');
     run();
     expect(readFileSync(join(target, '.github/dependabot.yml'), 'utf8')).toBe(DEPENDABOT);
@@ -714,7 +739,8 @@ describe('the command line', () => {
     expect(() => parseArgs(['--bogus'])).toThrow(/unknown argument "--bogus"/);
   });
 
-  it('lists the starters and providers, builds a tree, and exits non-zero on a refusal', () => {
+  // Timeout: spawns node scripts/assemble.mjs six times (367 ms quiet); 30 s.
+  it('lists the starters and providers, builds a tree, and exits non-zero on a refusal', { timeout: 30_000 }, () => {
     const listed = spawnSync('node', ['scripts/assemble.mjs', '--list'], { cwd: ROOT, encoding: 'utf8' });
     expect(listed.status).toBe(0);
     expect(listed.stdout).toMatch(/starter {2}python-fastapi: /);

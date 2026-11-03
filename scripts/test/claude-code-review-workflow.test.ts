@@ -131,7 +131,8 @@ for (const job of JOBS) {
       expect(script(step)).not.toContain("${{");
     });
 
-    it("skips with a notice naming #244 only for Dependabot with no token", () => {
+    // Timeout: spawns bash on the workflow step (4 ms quiet); 15 s.
+    it("skips with a notice naming #244 only for Dependabot with no token", { timeout: 15_000 }, () => {
       const run = runTokenStep(job, "", DEPENDABOT);
       expect(run.status).toBe(0);
       expect(run.outputs.trim()).toBe("available=false");
@@ -141,7 +142,8 @@ for (const job of JOBS) {
       expect(run.stdout).not.toContain("::warning");
     });
 
-    it("reviews Dependabot when the token is present, so a Dependabot secret turns reviews on", () => {
+    // Timeout: spawns bash on the workflow step (6 ms quiet); 15 s.
+    it("reviews Dependabot when the token is present, so a Dependabot secret turns reviews on", { timeout: 15_000 }, () => {
       const run = runTokenStep(job, "sekret-value-123", DEPENDABOT);
       expect(run.status).toBe(0);
       expect(run.outputs.trim()).toBe("available=true");
@@ -149,7 +151,8 @@ for (const job of JOBS) {
       expect(run.stdout).not.toContain("::warning");
     });
 
-    it("keeps reviewing, and warns, when anyone else has no token, so the red stays red", () => {
+    // Timeout: spawns bash on the workflow step (14 ms quiet); 15 s.
+    it("keeps reviewing, and warns, when anyone else has no token, so the red stays red", { timeout: 15_000 }, () => {
       for (const author of ["stevemarvell", "dependabot-preview[bot]", ""]) {
         const run = runTokenStep(job, "", author);
         expect(run.status).toBe(0);
@@ -160,7 +163,8 @@ for (const job of JOBS) {
       }
     });
 
-    it("reviews anyone else with a token, silently", () => {
+    // Timeout: spawns bash on the workflow step (4 ms quiet); 15 s.
+    it("reviews anyone else with a token, silently", { timeout: 15_000 }, () => {
       const run = runTokenStep(job, "sekret-value-123", "stevemarvell");
       expect(run.status).toBe(0);
       expect(run.outputs.trim()).toBe("available=true");
@@ -168,7 +172,8 @@ for (const job of JOBS) {
       expect(run.stdout).not.toContain("::warning");
     });
 
-    it("never prints the secret, present or absent", () => {
+    // Timeout: spawns bash on the workflow step (15 ms quiet); 15 s.
+    it("never prints the secret, present or absent", { timeout: 15_000 }, () => {
       for (const token of ["sekret-value-123", ""]) {
         for (const author of [DEPENDABOT, "stevemarvell"]) {
           const run = runTokenStep(job, token, author);

@@ -12,7 +12,8 @@ afterEach(() => {
 });
 
 describe('ports', () => {
-  it('does not depend on the working directory', () => {
+  // Timeout: spawns node (49 ms quiet); 15 s.
+  it('does not depend on the working directory', { timeout: 15_000 }, () => {
     // Playwright resolves its config with cwd = apps/web, the same string in
     // every worktree. A cwd-derived offset gave every checkout identical ports
     // and let two agents silently share one server. This suite runs from the

@@ -305,21 +305,24 @@ describe("the web app's docs_served check", () => {
       );
     });
 
-  it('passes against the pages this repository builds, whichever those are', async () => {
+  // Timeout: spawns bash on the smoke script and builds the docs (217 ms quiet); 15 s.
+  it('passes against the pages this repository builds, whichever those are', { timeout: 15_000 }, async () => {
     const docs = await built();
     const result = await run(await serve(docs));
     expect(result.output).toContain('every doc page served');
     expect(result.code).toBe(0);
   });
 
-  it('fails when a page the build publishes is not served', async () => {
+  // Timeout: spawns bash on the smoke script (151 ms quiet); 15 s.
+  it('fails when a page the build publishes is not served', { timeout: 15_000 }, async () => {
     const docs = await built();
     const result = await run(await serve(docs, ['sops.html']));
     expect(result.code).not.toBe(0);
     expect(result.output).toMatch(/missing.*\/docs\/sops\.html/);
   });
 
-  it('fails when a page is served without the heading its source gives it', async () => {
+  // Timeout: spawns bash on the smoke script (151 ms quiet); 15 s.
+  it('fails when a page is served without the heading its source gives it', { timeout: 15_000 }, async () => {
     const docs = await built();
     const page = join(docs, 'sops.html');
     writeFileSync(page, readFileSync(page, 'utf8').replace(/<title>.*<\/title>/, '<title>Something else</title>'));
@@ -329,8 +332,10 @@ describe("the web app's docs_served check", () => {
   });
 
   // step-0 exists only where the repository holds a root index.html, the base.
+  // Timeout: spawns bash on the smoke script (167 ms quiet); 15 s.
   it.skipIf(!existsSync(join(ROOT, 'index.html')))(
     'fails when step-0.html is the app shell served with a 200, not the page',
+    { timeout: 15_000 },
     async () => {
       const docs = await built();
       const result = await run(await serve(docs, [], ['step-0.html']));

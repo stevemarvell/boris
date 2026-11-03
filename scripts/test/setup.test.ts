@@ -336,6 +336,7 @@ describe('runCheck', () => {
     expect(line).toContain('apps/web/src/leftover.ts names the base');
   });
 
+  // Timeout (the 30 s at the end): spawns a real vitest process on identity.test.ts (1.1 s quiet, ~27x).
   it('runs the real identity test by default, not a re-derived allowlist', async () => {
     // No runIdentityTest override: this exercises the real default, which
     // spawns scripts/test/identity.test.ts itself via vitest — proving the
@@ -671,7 +672,8 @@ describe('engineDrift', () => {
     }
   });
 
-  it('is measured against a real repository: a base two commits ahead of the recorded one', async () => {
+  // Timeout: spawns several git commands in a real repository (468 ms quiet); 30 s.
+  it('is measured against a real repository: a base two commits ahead of the recorded one', { timeout: 30_000 }, async () => {
     // Real git, no network: a "base" with three commits stands in for boris,
     // the product records the first and fetches from it.
     const dir = mkdtempSync(join(tmpdir(), 'setup-drift-'));
