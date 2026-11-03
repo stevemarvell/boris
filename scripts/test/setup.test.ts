@@ -1,7 +1,8 @@
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BASE_REMOTE,
@@ -42,14 +43,18 @@ describe('stripped `--` (#276)', () => {
   });
 
   it('the CLI refuses the exact stripped argv, exit non-zero, no network', () => {
-    let out = '';
-    try {
-      execFileSync('node', ['scripts/setup.mjs', ...stripped], { encoding: 'utf8', stdio: 'pipe', timeout: 20_000 });
-    } catch (e) {
-      out = String((e as { stderr?: string }).stderr);
-    }
-    expect(out).toMatch(/node scripts\/setup\.mjs create --name/);
-    expect(out).not.toMatch(/unknown flag/);
+    // Resolved from this file, not the working directory, so it holds wherever vitest runs.
+    const script = fileURLToPath(new URL('../setup.mjs', import.meta.url));
+    const r = spawnSync(process.execPath, [script, ...stripped], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: 20_000,
+      cwd: tmpdir(),
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.status).not.toBeNull();
+    expect(r.stderr).toMatch(/node scripts\/setup\.mjs create --name/);
+    expect(r.stderr).not.toMatch(/unknown flag/);
   }, 30_000);
 
   it('a real unknown flag still gets the usage error', () => {
@@ -794,5 +799,43 @@ describe('npm and npx on Windows (#276)', () => {
       ['npm', ['run', 'verify'], { stdio: 'inherit', shell: false }],
       ['node', ['x'], { shell: false }],
     ]);
+  });
+});
+
+// On win32 `npm` and `npx` run with `shell: true` (needsShell), which is safe only
+// while their arguments are fixed literals. THIS IS A TEXTUAL CHECK, not a data-flow
+// one: it scans the source for calls naming npm/npx and requires every argument to be
+// a string literal with no `${}` interpolation. It can miss a call built some other way.
+export function nonLiteralNpmCalls(source: string): string[] {
+  const bad: string[] = [];
+  const literal = /^(?:'[^'\\\n$]*'|"[^"\\\n$]*")$/;
+  const arrayCall = /\b\w+\(\s*(['"])(npm|npx)\1\s*,\s*(\[[^\]]*\]|[^,)]+)/g;
+  for (const m of source.matchAll(arrayCall)) {
+    const arg = m[3].trim();
+    const items = arg.startsWith('[') ? arg.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean) : [arg];
+    if (!items.every((i) => literal.test(i))) bad.push(m[0]);
+  }
+  // execSync-style single command strings: `npx ...` / `npm ...`.
+  for (const m of source.matchAll(/\bexec(?:Sync)?\(\s*(`[^`]*`|'[^']*'|"[^"]*")/g)) {
+    if (/^.(?:npm|npx)\b/.test(m[1]) && (m[1].startsWith('`') || /\$\{|\+/.test(m[1]))) bad.push(m[0]);
+  }
+  return bad;
+}
+
+describe('npm/npx call sites pass only literal arguments (#278)', () => {
+  it('flags a fixture call that passes a variable', () => {
+    expect(nonLiteralNpmCalls("run('npx', ['npm@11', userValue]);")).toHaveLength(1);
+    expect(nonLiteralNpmCalls("step('npm', args, 'x');")).toHaveLength(1);
+    expect(nonLiteralNpmCalls('execSync(`npx vitest ${name}`)')).toHaveLength(1);
+  });
+
+  it('accepts literal calls', () => {
+    expect(nonLiteralNpmCalls("run('npx', ['npm@11', '--version']); spawnTool('npm', ['run', 'verify'], {});")).toEqual([]);
+  });
+
+  it('finds the real call sites in scripts/setup.mjs and all are literal', () => {
+    const source = readFileSync(fileURLToPath(new URL('../setup.mjs', import.meta.url)), 'utf8');
+    expect(source.match(/\b\w+\(\s*'(npm|npx)'/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(nonLiteralNpmCalls(source)).toEqual([]);
   });
 });
