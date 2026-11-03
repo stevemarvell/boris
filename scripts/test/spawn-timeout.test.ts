@@ -458,6 +458,16 @@ export function collectionMismatches(
     .map((key) => `${key}: seen ${seen.get(key) ?? 0}, declared ${want.get(key) ?? 0}`);
 }
 
+/**
+ * The declared collection-time spawns that apply to this checkout. In a
+ * product (no catalogue.json) an entry for a file that is absent is a base-only
+ * file with nothing to count, so it is dropped. In the base nothing is dropped:
+ * an entry for a renamed or deleted file is stale and must fail (#281).
+ */
+export function declaredCollection<T extends { file: string }>(declared: T[], files: string[], inProduct: boolean): T[] {
+  return inProduct ? declared.filter((e) => files.includes(e.file)) : declared;
+}
+
 describe('every test that spawns a process carries its own timeout', () => {
   const root = resolve(__dirname, '../..');
   const files = worktreeFiles(root).filter((p) => /^scripts\/test\/[^/]+\.test\.ts$/.test(p));
@@ -486,9 +496,7 @@ describe('every test that spawns a process carries its own timeout', () => {
 
   it('knows exactly which spawns run at collection time, how many, and why', () => {
     for (const e of COLLECTION_TIME) expect(e.reason.length, e.file).toBeGreaterThan(20);
-    // An entry for a file that is absent (a base-only file, in a product) has
-    // nothing to count and is skipped; one for a file that exists still must match.
-    expect(collectionMismatches(results, COLLECTION_TIME.filter((e) => files.includes(e.file)))).toEqual([]);
+    expect(collectionMismatches(results, declaredCollection(COLLECTION_TIME, files, !existsSync(resolve(root, 'catalogue.json'))))).toEqual([]);
   });
 });
 
@@ -581,6 +589,15 @@ describe('the check itself, on fixtures', () => {
     expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 2 }])).toEqual([]);
     expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 1 }])).toHaveLength(1);
     expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 3 }])).toHaveLength(1);
+  });
+
+  it('drops an entry for an absent file in a product, and fails it in the base (#281)', () => {
+    const declared = [{ file: 'gone.test.ts', name: 'execFileSync', count: 1 }];
+    const results = [{ file: 'kept.test.ts', collection: {} }];
+    const product = declaredCollection(declared, ['kept.test.ts'], true);
+    expect(collectionMismatches(results, product)).toEqual([]);
+    const base = declaredCollection(declared, ['kept.test.ts'], false);
+    expect(collectionMismatches(results, base)).toHaveLength(1);
   });
 
   it('reads a function body that follows an object return type (Round 1, found while counting)', () => {

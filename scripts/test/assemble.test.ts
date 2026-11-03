@@ -838,11 +838,8 @@ describe("an assembled product passes its own harness (#281)", () => {
     expect(status, output).toBe(0);
   });
 
-  // Known gap, not yet fixed: smoke.test.ts and verify-workflow.test.ts still
-  // assume a web app and both toolchains. `it.fails` goes red the day they are
-  // fixed, which is the prompt to turn this into a plain `it`.
   // Timeout: as above, 300 s.
-  it.fails('an engine-only product (smoke.test.ts and verify-workflow.test.ts assume apps)', { timeout: 300_000 }, () => {
+  it('an engine-only product', { timeout: 300_000 }, () => {
     const { status, output } = harness('widgets', []);
     expect(status, output).toBe(0);
   });

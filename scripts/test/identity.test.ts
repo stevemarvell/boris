@@ -117,14 +117,26 @@ const ALLOW: Allowed[] = [
 const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog', 'railway'];
 
 /**
- * `line` with every occurrence of `own` (the checkout's own name) removed, so
- * a product called `boris-trial` is not a leftover for containing `boris`,
- * while a bare `boris` elsewhere on the line still is (#281). Case-insensitive,
- * like the grep. An empty name removes nothing.
+ * Whether `line` still names one of NAMES once the checkout's own name is
+ * excused (#281). Every NAMES match is found on the original line, and one is
+ * excused only if its whole span lies inside an occurrence of `own`: a product
+ * called `boris-trial` is not a leftover for containing `boris`, but a product
+ * called `ris` does not hide a `boris`, nor `family` a `family-tree`, nor
+ * `rail` a `railway`. Case-insensitive, like the grep; `own` is literal. An
+ * empty `own` excuses nothing.
  */
-export function withoutOwnName(line: string, own: string): string {
-  if (!own) return line;
-  return line.replace(new RegExp(own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
+export function namesLeft(line: string, own: string): boolean {
+  const lower = line.toLowerCase();
+  const ownLower = own.toLowerCase();
+  const ownSpans: Array<[number, number]> = [];
+  if (ownLower) for (let i = lower.indexOf(ownLower); i !== -1; i = lower.indexOf(ownLower, i + 1)) ownSpans.push([i, i + ownLower.length]);
+  return NAMES.some((name) => {
+    for (let i = lower.indexOf(name); i !== -1; i = lower.indexOf(name, i + 1)) {
+      const end = i + name.length;
+      if (!ownSpans.some(([from, to]) => from <= i && end <= to)) return true;
+    }
+    return false;
+  });
 }
 
 /**
@@ -133,11 +145,8 @@ export function withoutOwnName(line: string, own: string): string {
  */
 const OWN_NAME = IN_BASE ? '' : (loadProject(join(ROOT, 'project.json')).name as string);
 
-/** Whether a grep hit still names one of NAMES once the checkout's own name is taken out. */
-const stillNamesOne = (content: string) => {
-  const rest = withoutOwnName(content, OWN_NAME).toLowerCase();
-  return NAMES.some((name) => rest.includes(name));
-};
+/** Whether a grep hit still names one of NAMES once the checkout's own name is excused. */
+const stillNamesOne = (content: string) => namesLeft(content, OWN_NAME);
 
 /**
  * `git grep -i -n` for every name in NAMES, at the repository root, parsed
@@ -234,21 +243,28 @@ describe('an untracked file is seen (#257)', () => {
 });
 
 describe("a product's own name is not a leftover (#281)", () => {
-  it('removes the name wherever it occurs on the line, whatever its case', () => {
-    expect(withoutOwnName('"name": "boris-trial", # Boris-Trial', 'boris-trial')).toBe('"name": "", # ');
+  it('excuses the name wherever it occurs, whatever its case', () => {
+    expect(namesLeft('"name": "boris-trial", # Boris-Trial', 'boris-trial')).toBe(false);
   });
 
-  it('leaves a bare base name on the same line standing', () => {
-    const rest = withoutOwnName('boris-trial is built from boris', 'boris-trial');
-    expect(rest).toBe(' is built from boris');
-    expect(NAMES.some((name) => rest.toLowerCase().includes(name))).toBe(true);
+  it('still catches a bare base name on the same line', () => {
+    expect(namesLeft('boris-trial is built from boris', 'boris-trial')).toBe(true);
+  });
+
+  it('catches a leftover that the own name only overlaps', () => {
+    expect(namesLeft('see boris here', 'ris')).toBe(true);
+    expect(namesLeft('the family-tree app', 'family')).toBe(true);
+    expect(namesLeft('the family-tree app', 'tree')).toBe(true);
+    expect(namesLeft('deployed on railway', 'rail')).toBe(true);
   });
 
   it('treats the name literally, not as a pattern', () => {
-    expect(withoutOwnName('a.b and axb', 'a.b')).toBe(' and axb');
+    expect(namesLeft('boris and borxs', 'bor.s')).toBe(true);
+    expect(namesLeft('bor.s', 'bor.s')).toBe(false);
   });
 
-  it('removes nothing for an empty name', () => {
-    expect(withoutOwnName('boris', '')).toBe('boris');
+  it('excuses nothing for an empty name', () => {
+    expect(namesLeft('boris', '')).toBe(true);
+    expect(namesLeft('nothing here', '')).toBe(false);
   });
 });
