@@ -96,6 +96,7 @@ type Entry = {
   schedule?: { interval?: string };
   cooldown?: { 'default-days'?: string };
   groups?: Record<string, { patterns?: string[]; 'update-types'?: string[] }>;
+  ignore?: { 'dependency-name'?: string; 'update-types'?: string[] }[];
 };
 
 /** Every directory under `root`, as "/a/b", without dependency and VCS trees. */
@@ -238,6 +239,12 @@ export function problems(source: string, project: Project, root: string): string
 
 const source = readFileSync(join(ROOT, '.github/dependabot.yml'), 'utf8');
 
+/** The Node major CI runs, from verify.yml's `node-version`. */
+const ciNodeMajor = (workflow: string) => /node-version:\s*['"]?(\d+)/.exec(workflow)?.[1];
+
+/** The Node major the @types/node ignore's comment says it holds back from, e.g. "CI runs Node 22". */
+const ignoredNodeMajor = (yml: string) => /CI runs Node (\d+)[^]*?dependency-name: '@types\/node'/.exec(yml)?.[1];
+
 describe('the committed .github/dependabot.yml', () => {
   it('reads as the structure the checks expect', () => {
     const config = parseYaml(source) as { updates: Entry[] };
@@ -248,6 +255,25 @@ describe('the committed .github/dependabot.yml', () => {
 
   it('holds for this repository: coverage, groups, and no path that is not there', () => {
     expect(problems(source, loadProject(), ROOT)).toEqual([]);
+  });
+
+  it('ignores majors of typescript and @types/node in the npm entry, and only majors', () => {
+    const config = parseYaml(source) as { updates: Entry[] };
+    const npm = config.updates.find((entry) => entry['package-ecosystem'] === 'npm')!;
+    expect(npm.ignore).toEqual([
+      { 'dependency-name': 'typescript', 'update-types': ['version-update:semver-major'] },
+      { 'dependency-name': '@types/node', 'update-types': ['version-update:semver-major'] },
+    ]);
+  });
+
+  it("keeps the @types/node ignore in step with verify.yml's node-version", () => {
+    const workflow = readFileSync(join(ROOT, '.github/workflows/verify.yml'), 'utf8');
+    const ci = ciNodeMajor(workflow);
+    expect(ci, 'verify.yml has no node-version').toBeDefined();
+    expect(
+      ignoredNodeMajor(source),
+      `verify.yml runs Node ${ci} but the @types/node ignore in dependabot.yml says Node ${ignoredNodeMajor(source)}: if the runtime moved, lift or move the ignore and update its comment`,
+    ).toBe(ci);
   });
 
   it('keeps the github-actions entry as it was: weekly, one group of everything, a ci prefix', () => {
@@ -391,10 +417,26 @@ describe('problems()', () => {
   });
 });
 
+describe('the @types/node step check', () => {
+  it('reads the Node major from both files, and sees them differ', () => {
+    expect(ciNodeMajor('      node-version: 22\n')).toBe('22');
+    expect(ciNodeMajor("node-version: '24'")).toBe('24');
+    expect(ignoredNodeMajor("# CI runs Node 22 (x)\n- dependency-name: '@types/node'")).toBe('22');
+    expect(ignoredNodeMajor("# CI runs Node 22 (x)\n- dependency-name: '@types/node'")).not.toBe(ciNodeMajor('node-version: 24'));
+  });
+});
+
 describe('parseYaml()', () => {
   it('reads maps, block lists, lists beside their key, flow lists, quotes and comments', () => {
     const text = ['a: 1 # note', 'b:', '  - x', "  - 'y z'", 'c:', '  d: [p, q]', '  e:', '  - k: 1', '    l: 2', '  - m'].join('\n');
     expect(parseYaml(text)).toEqual({ a: '1', b: ['x', 'y z'], c: { d: ['p', 'q'], e: [{ k: '1', l: '2' }, 'm'] } });
+  });
+
+  it('reads an ignore list with a quoted scope name', () => {
+    const text = ['ignore:', '  - dependency-name: typescript', '    update-types:', '      - version-update:semver-major', "  - dependency-name: '@types/node'"].join('\n');
+    expect(parseYaml(text)).toEqual({
+      ignore: [{ 'dependency-name': 'typescript', 'update-types': ['version-update:semver-major'] }, { 'dependency-name': '@types/node' }],
+    });
   });
 
   it('throws on a line it cannot read rather than skipping it', () => {
