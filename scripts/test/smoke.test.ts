@@ -246,7 +246,9 @@ describe("each app's smoke script", () => {
   });
 });
 
-describe("the web app's docs_served check", () => {
+// Both need apps/web (its smoke.sh and build-docs.mjs), which a product built
+// without the web starter does not have (#281).
+describe.skipIf(!existsSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../apps/web/smoke.sh')))("the web app's docs_served check", () => {
   // Run for real: apps/web/smoke.sh against a local server that serves a
   // fresh build of this checkout's docs. The script asks build-docs.mjs which
   // pages that build publishes, so this holds in the base (four pages) and in

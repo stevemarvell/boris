@@ -21,7 +21,7 @@
 // a spawning helper shadows it, so a test that declares its own `run` is not
 // treated as calling the file's real `run`. A fake that is a *file-level*
 // helper which spawns is, correctly, a spawn.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { worktreeFiles } from '../git-files.mjs';
@@ -458,6 +458,16 @@ export function collectionMismatches(
     .map((key) => `${key}: seen ${seen.get(key) ?? 0}, declared ${want.get(key) ?? 0}`);
 }
 
+/**
+ * The declared collection-time spawns that apply to this checkout. In a
+ * product (no catalogue.json) an entry for a file that is absent is a base-only
+ * file with nothing to count, so it is dropped. In the base nothing is dropped:
+ * an entry for a renamed or deleted file is stale and must fail (#281).
+ */
+export function declaredCollection<T extends { file: string }>(declared: T[], files: string[], inProduct: boolean): T[] {
+  return inProduct ? declared.filter((e) => files.includes(e.file)) : declared;
+}
+
 describe('every test that spawns a process carries its own timeout', () => {
   const root = resolve(__dirname, '../..');
   const files = worktreeFiles(root).filter((p) => /^scripts\/test\/[^/]+\.test\.ts$/.test(p));
@@ -466,7 +476,9 @@ describe('every test that spawns a process carries its own timeout', () => {
   it('looks at the whole suite, and at spawning tests in it', () => {
     // A check that quietly matched nothing would pass forever.
     expect(files.length).toBeGreaterThan(20);
-    expect(files).toContain('scripts/test/assemble.test.ts');
+    // Base-only: assemble.test.ts is listed in catalogue.json's `base`, so it
+    // is in the base and in no product (#281). catalogue.json marks the base.
+    if (existsSync(resolve(root, 'catalogue.json'))) expect(files).toContain('scripts/test/assemble.test.ts');
     const spawningFiles = files.filter((file) => {
       const clean = blank(readFileSync(resolve(root, file), 'utf8'));
       return testsIn(clean, clean).some((t) => {
@@ -484,7 +496,7 @@ describe('every test that spawns a process carries its own timeout', () => {
 
   it('knows exactly which spawns run at collection time, how many, and why', () => {
     for (const e of COLLECTION_TIME) expect(e.reason.length, e.file).toBeGreaterThan(20);
-    expect(collectionMismatches(results, COLLECTION_TIME)).toEqual([]);
+    expect(collectionMismatches(results, declaredCollection(COLLECTION_TIME, files, !existsSync(resolve(root, 'catalogue.json'))))).toEqual([]);
   });
 });
 
@@ -577,6 +589,15 @@ describe('the check itself, on fixtures', () => {
     expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 2 }])).toEqual([]);
     expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 1 }])).toHaveLength(1);
     expect(collectionMismatches(results, [{ file: 'f.test.ts', name: 'execFileSync', count: 3 }])).toHaveLength(1);
+  });
+
+  it('drops an entry for an absent file in a product, and fails it in the base (#281)', () => {
+    const declared = [{ file: 'gone.test.ts', name: 'execFileSync', count: 1 }];
+    const results = [{ file: 'kept.test.ts', collection: {} }];
+    const product = declaredCollection(declared, ['kept.test.ts'], true);
+    expect(collectionMismatches(results, product)).toEqual([]);
+    const base = declaredCollection(declared, ['kept.test.ts'], false);
+    expect(collectionMismatches(results, base)).toHaveLength(1);
   });
 
   it('reads a function body that follows an object return type (Round 1, found while counting)', () => {

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +58,13 @@ const named = (what: RegExp) => {
   return found[0]!;
 };
 
+// catalogue.json is in the base only, so it marks the base from a product built
+// from it. The base has both a node and a python app and must run every step; a
+// product holds what it was assembled with, and its steps run only for those (#254, #281).
+const IN_BASE = existsSync(join(REPO_ROOT, 'catalogue.json'));
+const own = () => outputsFor(loadProject());
+const hasBoth = () => own().node === 'true' && own().python === 'true';
+
 const engineOnly = () => validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
 const only = (toolchain: 'node' | 'python'): Project => {
   const base = loadProject();
@@ -86,7 +93,14 @@ describe('verify.yml', () => {
 
   it("keeps every step in the base itself, which has both a node and a python app", () => {
     const outputs = outputsFor(loadProject());
-    expect(outputs).toEqual({ node: 'true', python: 'true' });
+    // In the base, both toolchains are required; in a product, hold it to what it has.
+    if (IN_BASE) expect(outputs).toEqual({ node: 'true', python: 'true' });
+    else if (!hasBoth()) {
+      // A product with fewer toolchains skips the steps for the ones it lacks.
+      expect(runs(uv(), outputs, false)).toBe(outputs.python === 'true');
+      expect(runs(playwright(), outputs, false)).toBe(outputs.node === 'true');
+      return;
+    }
     // Every step but the failure-only report runs on a green build.
     for (const step of steps().filter((s) => s.text !== report().text)) expect(runs(step, outputs, false), step.text).toBe(true);
     expect(runs(report(), outputs, true)).toBe(true);
@@ -102,7 +116,8 @@ describe('verify.yml', () => {
     }
   });
 
-  it('skips only Playwright and its report with no node app, and only uv with no python app', () => {
+  // Needs one app of each toolchain to subset from.
+  it.skipIf(!hasBoth())('skips only Playwright and its report with no node app, and only uv with no python app', () => {
     const pythonOnly = outputsFor(only('python'));
     expect([uv(), sync(), playwright()].map((s) => runs(s, pythonOnly, false))).toEqual([true, true, false]);
     expect(runs(report(), pythonOnly, true)).toBe(false);
@@ -125,7 +140,9 @@ describe('verify.yml', () => {
       const run = steps().find((s) => s.id === 'toolchains')!.text.match(/run: (.+)$/m)![1]!;
       const result = spawnSync('bash', ['-ec', run], { cwd: REPO_ROOT, env: { ...process.env, GITHUB_OUTPUT: out }, encoding: 'utf8' });
       expect(result.status, result.stderr).toBe(0);
-      expect(readFileSync(out, 'utf8')).toBe('node=true\npython=true\n');
+      const o = own();
+      expect(readFileSync(out, 'utf8')).toBe(`node=${o.node}\npython=${o.python}\n`);
+      if (IN_BASE) expect(o).toEqual({ node: 'true', python: 'true' });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
