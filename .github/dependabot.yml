@@ -13,8 +13,11 @@ version: 2
 # matches no group is opened individually (Dependabot options reference,
 # `groups`), so leaving `major` out of `update-types` is all it takes.
 #
-# This file ships in the engine to every product, whichever starters it has,
-# and can name only what every product has or what a glob can find:
+# This file is the one source of every product's copy. scripts/assemble.mjs
+# writes a product's .github/dependabot.yml from it, keeping the entries whose
+# ecosystem the product has: github-actions and npm always, uv only when a
+# chosen starter has a Python app. So an entry can name only what every product
+# of its ecosystem has, or what a glob can find:
 #
 #   npm   `/`. The root package.json is generated for every product, with
 #         `workspaces: ["apps/*"]`, and Dependabot reads the workspace
@@ -23,8 +26,9 @@ version: 2
 #   uv    `/apps/*`. Each Python app has its own pyproject.toml and uv.lock,
 #         and `directories` (not `directory`) is what accepts a glob. A
 #         directory without a manifest is skipped, but the docs are silent on
-#         a glob that finds none, and a product with no Python app is that
-#         case, which the test fails until #236 makes this file per product.
+#         a glob that finds none, and dependabot-core fails the job when none
+#         of the directories has a manifest. So a product with no Python app
+#         gets no uv entry (#236).
 #
 # scripts/test/dependabot.test.ts holds this file to project.json.
 updates:

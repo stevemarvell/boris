@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildDocs, indexPage, MARKDOWN_PAGES } from '../scripts/build-docs.mjs';
+import { buildDocs, indexPage, listing, MARKDOWN_PAGES, plannedPages } from '../scripts/build-docs.mjs';
 
 // A stand-in repository, so a test never depends on what docs/ happens to say
 // today — only on what the build does with it.
@@ -109,9 +109,86 @@ describe('buildDocs', () => {
     expect(existsSync(join(out, 'index.html'))).toBe(true);
   });
 
-  it('fails loudly when a source document is missing', () => {
+  it('skips a document whose source is absent: no page, no card, no placeholder', () => {
     rmSync(join(root, 'docs', 'adoption.md'));
-    expect(() => build()).toThrow();
+    const result = build();
+
+    expect(result.skipped).toEqual([join('docs', 'adoption.md')]);
+    expect(result.written).not.toContain('adoption.html');
+    expect(existsSync(join(out, 'adoption.html'))).toBe(false);
+    // The pages that are there still build, and the index lists only those.
+    expect(result.written).toEqual(expect.arrayContaining(['data-governance.html', 'sops.html', 'step-0.html']));
+    expect(read('index.html')).not.toContain('adoption.html');
+    expect(read('index.html')).toContain('href="sops.html"');
+  });
+
+  it('skips the step-0 page when there is no root index.html', () => {
+    rmSync(join(root, 'index.html'));
+    const result = build();
+
+    expect(result.skipped).toEqual(['index.html']);
+    expect(result.written).not.toContain('step-0.html');
+    expect(existsSync(join(out, 'step-0.html'))).toBe(false);
+    expect(read('index.html')).not.toContain('step-0.html');
+    expect(read('index.html')).toContain('href="adoption.html"');
+  });
+
+  it('builds a product that has only the pages the engine and the generator give it', () => {
+    rmSync(join(root, 'docs', 'adoption.md'));
+    rmSync(join(root, 'index.html'));
+    const result = build();
+
+    expect(result.skipped).toEqual([join('docs', 'adoption.md'), 'index.html']);
+    expect([...result.written].sort()).toEqual(['data-governance.html', 'index.html', 'sops.html', 'version.json']);
+  });
+
+  it('reports nothing skipped when every source is there', () => {
+    expect(build().skipped).toEqual([]);
+  });
+});
+
+describe('plannedPages and listing: what smoke.sh expects served', () => {
+  it('plans exactly the pages a build writes, each with its own first heading', () => {
+    const { pages, skipped } = plannedPages({ root });
+    expect(skipped).toEqual([]);
+    expect(pages.map((p) => [p.page, p.title])).toEqual([
+      ['adoption.html', 'Stages'],
+      ['data-governance.html', 'Governance'],
+      ['sops.html', 'Procedures'],
+      ['step-0.html', null],
+    ]);
+    const written = build().written.filter((f) => f.endsWith('.html') && f !== 'index.html');
+    expect(pages.map((p) => p.page)).toEqual(written);
+  });
+
+  it('leaves out a base-only page whose source is absent, as a product has it', () => {
+    rmSync(join(root, 'docs', 'adoption.md'));
+    rmSync(join(root, 'index.html'));
+    expect(plannedPages({ root }).pages.map((p) => p.page)).toEqual(['data-governance.html', 'sops.html']);
+    expect(listing({ root }).split('\n')).toEqual([
+      'data-governance.html\t<title>Governance</title>',
+      'sops.html\t<title>Procedures</title>',
+    ]);
+  });
+
+  it('lists the title exactly as the built page carries it, escaped, and nothing for step-0', () => {
+    writeFileSync(join(root, 'docs', 'sops.md'), '# Plans & `loops` <b>\n');
+    build();
+    const lines = Object.fromEntries(listing({ root }).split('\n').map((l) => l.split('\t') as [string, string]));
+    // Step-0 is marked by its own <h1>, which an app shell served in its place lacks.
+    expect(lines['step-0.html']).toBe('<h1>Hello, world</h1>');
+    expect(read('sops.html')).toContain(lines['sops.html']);
+  });
+
+  it('refuses to list step-0 with nothing to check it by, rather than leave it unchecked', () => {
+    writeFileSync(join(root, 'index.html'), '<title>x</title><p>no heading</p>');
+    expect(() => listing({ root })).toThrow(/step-0\.html/);
+  });
+
+  it('plans nothing it does not hold: with no sources the list is empty, which smoke.sh refuses', () => {
+    rmSync(join(root, 'docs'), { recursive: true });
+    rmSync(join(root, 'index.html'));
+    expect(listing({ root })).toBe('');
   });
 });
 
@@ -125,6 +202,14 @@ describe('indexPage', () => {
     expect(html).toContain('href="step-0.html"');
   });
 
+  it('leaves out the step-0 card when there is no step-0 page', () => {
+    const html = indexPage([{ slug: 'adoption', title: 'Stages', blurb: 'the ladder' }], 'stand-in-app', {
+      stepZero: false,
+    });
+    expect(html).toContain('href="adoption.html"');
+    expect(html).not.toContain('step-0.html');
+  });
+
   it('escapes what it puts into the page, including the project name', () => {
     const html = indexPage([{ slug: 'x', title: '<script>', blurb: 'a & b' }], '<b>app</b>');
     expect(html).toContain('&lt;script&gt;');
@@ -134,11 +219,25 @@ describe('indexPage', () => {
 });
 
 describe('the pages this repository actually publishes', () => {
-  it('names the real source files', () => {
+  // Skipping an absent page is what lets a product build; it is also what would
+  // hide a renamed document here. catalogue.json exists only in the base, which
+  // is the one repository that must hold every page.
+  const repo = join(__dirname, '..', '..', '..');
+  const isBase = existsSync(join(repo, 'catalogue.json'));
+
+  it('names the real source files, all of them in the base', () => {
     // A renamed doc should break here rather than at deploy time.
-    const repo = join(__dirname, '..', '..', '..');
     for (const entry of MARKDOWN_PAGES) {
-      expect(existsSync(join(repo, entry.source)), entry.source).toBe(true);
+      if (isBase) expect(existsSync(join(repo, entry.source)), entry.source).toBe(true);
+    }
+    if (isBase) expect(existsSync(join(repo, 'index.html'))).toBe(true);
+  });
+
+  it('has the documents the engine and the generated files give every project', () => {
+    // Holds in a product as well as the base: without them the docs site would
+    // be an index of nothing and this suite would still be green.
+    for (const source of [join('docs', 'sops.md'), join('docs', 'data-governance.md')]) {
+      expect(existsSync(join(repo, source)), source).toBe(true);
     }
   });
 });

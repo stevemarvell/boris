@@ -26,6 +26,8 @@ export interface OrphanedBranch {
 export interface Worktree {
   path: string;
   branch: string | null;
+  /** The commit the worktree is at; `null` if git printed none. */
+  head?: string | null;
 }
 
 export interface UntrackedWorktree {

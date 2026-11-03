@@ -45,7 +45,8 @@ describe('the committed project.json', () => {
     }
   });
 
-  it('is valid, and every declared app directory exists', () => {
+  // Timeout: spawns git ls-files (11 ms quiet); 15 s.
+  it('is valid, and every declared app directory exists', { timeout: 15_000 }, () => {
     const project = loadProject();
     for (const [, app] of apps(project)) {
       const listed = execFileSync('git', ['ls-files', '--', app.path], { cwd: REPO_ROOT, encoding: 'utf8' });
@@ -53,7 +54,8 @@ describe('the committed project.json', () => {
     }
   });
 
-  it('deploys exactly the projects that have vercel.json ignore steps', () => {
+  // Timeout: spawns git ls-files (5 ms quiet); 15 s.
+  it('deploys exactly the projects that have vercel.json ignore steps', { timeout: 15_000 }, () => {
     const project = loadProject();
     // Every deployed app has a vercel.json running the ignore step under its name…
     for (const [name, app] of deployed(project)) {
@@ -79,7 +81,8 @@ describe('the committed project.json', () => {
 });
 
 describe('the --has-deploy CLI', () => {
-  it('prints false and exits non-zero against the committed project.json, which deploys nothing', () => {
+  // Timeout: spawns node scripts/project.mjs (35 ms quiet); 15 s.
+  it('prints false and exits non-zero against the committed project.json, which deploys nothing', { timeout: 15_000 }, () => {
     const result = spawnSync('node', ['scripts/project.mjs', '--has-deploy'], { cwd: REPO_ROOT, encoding: 'utf8' });
     expect(result.stdout.trim()).toBe('false');
     expect(result.status).toBe(1);
@@ -195,8 +198,25 @@ describe('validate', () => {
     }
   });
 
-  it('refuses a project with no apps', () => {
+  it('refuses a project with no apps, unless it is a product (it records engine.commit)', () => {
     expect(() => validate({ ...minimal(), apps: {} })).toThrow(/at least one app/);
+    const sha = 'a'.repeat(40);
+    const engineOnly = validate({ name: 'thing', engine: { commit: sha }, apps: {} });
+    expect(engineOnly.apps).toEqual({});
+    expect(apps(engineOnly)).toEqual([]);
+    expect(deployed(engineOnly)).toEqual([]);
+    expect(hasDeploy(engineOnly)).toBe(false);
+    expect(verifiedPaths(engineOnly)).toEqual(HARNESS_CODE);
+    expect(appFor(engineOnly, 'apps/svc/x.py')).toBeNull();
+    expect(cli(['apps'], engineOnly)).toEqual([]);
+  });
+
+  it('still refuses a missing or non-object "apps", even in a product', () => {
+    const engine = { commit: 'a'.repeat(40) };
+    for (const bad of [undefined, null, [], 'api']) {
+      expect(() => validate({ name: 'thing', engine, apps: bad }), JSON.stringify(bad)).toThrow(/"apps" must be an object/);
+    }
+    expect(() => validate({ name: 'thing', engine })).toThrow(/"apps" must be an object/);
   });
 });
 
@@ -258,6 +278,18 @@ describe('cli', () => {
     expect(cli(['apps'], minimal())).toEqual(['apps/svc', 'apps/ui']);
     expect(cli(['apps', 'python'], minimal())).toEqual(['apps/svc']);
     expect(cli(['apps', 'node'], minimal())).toEqual(['apps/ui']);
+  });
+
+  it('says, per toolchain, whether any app uses it, as lines $GITHUB_OUTPUT takes as they are', () => {
+    expect(cli(['toolchains'], minimal())).toEqual(['node=true', 'python=true']);
+    const { svc, ui } = minimal().apps;
+    expect(cli(['toolchains'], { ...minimal(), apps: { svc: svc! } })).toEqual(['node=false', 'python=true']);
+    expect(cli(['toolchains'], { ...minimal(), apps: { ui: ui! } })).toEqual(['node=true', 'python=false']);
+  });
+
+  it('says false for both in an engine-only product, which has no app at all', () => {
+    const engineOnly = validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
+    expect(cli(['toolchains'], engineOnly)).toEqual(['node=false', 'python=false']);
   });
 
   it('refuses a subcommand it does not have', () => {

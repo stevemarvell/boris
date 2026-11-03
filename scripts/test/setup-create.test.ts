@@ -16,14 +16,12 @@ describe('checkChoices', () => {
 
   it('accepts starters and a provider the catalogue offers, and no provider at all', () => {
     expect(() => checkChoices({ catalogue, starters: ['python-fastapi'] })).not.toThrow();
-    // node-react is held back (below) until #231; an empty hold-back list shows the rest accepts it.
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'], deploy: 'vercel', heldBack: {} })).not.toThrow();
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'], deploy: 'vercel' })).not.toThrow();
   });
 
-  it('refuses node-react, naming #231, until the web starter can pass its own verify in a product', () => {
-    expect(() => checkChoices({ catalogue, starters: ['node-react'] })).toThrow(/node-react.*#231/);
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'] })).toThrow(/#231/);
-    expect(() => checkChoices({ catalogue, starters: ['python-fastapi'] })).not.toThrow();
+  it('accepts node-react, alone and with the API: no starter is held back', () => {
+    expect(() => checkChoices({ catalogue, starters: ['node-react'] })).not.toThrow();
+    expect(() => checkChoices({ catalogue, starters: ['python-fastapi', 'node-react'] })).not.toThrow();
   });
 
   it('names what catalogue.json offers when a starter is unknown', () => {
@@ -38,8 +36,11 @@ describe('checkChoices', () => {
     );
   });
 
-  it('asks for a starter when none is chosen', () => {
-    expect(() => checkChoices({ catalogue, starters: [] })).toThrow(/choose at least one --starter \(catalogue\.json offers: python-fastapi, node-react\)/);
+  it('accepts no starter at all: that is an engine-only product', () => {
+    expect(() => checkChoices({ catalogue, starters: [] })).not.toThrow();
+    expect(() => checkChoices({ catalogue, starters: [], deploy: 'vercel' })).not.toThrow();
+    // A provider is still checked, with or without starters.
+    expect(() => checkChoices({ catalogue, starters: [], deploy: 'heroku' })).toThrow(/no provider named "heroku"/);
   });
 });
 
@@ -169,14 +170,6 @@ describe('create', () => {
       expect(existsSync(dir)).toBe(false);
     });
 
-    it('on node-react, naming #231, having run nothing and written nothing', async () => {
-      const w = world();
-      const dir = freshDir();
-      await expect(create(python(dir, { starters: ['node-react'] }), w)).rejects.toThrow(/node-react.*#231/);
-      expect(w.timeline).toEqual([]);
-      expect(existsSync(dir)).toBe(false);
-    });
-
     it('on an owner that could reshape a REST path or the origin URL, having run nothing and written nothing', async () => {
       for (const owner of ['x/../../orgs/y', 'a?b']) {
         const w = world();
@@ -185,12 +178,6 @@ describe('create', () => {
         expect(w.timeline, owner).toEqual([]);
         expect(existsSync(dir), owner).toBe(false);
       }
-    });
-
-    it('when no starter is chosen', async () => {
-      const w = world();
-      await expect(create(python(freshDir(), { starters: [] }), w)).rejects.toThrow(/choose at least one --starter/);
-      expect(w.timeline).toEqual([]);
     });
 
     it('on a name the product cannot have', async () => {
@@ -322,10 +309,51 @@ describe('create', () => {
 
       const withNode = world();
       const dir = freshDir();
-      await create(python(dir, { starters: ['python-fastapi', 'node-react'] }), { ...withNode, heldBack: {} });
+      await create(python(dir, { starters: ['python-fastapi', 'node-react'] }), withNode);
       expect(existsSync(join(dir, 'package-lock.json'))).toBe(true);
       expect(withNode.spawned.map((s) => s.key)).not.toContain('npx npm@11 install');
       expect(Object.keys(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps).sort()).toEqual(['api', 'web']);
+    });
+
+    it('creates an engine-only product when no --starter is given: no apps, no apps directory, no uv asked for, and locked before verify', async () => {
+      // uv installs a Python app's dependencies, so a machine without it can still make a product that has none.
+      const w = world({ 'uv --version': fail('uv: not found') });
+      const dir = freshDir();
+      expect(await create(python(dir, { starters: [] }), w)).toBe(0);
+
+      const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+      expect(written.apps).toEqual({});
+      expect(written.engine).toEqual({ commit: SHA });
+      expect(existsSync(join(dir, 'apps'))).toBe(false);
+      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+      expect(manifest).not.toHaveProperty('workspaces');
+      expect(existsSync(join(dir, 'package-lock.json'))).toBe(false); // written by the npm 11 install, which is pretend here
+      expect(w.lines[0]).toContain('the engine alone (no starter)');
+
+      const keys = w.spawned.map((s) => s.key);
+      expect(keys).toEqual(['npx npm@11 install', 'npm run bootstrap', 'npm run verify', 'node scripts/setup.mjs check']);
+      expect(w.calls.some((c) => c[0] === 'uv')).toBe(false);
+      expect(w.calls).toContainEqual(['gh', 'api', 'user/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=true']);
+    });
+
+    it('still needs uv for a product with a Python app', async () => {
+      const w = world({ 'uv --version': fail('uv: not found') });
+      await expect(create(python(freshDir(), { starters: ['python-fastapi'] }), w)).rejects.toThrow(/missing uv/);
+      const node = world({ 'uv --version': fail('uv: not found') });
+      expect(await create(python(freshDir(), { starters: ['node-react'] }), node)).toBe(0);
+      expect(node.calls.some((c) => c[0] === 'uv')).toBe(false);
+    });
+
+    it('creates a node-react-only product: nothing is refused, and the product holds the web app and no API', async () => {
+      const w = world();
+      const dir = freshDir();
+      expect(await create(python(dir, { starters: ['node-react'] }), w)).toBe(0);
+      expect(Object.keys(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps)).toEqual(['web']);
+      expect(existsSync(join(dir, 'apps/web/package.json'))).toBe(true);
+      expect(existsSync(join(dir, 'apps/api'))).toBe(false);
+      // The base's own pages are not copied, and nothing stands in for them.
+      expect(existsSync(join(dir, 'docs/adoption.md'))).toBe(false);
+      expect(existsSync(join(dir, 'index.html'))).toBe(false);
     });
 
     it("returns the product's own check exit code, run from the product and not from this checkout", async () => {
@@ -429,10 +457,17 @@ describe('create', () => {
   describe('--deploy', () => {
     it('prints the deploy:add command for each app, and sets nothing up', async () => {
       const w = world();
-      await create(python(freshDir(), { starters: ['python-fastapi', 'node-react'], deploy: 'vercel' }), { ...w, heldBack: {} });
+      await create(python(freshDir(), { starters: ['python-fastapi', 'node-react'], deploy: 'vercel' }), w);
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app api');
       expect(w.lines).toContain('  npm run deploy:add -- vercel --app web');
       expect(w.timeline.filter((entry) => /deploy|vercel/.test(entry))).toEqual([]);
+    });
+
+    it('says there is nothing to deploy for a product with no apps, rather than print an empty list', async () => {
+      const w = world();
+      await create(python(freshDir(), { starters: [], deploy: 'vercel' }), w);
+      expect(w.lines.some((line) => /has no apps, so there is nothing to deploy yet/.test(line))).toBe(true);
+      expect(w.lines.some((line) => line.includes('deploy:add -- vercel --app'))).toBe(false);
     });
 
     it('prints nothing about a provider when none was asked for', async () => {
@@ -442,7 +477,8 @@ describe('create', () => {
     });
   });
 
-  it('with real git in the product: one commit and no other history, a fetch-only base remote, the commit recorded and the tree clean', async () => {
+  // Timeout: runs real git init, add, commit and remotes (413 ms quiet); 30 s.
+  it('with real git in the product: one commit and no other history, a fetch-only base remote, the commit recorded and the tree clean', { timeout: 30_000 }, async () => {
     const w = world();
     const dir = freshDir();
     // Real git for the product, so the commit and the remotes are real; the

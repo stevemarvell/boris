@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PROVIDERS } from '../deploy/index.mjs';
 import { GENERATORS, ROOT, loadCatalogue, under, validateCatalogue, type Catalogue } from '../assemble.mjs';
-import { loadProject } from '../project.mjs';
+import { loadProject, validate } from '../project.mjs';
 
 const catalogue = loadCatalogue();
 const project = loadProject();
@@ -43,11 +43,20 @@ describe('the committed catalogue.json', () => {
       expect(app, key).toBeDefined();
       expect(existsSync(join(ROOT, app?.path ?? 'missing')), key).toBe(true);
       // The entry is referenced, never repeated: nothing in a starter restates it.
-      expect(Object.keys(starter).sort(), key).toEqual(['app', 'build', 'description', 'files', 'stubs']);
+      expect(Object.keys(starter).sort(), key).toEqual(['app', 'build', 'description', 'files']);
     }
   });
 
-  it('gives every file in the repository exactly one home', () => {
+  it("is the base: it records no engine.commit and keeps both apps, so an empty `apps` stays refused here", () => {
+    // A product may declare no apps (an engine-only product); the base may not.
+    // `validate` tells them apart by engine.commit, which only a product has.
+    expect(project.engine).toBeUndefined();
+    expect(Object.keys(project.apps).sort()).toEqual(['api', 'web']);
+    expect(() => validate({ ...project, apps: {} })).toThrow(/at least one app/);
+  });
+
+  // Timeout: spawns git ls-files (13 ms quiet); 15 s.
+  it('gives every file in the repository exactly one home', { timeout: 15_000 }, () => {
     const appDirs = Object.values(catalogue.starters).map((s) => project.apps[s.app]?.path ?? '');
     const starterFiles = Object.values(catalogue.starters).flatMap((s) => s.files);
     const elsewhere = [...catalogue.seeded.paths, ...catalogue.generated.paths, ...catalogue.base.paths, ...starterFiles];
@@ -75,8 +84,7 @@ describe('the committed catalogue.json', () => {
   });
 
   it('has a generator for every file it says is generated, and none that nothing asks for', () => {
-    const asked = [...catalogue.generated.paths, ...Object.values(catalogue.starters).flatMap((s) => s.stubs)];
-    expect(Object.keys(GENERATORS).sort()).toEqual([...new Set(asked)].sort());
+    expect(Object.keys(GENERATORS).sort()).toEqual([...catalogue.generated.paths].sort());
   });
 
   it('keeps the base-only files the issue names out of the engine', () => {

@@ -21,10 +21,15 @@
 // `ignoredNames` is never copied, tracked or not. The limits turn a surprise
 // (a stray link, a generated tree committed by mistake) into a message.
 //
+// A product with no starter is an engine-only product: the engine, the
+// generated files, `"apps": {}` in project.json and no `apps/` directory. It
+// needs an engine commit, which is what project.mjs's validate() takes as the
+// mark of a product (the base itself must declare its apps).
+//
 // CLI:
 //
 //     node scripts/assemble.mjs --list
-//     node scripts/assemble.mjs --target <dir> --name <name> --starter <s> [--starter <s> ...] [--engine-commit <sha>]
+//     node scripts/assemble.mjs --target <dir> --name <name> [--starter <s> ...] [--engine-commit <sha>]
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -94,8 +99,6 @@ export function validateCatalogue(catalogue) {
     apps.add(starter.app);
     for (const path of pathList(starter.files, `${at}.files`)) claim(path, `${at}.files`);
     pathList(starter.build, `${at}.build`);
-    // Stubs are outputs, written fresh: they name no source file, so they claim nothing.
-    pathList(starter.stubs, `${at}.stubs`);
   }
   const providers = Object.entries(catalogue.providers ?? {});
   if (providers.length === 0) fail('"providers" must declare at least one provider');
@@ -133,23 +136,25 @@ function claudeMd(ctx) {
   const rows = ctx.starters.map(
     (s) => `| \`${s.path}/\` | ${s.description} Its own rules are in \`${s.path}/CLAUDE.md\`. |`,
   );
+  const built = ctx.starters.length === 0 ? 'a shared engine and no starter' : 'a shared engine and the starters listed below';
+  const apps =
+    ctx.starters.length === 0
+      ? 'It has no apps yet: `project.json` declares none, and `npm run verify:apps` says so and runs nothing.'
+      : "It learns about the apps only from `project.json`. Each app's own rules, layout and run\ncommands are in the `CLAUDE.md` inside its directory; read it before working\nthere.";
   return `# ${ctx.name}
 
-${ctx.name} is assembled from a shared engine and the starters listed below.
+${ctx.name} is assembled from ${built}.
 Replace this paragraph with what the product is for.
 
 The AI layer — \`.claude/\`, \`scripts/\`, \`.github/\`, \`telemetry/\` — is the
-engine: the loop of verify, review, isolate, deploy, smoke and triage. It learns
-about the apps only from \`project.json\`. Each app's own rules, layout and run
-commands are in the \`CLAUDE.md\` inside its directory; read it before working
-there.
+engine: the loop of verify, review, isolate, deploy, smoke and triage.
+${apps}
 
 ## Layout
 
 | Path | Holds |
 | --- | --- |
-${rows.join('\n')}
-| \`project.json\` | The one place the AI layer learns about the apps: paths, toolchains, build inputs. Read through \`scripts/project.mjs\`. |
+${rows.map((row) => `${row}\n`).join('')}| \`project.json\` | The one place the AI layer learns about the apps: paths, toolchains, build inputs. Read through \`scripts/project.mjs\`. |
 | \`docs/\` | \`sops.md\`, how agent work is run; \`data-governance.md\`, a stub to rewrite before anything real is deployed. |
 
 ${sharedBlock(ctx.baseClaudeMd)}
@@ -159,7 +164,7 @@ ${sharedBlock(ctx.baseClaudeMd)}
 function readme(ctx) {
   return `# ${ctx.name}
 
-Assembled from the starters ${ctx.starters.map((s) => `\`${s.key}\``).join(', ')}. Rewrite this README around the
+${ctx.starters.length === 0 ? 'Assembled from the engine alone, with no starter.' : `Assembled from the starters ${ctx.starters.map((s) => `\`${s.key}\``).join(', ')}.`} Rewrite this README around the
 product.
 
 \`npm run bootstrap\` installs everything; \`npm run verify\` is the contract.
@@ -201,46 +206,109 @@ credentialed jobs or pass the secrets only to the action's own step, and
 rewrite this section.
 `;
 
-const ADOPTION = `# Adoption
-
-This product does not carry the adoption ladder; it stays in the repository
-this product was assembled from. The page exists because the web starter's
-documentation build expects it.
-`;
-
-function stepZero(ctx) {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${ctx.name}</title>
-</head>
-<body>
-<main>
-<h1>${ctx.name}</h1>
-<p>A placeholder page. The web starter's documentation build publishes it as
-<code>/docs/step-0.html</code>; replace it, or drop it from
-<code>apps/web/scripts/build-docs.mjs</code>.</p>
-</main>
-</body>
-</html>
-`;
-}
-
-/** The product's root package.json: the base's, under the product's name. */
+/**
+ * The product's root package.json: the base's, under the product's name. With
+ * no apps there is nothing for `workspaces` to find, and npm fails ("No
+ * workspaces found!") on any script that runs `--workspaces`, so both go.
+ */
 function packageJson(ctx) {
   const manifest = JSON.parse(readFileSync(join(ctx.root, 'package.json'), 'utf8'));
-  return `${JSON.stringify({ ...manifest, name: ctx.name }, null, 2)}\n`;
+  const withApps = Object.keys(ctx.project.apps).length > 0;
+  const result = {};
+  // Key order is the base's.
+  for (const [key, value] of Object.entries(manifest)) {
+    if (key === 'name') result.name = ctx.name;
+    else if (key === 'workspaces') {
+      if (withApps) result.workspaces = value;
+    } else if (key === 'scripts' && !withApps) {
+      result.scripts = Object.fromEntries(Object.entries(value).filter(([, command]) => !String(command).includes('--workspaces')));
+    } else result[key] = value;
+  }
+  return `${JSON.stringify(result, null, 2)}\n`;
+}
+
+// Ecosystems a product can have a dependabot.yml entry for. github-actions and
+// npm every product has (the engine's workflows; the generated root
+// package.json), uv only with a Python app.
+const DEPENDABOT_ECOSYSTEMS = ['github-actions', 'npm', 'uv'];
+
+/**
+ * The base's .github/dependabot.yml cut at its top-level `updates:` list into
+ * `{ header, entries }`: `header` the lines up to and including `updates:`,
+ * `entries` one `{ ecosystem, lines }` per `- package-ecosystem:` item with the
+ * comments that sit inside it. There is no YAML parser among the dependencies;
+ * the file is split by indentation and anything this does not understand
+ * throws, so a shape change in the base's file cannot be silently dropped from
+ * a product's.
+ */
+export function splitDependabot(source) {
+  if (source.includes('\t')) throw new Error('assemble: .github/dependabot.yml has a tab; cannot split it');
+  const lines = source.split('\n');
+  const start = lines.indexOf('updates:');
+  if (start === -1 || lines.indexOf('updates:', start + 1) !== -1) {
+    throw new Error('assemble: .github/dependabot.yml must have exactly one top-level "updates:" line; cannot split it');
+  }
+  const header = lines.slice(0, start + 1);
+  for (const line of header) {
+    if (!/^(\s*#.*|\s*|version: 2|updates:)$/.test(line)) {
+      throw new Error(`assemble: .github/dependabot.yml has "${line}" before "updates:", which assemble.mjs does not understand`);
+    }
+  }
+  const entries = [];
+  for (const line of lines.slice(start + 1)) {
+    const item = /^ {2}- package-ecosystem: (\S+)$/.exec(line);
+    const last = entries[entries.length - 1];
+    if (item) entries.push({ ecosystem: item[1], lines: [line] });
+    else if (/^\s*$/.test(line)) last?.lines.push(line);
+    else if (/^\s*#/.test(line) && !line.startsWith('    ')) {
+      // Which entry it describes cannot be told from its position: dropping it
+      // or attaching it to the previous entry would be a guess.
+      throw new Error(
+        `assemble: .github/dependabot.yml has "${line}", a comment ${last ? 'between entries' : 'before the first entry'}; indent it inside the entry it describes`,
+      );
+    } else if (line.startsWith('    ')) {
+      if (!last) throw new Error(`assemble: .github/dependabot.yml has "${line}" before the first "- package-ecosystem:" entry; cannot split it`);
+      last.lines.push(line);
+    } else {
+      throw new Error(`assemble: .github/dependabot.yml has "${line}", which assemble.mjs does not understand; entries are "  - package-ecosystem: <name>" items`);
+    }
+  }
+  if (entries.length === 0) throw new Error('assemble: .github/dependabot.yml has no "- package-ecosystem:" entries');
+  for (const { ecosystem } of entries) {
+    if (!DEPENDABOT_ECOSYSTEMS.includes(ecosystem)) {
+      throw new Error(`assemble: .github/dependabot.yml has an entry for "${ecosystem}", and assemble.mjs does not know whether a product has it (known: ${DEPENDABOT_ECOSYSTEMS.join(', ')})`);
+    }
+  }
+  return { header, entries };
+}
+
+/**
+ * A product's .github/dependabot.yml: the base's, less the entries of
+ * ecosystems the product lacks. The base's file stays the one place the
+ * configuration is written. Throws when the base's file lacks an entry the
+ * product needs.
+ */
+export function dependabotYml(source, { python }) {
+  const { header, entries } = splitDependabot(source);
+  const wanted = DEPENDABOT_ECOSYSTEMS.filter((ecosystem) => ecosystem !== 'uv' || python);
+  for (const ecosystem of wanted) {
+    if (!entries.some((entry) => entry.ecosystem === ecosystem)) throw new Error(`assemble: .github/dependabot.yml has no "${ecosystem}" entry for a product to keep`);
+  }
+  const kept = entries.filter((entry) => wanted.includes(entry.ecosystem)).map((entry) => entry.lines.join('\n').trimEnd());
+  return `${header.join('\n')}\n${kept.join('\n\n')}\n`;
+}
+
+function dependabot(ctx) {
+  const python = Object.values(ctx.project.apps).some((app) => app.toolchain === 'python');
+  return dependabotYml(readFileSync(join(ctx.root, '.github/dependabot.yml'), 'utf8'), { python });
 }
 
 /** Every generated file's path, to the function that writes it. A catalogue path with no entry here is an error. */
 export const GENERATORS = {
+  '.github/dependabot.yml': dependabot,
   'CLAUDE.md': claudeMd,
   'README.md': readme,
   'docs/data-governance.md': () => DATA_GOVERNANCE,
-  'docs/adoption.md': () => ADOPTION,
-  'index.html': stepZero,
   'package.json': packageJson,
   'project.json': (ctx) => `${JSON.stringify(ctx.project, null, 2)}\n`,
 };
@@ -318,16 +386,17 @@ function walk(root, rel, { tracked, skip, limits, count }) {
  * What a product of `starters` holds, without writing anything:
  * `{ entries: [{ to, from } | { to, content }], project }`, entries sorted by
  * `to`. `engineCommit`, when given, is recorded as `engine.commit` in the
- * product's project.json. Throws on an unknown starter, a name nothing can use,
+ * product's project.json; it is required when `starters` is empty. Throws on an unknown starter, a name nothing can use,
  * an engine commit that is not a full SHA, a catalogue path
  * that does not exist, two sources for one file, or an app that reads or
  * smoke-tests something the product would not have.
  */
 export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalogue.json')), name, starters, engineCommit, limits = LIMITS }) {
   if (typeof name !== 'string' || !NAME.test(name)) throw new Error(`assemble: name "${String(name)}" must be lowercase letters, digits, "." "_" or "-"`);
-  if (!Array.isArray(starters) || starters.length === 0) {
-    throw new Error(`assemble: choose at least one starter (have: ${Object.keys(catalogue.starters).join(', ')})`);
-  }
+  // No starter is allowed: an engine-only product. It is marked by its engine
+  // commit, so validate() below refuses it without one (an empty `apps` is
+  // only a product's).
+  if (!Array.isArray(starters)) throw new Error('assemble: starters must be a list (empty for an engine-only product)');
   if (new Set(starters).size !== starters.length) throw new Error('assemble: a starter is chosen twice');
   for (const key of starters) {
     if (!catalogue.starters[key]) throw new Error(`assemble: no starter named "${key}" (have: ${Object.keys(catalogue.starters).join(', ')})`);
@@ -354,7 +423,11 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
     apps: Object.fromEntries(
       chosen.map(({ app, entry }) => {
         const { deploy: _deploy, ...rest } = entry;
-        return [app, rest];
+        // A build input that is the base's own file (the web starter reads the
+        // root index.html, which only the base has) names nothing in a product:
+        // the build skips it there, and a read of nothing is not a read.
+        const reads = entry.reads.filter((path) => !catalogue.base.paths.some((own) => under(own, path)));
+        return [app, { ...rest, reads }];
       }),
     ),
   };
@@ -393,7 +466,7 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
       copy(walk(root, path, { tracked, skip: { names, paths: starter.build }, limits, count }), `starter ${starter.key}`);
     }
   }
-  for (const path of [...catalogue.generated.paths, ...chosen.flatMap((s) => s.stubs)]) {
+  for (const path of catalogue.generated.paths) {
     const generate = GENERATORS[path];
     if (!generate) throw new Error(`assemble: the catalogue generates "${path}" but assemble.mjs has no generator for it`);
     add({ to: path, content: generate(ctx) }, 'generated');
@@ -403,7 +476,7 @@ export function plan({ root = ROOT, catalogue = loadCatalogue(join(root, 'catalo
   // from nothing. Globs in `ignores` are not paths and are not checked.
   const has = (path) => [...entries.keys()].some((to) => under(path, to));
   for (const { key, entry, app } of chosen) {
-    for (const path of [...entry.reads, ...(entry.smoke ? [entry.smoke] : [])]) {
+    for (const path of [...project.apps[app].reads, ...(entry.smoke ? [entry.smoke] : [])]) {
       if (!has(path)) throw new Error(`assemble: app "${app}" (starter ${key}) reads "${path}", which the product would not have`);
     }
   }
@@ -485,7 +558,7 @@ export function parseArgs(argv) {
       else opts[flag.slice(2)] = value;
     } else {
       throw new Error(
-        `usage: assemble.mjs --list | --target <dir> --name <name> --starter <s> [--starter <s> ...] [--engine-commit <sha>]: unknown argument "${flag}"`,
+        `usage: assemble.mjs --list | --target <dir> --name <name> [--starter <s> ...] [--engine-commit <sha>]: unknown argument "${flag}"`,
       );
     }
   }

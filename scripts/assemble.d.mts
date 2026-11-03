@@ -5,7 +5,6 @@ export interface Starter {
   app: string;
   files: string[];
   build: string[];
-  stubs: string[];
 }
 export interface Section {
   description: string;
@@ -57,6 +56,12 @@ export declare function validateCatalogue(catalogue: unknown): Catalogue;
 export declare function loadCatalogue(path?: string): Catalogue;
 export declare function under(prefix: string, path: string): boolean;
 export declare function sharedBlock(claudeMd: string): string;
+export interface DependabotParts {
+  header: string[];
+  entries: { ecosystem: string; lines: string[] }[];
+}
+export declare function splitDependabot(source: string): DependabotParts;
+export declare function dependabotYml(source: string, options: { python: boolean }): string;
 export declare function checkTarget(target: string, root: string): void;
 export declare function plan(options: PlanOptions): { entries: PlanEntry[]; project: Project };
 export declare function assemble(options: PlanOptions & { target: string }): AssembleResult;
