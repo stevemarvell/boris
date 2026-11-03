@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ROOT } from '../project.mjs';
+import { ROOT, loadProject } from '../project.mjs';
 
 interface Allowed {
   file: string;
@@ -117,6 +117,29 @@ const ALLOW: Allowed[] = [
 const NAMES = ['boris', 'family-tree', 'family tree', 'family_tree', 'genealog', 'railway'];
 
 /**
+ * `line` with every occurrence of `own` (the checkout's own name) removed, so
+ * a product called `boris-trial` is not a leftover for containing `boris`,
+ * while a bare `boris` elsewhere on the line still is (#281). Case-insensitive,
+ * like the grep. An empty name removes nothing.
+ */
+export function withoutOwnName(line: string, own: string): string {
+  if (!own) return line;
+  return line.replace(new RegExp(own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
+}
+
+/**
+ * In a product, its own name (project.json's `name`) is not a leftover. In
+ * boris itself nothing is stripped: the allowlist is what covers its own name.
+ */
+const OWN_NAME = IN_BASE ? '' : (loadProject(join(ROOT, 'project.json')).name as string);
+
+/** Whether a grep hit still names one of NAMES once the checkout's own name is taken out. */
+const stillNamesOne = (content: string) => {
+  const rest = withoutOwnName(content, OWN_NAME).toLowerCase();
+  return NAMES.some((name) => rest.includes(name));
+};
+
+/**
  * `git grep -i -n` for every name in NAMES, at the repository root, parsed
  * into `{file, line, content}`. Excludes this file itself: a detector that
  * has to spell every name out, in patterns and in comments explaining them,
@@ -173,7 +196,7 @@ describe('no leftover name from NAMES outside the allowlist', () => {
 
   it('allows nothing beyond the explicit allowlist', () => {
     const unexplained = hits.filter(
-      (hit) => !applicable.some((allowed) => allowed.file === hit.file && allowed.pattern.test(hit.content)),
+      (hit) => stillNamesOne(hit.content) && !applicable.some((allowed) => allowed.file === hit.file && allowed.pattern.test(hit.content)),
     );
     expect(unexplained).toEqual([]);
   });
@@ -207,5 +230,25 @@ describe('an untracked file is seen (#257)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("a product's own name is not a leftover (#281)", () => {
+  it('removes the name wherever it occurs on the line, whatever its case', () => {
+    expect(withoutOwnName('"name": "boris-trial", # Boris-Trial', 'boris-trial')).toBe('"name": "", # ');
+  });
+
+  it('leaves a bare base name on the same line standing', () => {
+    const rest = withoutOwnName('boris-trial is built from boris', 'boris-trial');
+    expect(rest).toBe(' is built from boris');
+    expect(NAMES.some((name) => rest.toLowerCase().includes(name))).toBe(true);
+  });
+
+  it('treats the name literally, not as a pattern', () => {
+    expect(withoutOwnName('a.b and axb', 'a.b')).toBe(' and axb');
+  });
+
+  it('removes nothing for an empty name', () => {
+    expect(withoutOwnName('boris', '')).toBe('boris');
   });
 });

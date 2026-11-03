@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,7 @@ import {
   runCheck,
   type Run,
 } from '../setup.mjs';
+import { ROOT } from '../project.mjs';
 
 describe('stripped `--` (#276)', () => {
   const stripped = ['create', 'boris-trial', 'stevemarvell', 'python-fastapi', 'node-react'];
@@ -827,7 +828,8 @@ describe('npm and npx on Windows (#276)', () => {
   }, 10_000);
 });
 
-describe('create refuses a dirty base and names the files (#280)', () => {
+// `create` runs from the base checkout, which has catalogue.json; a product has none (#281).
+describe.skipIf(!existsSync(join(ROOT, 'catalogue.json')))('create refuses a dirty base and names the files (#280)', () => {
   const dirtyRun = (lines: string[]) => async (cmd: string, args: string[]) => {
     const isStatus = cmd === 'git' && args.includes('status');
     return { status: 0, stdout: isStatus ? lines.join('\n') + '\n' : 'ok', stderr: '' };

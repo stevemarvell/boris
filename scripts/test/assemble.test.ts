@@ -803,3 +803,43 @@ describe('listing', () => {
     expect(relative(dir, join(dir, 'a'))).toBe('a');
   });
 });
+
+// ---------------------------------------------------------------------------
+// A product has to pass its own harness (#281)
+//
+// Everything above checks an assembled tree's shape. None of it ran the tree's
+// own test suite, so base-only assumptions in shared tests (a file only the
+// base has, the base's name inside a product's name) shipped green and failed
+// the owner's first real `create`. This assembles, commits, and runs it.
+// ---------------------------------------------------------------------------
+describe("an assembled product passes its own harness (#281)", () => {
+  /** Assembles, commits and runs the product's own harness suite; returns the exit status and the tail of its output. */
+  const harness = (name: string, starters: string[]) => {
+    const target = join(scratch(), 'product');
+    assemble({ target, name, starters, engineCommit: ENGINE_COMMIT });
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: target, encoding: 'utf8', stdio: 'pipe' });
+    git('init', '-q');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'assembled');
+    // No install: the product borrows the base's toolchain.
+    symlinkSync(join(ROOT, 'node_modules'), join(target, 'node_modules'));
+    const run = spawnSync('npx', ['vitest', 'run', '--root', 'scripts/test'], { cwd: target, encoding: 'utf8', timeout: 280_000 });
+    return { status: run.status, output: `${run.stdout}\n${run.stderr}`.slice(-6000) };
+  };
+
+  // Timeout: assembles a product, git init + commit, then runs its whole harness suite under vitest (~7 s quiet, several times that under load); 300 s.
+  it("a product whose name contains the base's, with both starters", { timeout: 300_000 }, () => {
+    const { status, output } = harness('boris-trial', ['python-fastapi', 'node-react']);
+    expect(status, output).toBe(0);
+  });
+
+  // Known gap, not yet fixed: smoke.test.ts and verify-workflow.test.ts still
+  // assume a web app and both toolchains. `it.fails` goes red the day they are
+  // fixed, which is the prompt to turn this into a plain `it`.
+  // Timeout: as above, 300 s.
+  it.fails('an engine-only product (smoke.test.ts and verify-workflow.test.ts assume apps)', { timeout: 300_000 }, () => {
+    const { status, output } = harness('widgets', []);
+    expect(status, output).toBe(0);
+  });
+});

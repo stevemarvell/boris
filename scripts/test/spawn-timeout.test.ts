@@ -21,7 +21,7 @@
 // a spawning helper shadows it, so a test that declares its own `run` is not
 // treated as calling the file's real `run`. A fake that is a *file-level*
 // helper which spawns is, correctly, a spawn.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { worktreeFiles } from '../git-files.mjs';
@@ -466,7 +466,9 @@ describe('every test that spawns a process carries its own timeout', () => {
   it('looks at the whole suite, and at spawning tests in it', () => {
     // A check that quietly matched nothing would pass forever.
     expect(files.length).toBeGreaterThan(20);
-    expect(files).toContain('scripts/test/assemble.test.ts');
+    // Base-only: assemble.test.ts is listed in catalogue.json's `base`, so it
+    // is in the base and in no product (#281). catalogue.json marks the base.
+    if (existsSync(resolve(root, 'catalogue.json'))) expect(files).toContain('scripts/test/assemble.test.ts');
     const spawningFiles = files.filter((file) => {
       const clean = blank(readFileSync(resolve(root, file), 'utf8'));
       return testsIn(clean, clean).some((t) => {
@@ -484,7 +486,9 @@ describe('every test that spawns a process carries its own timeout', () => {
 
   it('knows exactly which spawns run at collection time, how many, and why', () => {
     for (const e of COLLECTION_TIME) expect(e.reason.length, e.file).toBeGreaterThan(20);
-    expect(collectionMismatches(results, COLLECTION_TIME)).toEqual([]);
+    // An entry for a file that is absent (a base-only file, in a product) has
+    // nothing to count and is skipped; one for a file that exists still must match.
+    expect(collectionMismatches(results, COLLECTION_TIME.filter((e) => files.includes(e.file)))).toEqual([]);
   });
 });
 
