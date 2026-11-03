@@ -6,9 +6,13 @@
 // repository from this base took days of hand work before this existed.
 //
 // Usage:
-//     npm run setup -- create --name <n> --owner <o> [--starter <s> ...]
-//                             [--deploy <provider>] [--dir <path>] [--public]
-//     npm run setup -- check [--skip-verify] [--dry-run] [--repo owner/name]
+//     node scripts/setup.mjs create --name <n> --owner <o> [--starter <s> ...]
+//                                   [--deploy <provider>] [--dir <path>] [--public]
+//     node scripts/setup.mjs check [--skip-verify] [--dry-run] [--repo owner/name]
+//
+// Not `npm run setup -- ...`: on Windows, npm's PowerShell shim drops the `--`,
+// npm takes the flags as its own config and strips them, and only the bare
+// values reach this script (#276). `node` bypasses npm in every shell.
 //
 // `create` is run from a checkout of this base, and is never run for real by
 // an agent: it creates a GitHub repository, which is the owner's call. It
@@ -67,11 +71,28 @@ function reason({ stdout, stderr }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Bare values and no flags at all is what a stripped `--` leaves: on Windows,
+ * `npm run setup -- create --name a --owner b` reaches us as
+ * `create a b` because npm consumed the flags as its own config (#276).
+ * Say so, instead of "unknown flag".
+ */
+function refuseStrippedFlags(command, argv) {
+  if (argv.length === 0 || argv.some((a) => a.startsWith('--'))) return;
+  throw new Error(
+    `usage: ${command} got values (${argv.join(' ')}) but no flags. ` +
+      'npm drops the flags after `npm run setup --` on Windows PowerShell. ' +
+      `Run it without npm: node scripts/setup.mjs ${command} ` +
+      (command === 'create' ? '--name <n> --owner <o> [--starter <s> ...]' : '[--skip-verify] [--dry-run] [--repo owner/name]'),
+  );
+}
+
+/**
  * `create`'s flags, defaulting `--dir` to `../<name>` and `--public` to false.
  * `--starter` may repeat. Whether the starters and the provider exist is the
  * catalogue's to say, so `create` checks that, not this.
  */
 export function parseCreateArgs(argv) {
+  refuseStrippedFlags('create', argv);
   const opts = { public: false, starters: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -98,6 +119,7 @@ export function parseCreateArgs(argv) {
 
 /** `check`'s flags. Every one is optional. */
 export function parseCheckArgs(argv) {
+  refuseStrippedFlags('check', argv);
   const opts = { skipVerify: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -390,7 +412,7 @@ export async function engineDrift({ run, root, commit }) {
 }
 
 /**
- * Runs `check` for real: every line `npm run setup -- check` prints, and the
+ * Runs `check` for real: every line `node scripts/setup.mjs check` prints, and the
  * exit code. `run` defaults to the real `gh`/`git`; `fetchUrl` to the real
  * `fetch`; `runVerify` and `runIdentityTest` to actually spawning `npm run
  * verify` and the identity test. Each is injectable so a test can drive this

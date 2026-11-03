@@ -21,6 +21,39 @@ import {
   type Run,
 } from '../setup.mjs';
 
+describe('stripped `--` (#276)', () => {
+  const stripped = ['create', 'boris-trial', 'stevemarvell', 'python-fastapi', 'node-react'];
+
+  it('create refuses bare values with the cause and the node form', () => {
+    const run = () => parseCreateArgs(stripped.slice(1));
+    expect(run).toThrow(/no flags/);
+    expect(run).toThrow(/Windows PowerShell/);
+    expect(run).toThrow(/node scripts\/setup\.mjs create --name <n> --owner <o>/);
+    expect(run).not.toThrow(/unknown flag/);
+  });
+
+  it('check refuses bare values the same way', () => {
+    const run = () => parseCheckArgs(['x', 'y']);
+    expect(run).toThrow(/node scripts\/setup\.mjs check/);
+    expect(run).not.toThrow(/unknown flag/);
+  });
+
+  it('the CLI refuses the exact stripped argv, exit non-zero, no network', () => {
+    let out = '';
+    try {
+      execFileSync('node', ['scripts/setup.mjs', ...stripped], { encoding: 'utf8', stdio: 'pipe' });
+    } catch (e) {
+      out = String((e as { stderr?: string }).stderr);
+    }
+    expect(out).toMatch(/node scripts\/setup\.mjs create --name/);
+    expect(out).not.toMatch(/unknown flag/);
+  });
+
+  it('a real unknown flag still gets the usage error', () => {
+    expect(() => parseCheckArgs(['--nope'])).toThrow(/unknown flag "--nope"/);
+  });
+});
+
 describe('parseCreateArgs', () => {
   it('parses --name, --owner, --dir, --public, a repeated --starter and --deploy', () => {
     expect(
