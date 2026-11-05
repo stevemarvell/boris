@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
 import { GATE_ATTEMPTS, appUrls, gateForEvent, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
@@ -287,7 +287,11 @@ describe.skipIf(!existsSync(resolve(dirname(fileURLToPath(import.meta.url)), '..
   }
 
   async function built(): Promise<string> {
-    const { buildDocs } = await import('../../apps/web/scripts/build-docs.mjs');
+    // Resolved at run time, through a variable, so tsc does not look for a file a product without the web starter lacks.
+    const buildDocsPath = join(ROOT, 'apps/web/scripts/build-docs.mjs');
+    const { buildDocs } = (await import(pathToFileURL(buildDocsPath).href)) as {
+      buildDocs: (opts: { root: string; out: string; env: Record<string, string> }) => unknown;
+    };
     const out = join(mkdtempSync(join(tmpdir(), 'smoke-docs-')), 'docs');
     tmp.push(dirname(out));
     buildDocs({ root: ROOT, out, env: {} });
