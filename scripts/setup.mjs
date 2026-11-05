@@ -917,11 +917,18 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
  */
 const REGENERATED = ['package.json', '.github/dependabot.yml', 'README.md', 'CLAUDE.md'];
 
-/** The porcelain status of `dir` as a short list of paths, empty when the tree is clean. */
+/** The paths `git status` reports in `dir`, NUL-separated so none is quoted or escaped; empty when the tree is clean. */
 async function dirtyPaths(run, dir) {
-  const status = await run('git', ['-C', dir, 'status', '--porcelain']);
+  const status = await run('git', ['-C', dir, 'status', '--porcelain', '-z']);
   if (status.status !== 0) throw new Error(`setup add: git status failed in ${dir}: ${reason(status)}`);
-  return status.stdout.split(/\r?\n/).filter((l) => l.trim()).map((l) => l.slice(3));
+  const records = status.stdout.split('\0').filter(Boolean);
+  const paths = [];
+  for (let i = 0; i < records.length; i++) {
+    paths.push(records[i].slice(3));
+    // A rename or copy is followed by its source path as a record of its own.
+    if (/^[RC]/.test(records[i]) || /^.[RC]/.test(records[i])) i++;
+  }
+  return paths;
 }
 
 /**
@@ -958,7 +965,7 @@ async function checkoutBase({ run, root, commit }) {
  * and named in the result (`kept`): `add` does not overwrite the product's own
  * words. Returns `{ added, kept }`. `run`, `root` and `log` are injectable.
  */
-export async function add(opts, { run = exec, root = ROOT, log = console.log } = {}) {
+export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, log = console.log } = {}) {
   const projectFile = join(root, 'project.json');
   if (!existsSync(projectFile)) throw new Error(`setup add: ${root} has no project.json; add runs inside a product`);
   const current = JSON.parse(readFileSync(projectFile, 'utf8'));
@@ -966,6 +973,8 @@ export async function add(opts, { run = exec, root = ROOT, log = console.log } =
   if (!/^[0-9a-f]{40}$/.test(commit ?? '')) {
     throw new Error('setup add: project.json has no engine.commit, so there is no base commit to take starters from; add runs inside a product made by `setup create`');
   }
+  const repeated = opts.starters.find((key, i) => opts.starters.indexOf(key) !== i);
+  if (repeated !== undefined) throw new Error(`setup add: starter "${repeated}" is given more than once`);
   const dirty = await dirtyPaths(run, root);
   if (dirty.length > 0) {
     const more = dirty.length > 10 ? ` and ${dirty.length - 10} more` : '';
@@ -982,22 +991,24 @@ export async function add(opts, { run = exec, root = ROOT, log = console.log } =
     }
     // Starters the product already has, by their app, so the layout lists them too.
     const have = Object.keys(catalogue.starters).filter((key) => current.apps?.[catalogue.starters[key].app]);
+    // One check for "the app is already there": declared in project.json, or its directory exists.
+    const baseApps = loadProject(join(base, 'project.json')).apps;
     for (const key of opts.starters) {
-      if (have.includes(key)) throw new Error(`setup add: ${root} already has the app "${catalogue.starters[key].app}" from starter "${key}"; add never overwrites an app`);
+      const { app } = catalogue.starters[key];
+      const path = baseApps[app]?.path;
+      if (have.includes(key) || (path && existsSync(join(root, ...path.split('/'))))) {
+        throw new Error(`setup add: app "${app}" (starter "${key}") is already present in ${root}${path ? ` (${path})` : ''}; add never overwrites an app`);
+      }
     }
     const name = current.name;
     const wanted = plan({ root: base, catalogue, name, starters: [...have, ...opts.starters], engineCommit: commit });
     const before = plan({ root: base, catalogue, name, starters: have, engineCommit: commit });
 
     const mine = new Set(opts.starters.map((key) => `starter ${key}`));
-    const entries = wanted.entries.filter((entry) => mine.has(entry.source));
+    // A lockfile the product already has stays its own; it is brought up to date below.
+    const lockBefore = existsSync(join(root, 'package-lock.json'));
+    const entries = wanted.entries.filter((entry) => mine.has(entry.source) && !(lockBefore && entry.to === 'package-lock.json'));
     const newApps = opts.starters.map((key) => catalogue.starters[key].app);
-    for (const app of newApps) {
-      const path = wanted.project.apps[app].path;
-      if (current.apps?.[app] || existsSync(join(root, ...path.split('/')))) {
-        throw new Error(`setup add: app "${app}" already exists in ${root} (${path}); add never overwrites an app`);
-      }
-    }
     const clash = entries.filter((entry) => existsSync(join(root, ...entry.to.split('/')))).map((entry) => entry.to);
     if (clash.length > 0) {
       throw new Error(`setup add: ${clash.slice(0, 10).join(', ')} already exist${clash.length === 1 ? 's' : ''} in ${root}; add never overwrites a file`);
@@ -1021,7 +1032,17 @@ export async function add(opts, { run = exec, root = ROOT, log = console.log } =
     if (kept.length > 0) {
       log(`Left as they are, because they were changed since they were generated: ${kept.join(', ')}. Bring in what the new app needs by hand (workspaces in package.json, the uv entry in dependabot.yml, the layout row in CLAUDE.md).`);
     }
-    log('Next: npm run bootstrap, then npm run verify. If package-lock.json is missing, npx npm@11 install writes it.');
+    // `npm ci` fails when the lockfile lacks a workspace package.json now names.
+    // A starter's own lockfile written just now is already right for it.
+    const changed = derived.some((entry) => entry.to === 'package.json');
+    if (changed && (lockBefore || !existsSync(join(root, 'package-lock.json')))) {
+      log('package.json changed: running npx npm@11 install to bring package-lock.json up to date');
+      const locked = spawn('npx', ['npm@11', 'install'], { cwd: root, stdio: 'inherit' });
+      if ((locked.status ?? 1) !== 0) throw new Error(`setup add: npx npm@11 install failed in ${root}; the starters are written, run it yourself before npm run bootstrap`);
+    } else if (kept.includes('package.json')) {
+      log('package.json was left as it is: after adding the workspace by hand, run npx npm@11 install, or npm ci fails.');
+    }
+    log('Next: npm run bootstrap, then npm run verify.');
     return { added: newApps, kept };
   } finally {
     rmSync(base, { recursive: true, force: true });

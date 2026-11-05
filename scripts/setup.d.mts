@@ -92,6 +92,6 @@ export declare function create(
 ): Promise<number>;
 export declare function add(
   options: { starters: string[] },
-  deps?: { run?: Run; root?: string; log?: (line: string) => void },
+  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
 ): Promise<{ added: string[]; kept: string[] }>;
 export declare function main(argv: string[]): Promise<number>;

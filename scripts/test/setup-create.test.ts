@@ -559,7 +559,15 @@ const files = (dir: string, rel = ''): string[] =>
     const path = rel ? `${rel}/${e.name}` : e.name;
     return e.name === '.git' ? [] : e.isDirectory() ? files(dir, path) : [path];
   });
-const quiet = { log: () => {} };
+const installs: { cmd: string; args: string[]; cwd: unknown }[] = [];
+// No real install: it would reach the network. What add asked for is recorded.
+const quiet = {
+  log: () => {},
+  spawn: (cmd: string, args: string[], options?: Record<string, unknown>) => {
+    installs.push({ cmd, args, cwd: options?.cwd });
+    return { status: 0 };
+  },
+};
 
 
 describe('add, inside a product', () => {
@@ -607,7 +615,7 @@ describe('add, inside a product', () => {
     writeFileSync(join(dir, 'apps/web/mine.txt'), 'mine');
     git(dir, 'add', '-A');
     git(dir, 'commit', '-q', '-m', 'mine');
-    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/app "web" already exists .*apps\/web/);
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/app "web" \(starter "node-react"\) is already present .*apps\/web/);
     expect(files(dir).filter((f) => f.startsWith('apps/'))).toEqual(['apps/web/mine.txt']);
     expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps).toEqual({});
   });
@@ -617,7 +625,40 @@ describe('add, inside a product', () => {
     await add({ starters: ['node-react'] }, { root: dir, ...quiet });
     git(dir, 'add', '-A');
     git(dir, 'commit', '-q', '-m', 'web');
-    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/already has the app "web" from starter "node-react"/);
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/app "web" .* is already present/);
+  });
+
+  it('refuses a starter given twice with its own message, before fetching anything', async () => {
+    const dir = product(fakeBase());
+    await expect(add({ starters: ['node-react', 'node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/starter "node-react" is given more than once/);
+    expect(existsSync(join(dir, 'apps'))).toBe(false);
+  });
+
+  it('names the paths of a dirty tree plainly, not quoted or escaped', async () => {
+    const dir = product(fakeBase());
+    writeFileSync(join(dir, 'my notes é.txt'), 'wip');
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/\(my notes é\.txt\)/);
+  });
+
+  it('brings a lockfile the product already has up to date when package.json changes, and keeps it', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    writeFileSync(join(dir, 'package-lock.json'), '{"name":"widgets","lockfileVersion":3,"packages":{}}\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'lock');
+    installs.length = 0;
+    await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    expect(installs).toEqual([{ cmd: 'npx', args: ['npm@11', 'install'], cwd: dir }]);
+    // The starter's own lockfile does not replace the product's.
+    expect(readFileSync(join(dir, 'package-lock.json'), 'utf8')).toBe('{"name":"widgets","lockfileVersion":3,"packages":{}}\n');
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).workspaces).toBeDefined();
+  });
+
+  it('runs no install when the starter brings the lockfile, and stops with a message when the install fails', { timeout: 120_000 }, async () => {
+    installs.length = 0;
+    await add({ starters: ['node-react'] }, { root: product(fakeBase()), ...quiet });
+    expect(installs).toEqual([]);
+    const dir = product(fakeBase());
+    await expect(add({ starters: ['python-fastapi'] }, { root: dir, ...quiet, spawn: () => ({ status: 1 }) })).rejects.toThrow(/npx npm@11 install failed/);
   });
 
   it('refuses an unknown starter, naming what the base offers', { timeout: 60_000 }, async () => {
