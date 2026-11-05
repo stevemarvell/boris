@@ -59,6 +59,7 @@ export declare function spawnTool(
 ): { status: number | null };
 
 export declare function parseCreateArgs(argv: string[]): CreateArgs;
+export declare function parseAddArgs(argv: string[]): { starters: string[] };
 export declare function parseCheckArgs(argv: string[]): CheckArgs;
 
 export declare function preflight(options?: { run?: Run; nodeVersion?: string; python?: boolean }): Promise<PreflightResult[]>;
@@ -89,4 +90,8 @@ export declare function create(
   options: CreateArgs,
   deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
 ): Promise<number>;
+export declare function add(
+  options: { starters: string[] },
+  deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
+): Promise<{ added: string[]; kept: string[] }>;
 export declare function main(argv: string[]): Promise<number>;

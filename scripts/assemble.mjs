@@ -517,6 +517,20 @@ export function checkTarget(target, root) {
   if (readdirSync(target).length > 0) throw new Error(`assemble: target ${target} is not empty`);
 }
 
+/** Writes planned `entries` under `where`, file entries copied from `root` with their mode, generated ones from their content. */
+export function writeEntries(root, where, entries) {
+  mkdirSync(where, { recursive: true });
+  for (const entry of entries) {
+    const to = join(where, ...entry.to.split('/'));
+    mkdirSync(dirname(to), { recursive: true });
+    if (entry.from !== undefined) {
+      const from = join(root, ...entry.from.split('/'));
+      writeFileSync(to, readFileSync(from));
+      chmodSync(to, statSync(from).mode & 0o777);
+    } else writeFileSync(to, entry.content);
+  }
+}
+
 /**
  * Builds a product into `target`: the engine, the chosen `starters`, and the
  * product's own `project.json`. Plans everything first, so a refusal leaves
@@ -528,16 +542,7 @@ export function assemble({ target, ...rest }) {
   const where = resolve(target);
   checkTarget(where, root);
   const { entries, project } = plan({ ...rest, root });
-  mkdirSync(where, { recursive: true });
-  for (const entry of entries) {
-    const to = join(where, ...entry.to.split('/'));
-    mkdirSync(dirname(to), { recursive: true });
-    if (entry.from !== undefined) {
-      const from = join(root, ...entry.from.split('/'));
-      writeFileSync(to, readFileSync(from));
-      chmodSync(to, statSync(from).mode & 0o777);
-    } else writeFileSync(to, entry.content);
-  }
+  writeEntries(root, where, entries);
   return { target: where, files: entries.map((e) => e.to), project };
 }
 

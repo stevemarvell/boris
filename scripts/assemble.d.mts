@@ -64,5 +64,6 @@ export declare function splitDependabot(source: string): DependabotParts;
 export declare function dependabotYml(source: string, options: { python: boolean }): string;
 export declare function checkTarget(target: string, root: string): void;
 export declare function plan(options: PlanOptions): { entries: PlanEntry[]; project: Project };
+export declare function writeEntries(root: string, where: string, entries: PlanEntry[]): void;
 export declare function assemble(options: PlanOptions & { target: string }): AssembleResult;
 export declare function parseArgs(argv: string[]): { list?: boolean; target?: string; name?: string; engineCommit?: string; starters: string[] };
