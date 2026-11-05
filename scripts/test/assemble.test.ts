@@ -817,7 +817,7 @@ describe("an assembled product passes its own harness (#281)", () => {
   // from parts so this file does not itself name it, as identity.test.ts reads it.
   const BASE_NAMED_PRODUCT = `${'bor'}is-trial`;
 
-  /** Assembles, commits and runs the product's own harness suite; returns the exit status and the tail of its output. */
+  /** Assembles, commits and runs the product's own `verify:harness`; returns the exit status and the tail of its output. */
   const harness = (name: string, starters: string[]) => {
     const target = join(scratch(), 'product');
     assemble({ target, name, starters, engineCommit: ENGINE_COMMIT });
@@ -828,18 +828,20 @@ describe("an assembled product passes its own harness (#281)", () => {
     git('commit', '-q', '-m', 'assembled');
     // No install: the product borrows the base's toolchain.
     symlinkSync(join(ROOT, 'node_modules'), join(target, 'node_modules'));
-    const run = spawnSync('npx', ['vitest', 'run', '--root', 'scripts/test'], { cwd: target, encoding: 'utf8', timeout: 280_000 });
+    // The product's own `verify:harness`, in full: tsc and eslint as well as vitest, since a static
+    // import of a starter's file passes vitest and fails the typecheck in a product without it.
+    const run = spawnSync('npm', ['run', 'verify:harness'], { cwd: target, encoding: 'utf8', timeout: 560_000 });
     return { status: run.status, output: `${run.stdout}\n${run.stderr}`.slice(-6000) };
   };
 
-  // Timeout: assembles a product, git init + commit, then runs its whole harness suite under vitest (~7 s quiet, several times that under load); 300 s.
-  it("a product whose name contains the base's, with both starters", { timeout: 300_000 }, () => {
+  // Timeout: assembles a product, git init + commit, then runs its whole `verify:harness` (tsc, eslint, vitest; about a minute quiet, several times that under load); 600 s.
+  it("a product whose name contains the base's, with both starters", { timeout: 600_000 }, () => {
     const { status, output } = harness(BASE_NAMED_PRODUCT, ['python-fastapi', 'node-react']);
     expect(status, output).toBe(0);
   });
 
-  // Timeout: as above, 300 s.
-  it('an engine-only product', { timeout: 300_000 }, () => {
+  // Timeout: as above, 600 s.
+  it('an engine-only product', { timeout: 600_000 }, () => {
     const { status, output } = harness('widgets', []);
     expect(status, output).toBe(0);
   });
