@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { cli, loadProject, validate, type Project } from '../project.mjs';
 
-// What verify.yml spends minutes on is decided by project.json (#254): the uv
-// and Playwright steps run only for a product with an app of that toolchain.
+// What verify.yml spends minutes on is decided by project.json (#254, #286): the
+// uv steps run only for a product with a python app, the Playwright steps only
+// for one whose apps' verify runs an e2e command.
 // These read the workflow file itself, then evaluate its `if:` conditions
 // against the lines `project.mjs toolchains` writes, so what is checked is
 // the file CI runs, not a copy of its logic.
@@ -63,9 +64,17 @@ const named = (what: RegExp) => {
 // product holds what it was assembled with, and its steps run only for those (#254, #281).
 const IN_BASE = existsSync(join(REPO_ROOT, 'catalogue.json'));
 const own = () => outputsFor(loadProject());
+const hasAll = () => own().node === 'true' && own().python === 'true' && own().e2e === 'true';
 const hasBoth = () => own().node === 'true' && own().python === 'true';
 
 const engineOnly = () => validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
+// A node app whose verify has no e2e command: it needs node, not a browser.
+const nodeWithoutE2e = () =>
+  validate({
+    name: 'thing',
+    engine: { commit: 'a'.repeat(40) },
+    apps: { ui: { path: 'apps/ui', toolchain: 'node', reads: ['apps/ui'], verify: ['npm run test', 'npm run build'] } },
+  });
 const only = (toolchain: 'node' | 'python'): Project => {
   const base = loadProject();
   return { ...base, apps: Object.fromEntries(Object.entries(base.apps).filter(([, app]) => app.toolchain === toolchain)) };
@@ -91,14 +100,20 @@ describe('verify.yml', () => {
     for (const gated of [uv(), sync(), playwright(), report()]) expect(all.findIndex((s) => s.text === gated.text)).toBeGreaterThan(at);
   });
 
-  it("keeps every step in the base itself, which has both a node and a python app", () => {
+  it('gates both Playwright steps on e2e, not on node', () => {
+    expect(playwright().condition).toBe("steps.toolchains.outputs.e2e == 'true'");
+    expect(report().condition).toBe("failure() && steps.toolchains.outputs.e2e == 'true'");
+  });
+
+  it("keeps every step in the base itself, which has a node and a python app and runs e2e", () => {
     const outputs = outputsFor(loadProject());
-    // In the base, both toolchains are required; in a product, hold it to what it has.
-    if (IN_BASE) expect(outputs).toEqual({ node: 'true', python: 'true' });
-    else if (!hasBoth()) {
-      // A product with fewer toolchains skips the steps for the ones it lacks.
+    // In the base, everything is required; in a product, hold it to what it has.
+    if (IN_BASE) expect(outputs).toEqual({ node: 'true', python: 'true', e2e: 'true' });
+    else if (!hasAll()) {
+      // A product with less skips the steps for what it lacks.
       expect(runs(uv(), outputs, false)).toBe(outputs.python === 'true');
-      expect(runs(playwright(), outputs, false)).toBe(outputs.node === 'true');
+      expect(runs(playwright(), outputs, false)).toBe(outputs.e2e === 'true');
+      expect(runs(report(), outputs, true)).toBe(outputs.e2e === 'true');
       return;
     }
     // Every step but the failure-only report runs on a green build.
@@ -108,7 +123,7 @@ describe('verify.yml', () => {
 
   it('skips uv, the Python sync, Playwright and its report in an engine-only product', () => {
     const outputs = outputsFor(engineOnly());
-    expect(outputs).toEqual({ node: 'false', python: 'false' });
+    expect(outputs).toEqual({ node: 'false', python: 'false', e2e: 'false' });
     for (const step of [uv(), sync(), playwright()]) expect(runs(step, outputs, false), step.text).toBe(false);
     expect(runs(report(), outputs, true)).toBe(false);
     for (const step of [named(/actions\/checkout/), named(/actions\/setup-node/), named(/run: npm ci/), named(/run: npm run verify/)]) {
@@ -116,20 +131,34 @@ describe('verify.yml', () => {
     }
   });
 
-  // Needs one app of each toolchain to subset from.
-  it.skipIf(!hasBoth())('skips only Playwright and its report with no node app, and only uv with no python app', () => {
+  it('skips Playwright and its report, but nothing else, for a node app whose verify has no e2e command', () => {
+    const outputs = outputsFor(nodeWithoutE2e());
+    expect(outputs).toEqual({ node: 'true', python: 'false', e2e: 'false' });
+    expect([playwright(), uv(), sync()].map((s) => runs(s, outputs, false))).toEqual([false, false, false]);
+    expect(runs(report(), outputs, true)).toBe(false);
+    for (const step of [named(/actions\/checkout/), named(/actions\/setup-node/), named(/run: npm ci/), named(/run: npm run verify/)]) {
+      expect(runs(step, outputs, false), step.text).toBe(true);
+    }
+  });
+
+  // Needs one app of each toolchain to subset from. Whether Playwright runs for
+  // a subset follows that subset's own e2e output, not its toolchain: e2e can
+  // come from either one.
+  it.skipIf(!hasBoth())('runs uv only with a python app, and Playwright and its report only when the subset has e2e', () => {
     const pythonOnly = outputsFor(only('python'));
-    expect([uv(), sync(), playwright()].map((s) => runs(s, pythonOnly, false))).toEqual([true, true, false]);
-    expect(runs(report(), pythonOnly, true)).toBe(false);
+    expect(pythonOnly.node).toBe('false');
+    expect([uv(), sync(), playwright()].map((s) => runs(s, pythonOnly, false))).toEqual([true, true, pythonOnly.e2e === 'true']);
+    expect(runs(report(), pythonOnly, true)).toBe(pythonOnly.e2e === 'true');
 
     const nodeOnly = outputsFor(only('node'));
-    expect([uv(), sync(), playwright()].map((s) => runs(s, nodeOnly, false))).toEqual([false, false, true]);
-    expect(runs(report(), nodeOnly, true)).toBe(true);
+    expect(nodeOnly.python).toBe('false');
+    expect([uv(), sync(), playwright()].map((s) => runs(s, nodeOnly, false))).toEqual([false, false, nodeOnly.e2e === 'true']);
+    expect(runs(report(), nodeOnly, true)).toBe(nodeOnly.e2e === 'true');
   });
 
   it('uploads the report only on failure, as before', () => {
     expect(report().condition).toContain('failure()');
-    expect(runs(report(), { node: 'true', python: 'true' }, false)).toBe(false);
+    expect(runs(report(), { node: 'true', python: 'true', e2e: 'true' }, false)).toBe(false);
   });
 
   // Timeout: spawns bash on the workflow step (37 ms quiet); 15 s.
@@ -141,8 +170,8 @@ describe('verify.yml', () => {
       const result = spawnSync('bash', ['-ec', run], { cwd: REPO_ROOT, env: { ...process.env, GITHUB_OUTPUT: out }, encoding: 'utf8' });
       expect(result.status, result.stderr).toBe(0);
       const o = own();
-      expect(readFileSync(out, 'utf8')).toBe(`node=${o.node}\npython=${o.python}\n`);
-      if (IN_BASE) expect(o).toEqual({ node: 'true', python: 'true' });
+      expect(readFileSync(out, 'utf8')).toBe(`node=${o.node}\npython=${o.python}\ne2e=${o.e2e}\n`);
+      if (IN_BASE) expect(o).toEqual({ node: 'true', python: 'true', e2e: 'true' });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
