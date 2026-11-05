@@ -17,6 +17,7 @@ import {
   parseCheckArgs,
   exec,
   create,
+  parseAddArgs,
   needsShell,
   shellCommand,
   spawnTool,
@@ -857,4 +858,23 @@ describe.skipIf(!existsSync(join(ROOT, 'catalogue.json')))('create refuses a dir
     expect(err.message).not.toContain('f10.txt');
     expect(err.message).toMatch(/and 3 more/);
   }, 20_000);
+});
+
+
+// ---------------------------------------------------------------------------
+// add (the parts that need no base; the rest is in setup-create.test.ts)
+// ---------------------------------------------------------------------------
+
+describe('parseAddArgs', () => {
+  it('collects every --starter', () => {
+    expect(parseAddArgs(['--starter', 'node-react', '--starter', 'python-fastapi']).starters).toEqual(['node-react', 'python-fastapi']);
+  });
+
+  it('refuses no starter, a missing value, an unknown flag, and the stripped form', () => {
+    expect(() => parseAddArgs([])).toThrow(/at least one --starter/);
+    expect(() => parseAddArgs(['--starter'])).toThrow(/needs a value/);
+    expect(() => parseAddArgs(['--starter', '--x'])).toThrow(/needs a value/);
+    expect(() => parseAddArgs(['--name', 'x'])).toThrow(/unknown flag "--name"/);
+    expect(() => parseAddArgs(['node-react'])).toThrow(/node scripts\/setup\.mjs add --starter/);
+  });
 });

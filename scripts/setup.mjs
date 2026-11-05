@@ -8,6 +8,7 @@
 // Usage:
 //     node scripts/setup.mjs create --name <n> --owner <o> [--starter <s> ...]
 //                                   [--deploy <provider>] [--dir <path>] [--public]
+//     node scripts/setup.mjs add --starter <s> [--starter <s> ...]
 //     node scripts/setup.mjs check [--skip-verify] [--dry-run] [--repo owner/name]
 //
 // Not `npm run setup -- ...`: on Windows, npm's PowerShell shim drops the `--`,
@@ -20,6 +21,15 @@
 // the product gets no history from this base, one commit of its own, and a
 // fetch-only remote to it. Which base commit it was built from is recorded as
 // `engine.commit` in the product's project.json.
+// `add` is run inside a product, and adds starters to it: an engine-only
+// product that now needs an app. It fetches the base at the product's
+// `engine.commit` through the fetch-only remote `create` set up, so it adds
+// the starter as that commit had it, not as the base's `develop` has it now.
+// It plans with scripts/assemble.mjs, writes the starters' files and the app
+// entries, and regenerates what assemble derives (package.json, dependabot.yml,
+// README.md, CLAUDE.md), unless the product has rewritten that file, which
+// it leaves and names. It refuses a dirty tree, an app path that exists, and
+// an unknown starter, before it writes anything.
 // `check` is run inside a repository built from this base (including this
 // one) and is idempotent — re-running it after fixing something reports less
 // to do, never more, and never creates a second copy of anything it already
@@ -33,10 +43,11 @@
 // cloud sessions refuse the one and have the other (#225). `gh secret list`
 // is REST already and stays.
 import { execFile, execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assemble, checkTarget, loadCatalogue, plan } from './assemble.mjs';
+import { assemble, checkTarget, loadCatalogue, plan, writeEntries } from './assemble.mjs';
 import { apply as applyLabels, loadManifest as loadLabelManifest } from './labels.mjs';
 import { ROOT, apps, deployed, loadProject } from './project.mjs';
 
@@ -51,6 +62,7 @@ export const BASE_REMOTE = 'boris';
 
 export const PREFLIGHT_NODE_MAJOR = 22;
 
+const ADD_USAGE = 'add --starter <s> [--starter <s> ...]';
 const CREATE_USAGE = 'create --name <n> --owner <o> [--starter <s> ...] [--deploy <provider>] [--dir <path>] [--public]';
 
 /**
@@ -122,7 +134,11 @@ function refuseStrippedFlags(command, argv) {
     `usage: ${command} got values (${argv.join(' ')}) but no flags. ` +
       'npm drops the flags after `npm run setup --` on Windows PowerShell. ' +
       `Run it without npm: node scripts/setup.mjs ${command} ` +
-      (command === 'create' ? '--name <n> --owner <o> [--starter <s> ...]' : '[--skip-verify] [--dry-run] [--repo owner/name]'),
+      (command === 'create'
+        ? '--name <n> --owner <o> [--starter <s> ...]'
+        : command === 'add'
+          ? '--starter <s> [--starter <s> ...]'
+          : '[--skip-verify] [--dry-run] [--repo owner/name]'),
   );
 }
 
@@ -154,6 +170,22 @@ export function parseCreateArgs(argv) {
   if (!opts.owner) throw new Error('usage: --owner <o> is required');
   checkOwner(opts.owner);
   if (!opts.dir) opts.dir = `../${opts.name}`;
+  return opts;
+}
+
+/** `add`'s flags: one or more `--starter`. Whether each exists is the catalogue's to say, so `add` checks that. */
+export function parseAddArgs(argv) {
+  refuseStrippedFlags('add', argv);
+  const opts = { starters: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    if (flag !== '--starter') throw new Error(`usage: ${ADD_USAGE}: unknown flag "${flag}"`);
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith('--')) throw new Error('usage: --starter needs a value');
+    opts.starters.push(value);
+    i++;
+  }
+  if (opts.starters.length === 0) throw new Error(`usage: ${ADD_USAGE}: at least one --starter is required`);
   return opts;
 }
 
@@ -879,6 +911,123 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
   return check.status ?? 1;
 }
 
+
+/**
+ * Files `plan` derives, which `add` regenerates; project.json is merged instead.
+ */
+const REGENERATED = ['package.json', '.github/dependabot.yml', 'README.md', 'CLAUDE.md'];
+
+/** The porcelain status of `dir` as a short list of paths, empty when the tree is clean. */
+async function dirtyPaths(run, dir) {
+  const status = await run('git', ['-C', dir, 'status', '--porcelain']);
+  if (status.status !== 0) throw new Error(`setup add: git status failed in ${dir}: ${reason(status)}`);
+  return status.stdout.split(/\r?\n/).filter((l) => l.trim()).map((l) => l.slice(3));
+}
+
+/**
+ * Checks the base out at `commit` into a fresh directory, fetching it through
+ * the product's fetch-only remote to the base, so the product's own git history
+ * and object store are untouched. Returns the directory; the caller removes it.
+ */
+async function checkoutBase({ run, root, commit }) {
+  const remote = await run('git', ['-C', root, 'remote', 'get-url', BASE_REMOTE]);
+  if (remote.status !== 0 || !remote.stdout.trim()) {
+    throw new Error(`setup add: ${root} has no ${BASE_REMOTE} remote to fetch the starters from: ${reason(remote)}`);
+  }
+  const scratch = mkdtempSync(join(tmpdir(), 'setup-add-'));
+  try {
+    for (const args of [['init', '-q'], ['fetch', '-q', '--no-tags', '--depth', '1', remote.stdout.trim(), commit], ['checkout', '-q', '--detach', 'FETCH_HEAD']]) {
+      const result = await run('git', ['-C', scratch, ...args]);
+      if (result.status !== 0) {
+        throw new Error(`setup add: git ${args[0]} of ${BASE_REMOTE} at engine.commit ${short(commit)} failed: ${reason(result)}`);
+      }
+    }
+  } catch (error) {
+    rmSync(scratch, { recursive: true, force: true });
+    throw error;
+  }
+  return scratch;
+}
+
+/**
+ * `add`, run inside a product: copies each starter's files from the base at
+ * the product's `engine.commit` and adds its app to project.json, then
+ * regenerates the files assemble derives. Everything that can be refused is
+ * refused before the first write, so a refusal leaves the product as it was.
+ * A derived file the product has changed since it was generated is left alone
+ * and named in the result (`kept`): `add` does not overwrite the product's own
+ * words. Returns `{ added, kept }`. `run`, `root` and `log` are injectable.
+ */
+export async function add(opts, { run = exec, root = ROOT, log = console.log } = {}) {
+  const projectFile = join(root, 'project.json');
+  if (!existsSync(projectFile)) throw new Error(`setup add: ${root} has no project.json; add runs inside a product`);
+  const current = JSON.parse(readFileSync(projectFile, 'utf8'));
+  const commit = current.engine?.commit;
+  if (!/^[0-9a-f]{40}$/.test(commit ?? '')) {
+    throw new Error('setup add: project.json has no engine.commit, so there is no base commit to take starters from; add runs inside a product made by `setup create`');
+  }
+  const dirty = await dirtyPaths(run, root);
+  if (dirty.length > 0) {
+    const more = dirty.length > 10 ? ` and ${dirty.length - 10} more` : '';
+    throw new Error(`setup add: ${root} has uncommitted changes (${dirty.slice(0, 10).join(', ')}${more}); commit or stash them first, so the change add makes is the only one to review`);
+  }
+
+  const base = await checkoutBase({ run, root, commit });
+  try {
+    const catalogue = loadCatalogue(join(base, 'catalogue.json'));
+    for (const key of opts.starters) {
+      if (!catalogue.starters[key]) {
+        throw new Error(`setup add: no starter named "${key}" (catalogue.json at ${short(commit)} offers: ${Object.keys(catalogue.starters).join(', ')})`);
+      }
+    }
+    // Starters the product already has, by their app, so the layout lists them too.
+    const have = Object.keys(catalogue.starters).filter((key) => current.apps?.[catalogue.starters[key].app]);
+    for (const key of opts.starters) {
+      if (have.includes(key)) throw new Error(`setup add: ${root} already has the app "${catalogue.starters[key].app}" from starter "${key}"; add never overwrites an app`);
+    }
+    const name = current.name;
+    const wanted = plan({ root: base, catalogue, name, starters: [...have, ...opts.starters], engineCommit: commit });
+    const before = plan({ root: base, catalogue, name, starters: have, engineCommit: commit });
+
+    const mine = new Set(opts.starters.map((key) => `starter ${key}`));
+    const entries = wanted.entries.filter((entry) => mine.has(entry.source));
+    const newApps = opts.starters.map((key) => catalogue.starters[key].app);
+    for (const app of newApps) {
+      const path = wanted.project.apps[app].path;
+      if (current.apps?.[app] || existsSync(join(root, ...path.split('/')))) {
+        throw new Error(`setup add: app "${app}" already exists in ${root} (${path}); add never overwrites an app`);
+      }
+    }
+    const clash = entries.filter((entry) => existsSync(join(root, ...entry.to.split('/')))).map((entry) => entry.to);
+    if (clash.length > 0) {
+      throw new Error(`setup add: ${clash.slice(0, 10).join(', ')} already exist${clash.length === 1 ? 's' : ''} in ${root}; add never overwrites a file`);
+    }
+
+    // A derived file is regenerated only while it is still what was generated.
+    const kept = [];
+    const derived = [];
+    for (const path of REGENERATED) {
+      const next = wanted.entries.find((entry) => entry.to === path);
+      const was = before.entries.find((entry) => entry.to === path);
+      if (next.content === was.content) continue; // the new app changes nothing in it
+      const onDisk = existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : undefined;
+      (onDisk === was.content ? derived : kept).push(onDisk === was.content ? next : path);
+    }
+
+    const merged = { ...current, apps: { ...current.apps } };
+    for (const app of newApps) merged.apps[app] = wanted.project.apps[app];
+    writeEntries(base, root, [...entries, ...derived, { to: 'project.json', content: `${JSON.stringify(merged, null, 2)}\n` }]);
+    log(`Added ${opts.starters.join(' + ')} to ${root}, from ${BASE_REMOTE}@${short(commit)}: ${entries.length} files`);
+    if (kept.length > 0) {
+      log(`Left as they are, because they were changed since they were generated: ${kept.join(', ')}. Bring in what the new app needs by hand (workspaces in package.json, the uv entry in dependabot.yml, the layout row in CLAUDE.md).`);
+    }
+    log('Next: npm run bootstrap, then npm run verify. If package-lock.json is missing, npx npm@11 install writes it.');
+    return { added: newApps, kept };
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -891,13 +1040,17 @@ export async function main(argv) {
     // streamed live via inherited stdio; create() adds only a few lines of its own.
     return await create(opts);
   }
+  if (command === 'add') {
+    await add(parseAddArgs(rest));
+    return 0;
+  }
   if (command === 'check') {
     const opts = parseCheckArgs(rest);
     const result = await runCheck(opts);
     process.stdout.write(result.lines.join('\n') + '\n');
     return result.exitCode;
   }
-  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name]`);
+  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | ${ADD_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name]`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

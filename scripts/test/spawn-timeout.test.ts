@@ -69,6 +69,12 @@ const COLLECTION_TIME: { file: string; name: string; count: number; reason: stri
     reason: 'a describe.each body assembles each combination once at collection, to share the result between its tests',
   },
   {
+    file: 'scripts/test/setup-create.test.ts',
+    name: 'assemble',
+    count: 1,
+    reason: "a module-level helper builds the engine-only product `add` is tested on; it is only called from inside tests, which carry their own timeouts",
+  },
+  {
     file: 'scripts/test/identity.test.ts',
     name: 'grepHits',
     count: 1,

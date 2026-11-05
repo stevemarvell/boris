@@ -3,13 +3,13 @@
 // does not have. They are listed in catalogue.json's `base`, and setup.test.ts
 // (which ships to every product) holds the rest of setup.mjs's tests.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadCatalogue } from '../assemble.mjs';
+import { assemble, loadCatalogue } from '../assemble.mjs';
 import { ROOT } from '../project.mjs';
-import { BASE_REMOTE, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
+import { BASE_REMOTE, add, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
 
 describe('checkChoices', () => {
   const catalogue = loadCatalogue();
@@ -510,5 +510,142 @@ describe('create', () => {
     expect(git('status', '--porcelain')).toBe('');
     // The base's own files stay behind.
     expect(git('ls-files', 'catalogue.json', 'docs/adoption.md', 'scripts/assemble.mjs')).toBe('scripts/assemble.mjs');
+  });
+});
+
+// Helpers for `add`'s tests, at module level: a helper in a describe body is
+// counted as a spawn at collection time (spawn-timeout.test.ts).
+const made: string[] = [];
+const scratch = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'setup-add-test-'));
+  made.push(dir);
+  return dir;
+};
+afterEach(() => {
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
+
+/** A stand-in for the base: this checkout's tracked files, committed in a repository of their own. */
+const fakeBase = () => {
+  const dir = scratch();
+  for (const file of execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean)) {
+    if (!existsSync(join(ROOT, file))) continue;
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
+    copyFileSync(join(ROOT, file), join(dir, file));
+    chmodSync(join(dir, file), statSync(join(ROOT, file)).mode & 0o777);
+  }
+  git(dir, 'init', '-q', '-b', 'develop');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'base');
+  return { dir, sha: git(dir, 'rev-parse', 'HEAD') };
+};
+
+/** An engine-only product built from `base`, committed, with a fetch-only remote to it. */
+const product = (base: { dir: string; sha: string }) => {
+  const dir = join(scratch(), 'widgets');
+  assemble({ root: base.dir, target: dir, name: 'widgets', starters: [], engineCommit: base.sha });
+  git(dir, 'init', '-q', '-b', 'develop');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'start');
+  git(dir, 'remote', 'add', BASE_REMOTE, base.dir);
+  return dir;
+};
+
+const files = (dir: string, rel = ''): string[] =>
+  readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((e) => {
+    const path = rel ? `${rel}/${e.name}` : e.name;
+    return e.name === '.git' ? [] : e.isDirectory() ? files(dir, path) : [path];
+  });
+const quiet = { log: () => {} };
+
+
+describe('add, inside a product', () => {
+  it('gives an engine-only product the same tree as create with both starters', { timeout: 120_000 }, async () => {
+    const base = fakeBase();
+    const dir = product(base);
+    const result = await add({ starters: ['python-fastapi', 'node-react'] }, { root: dir, ...quiet });
+    expect(result.kept).toEqual([]);
+
+    const expected = join(scratch(), 'expected');
+    assemble({ root: base.dir, target: expected, name: 'widgets', starters: ['python-fastapi', 'node-react'], engineCommit: base.sha });
+    expect(files(dir)).toEqual(files(expected));
+    // Compared by bytes, read here and not by the code under test; the mode too, for the scripts.
+    for (const file of files(expected)) {
+      expect(readFileSync(join(dir, file)).equals(readFileSync(join(expected, file))), file).toBe(true);
+      expect(statSync(join(dir, file)).mode & 0o777, file).toBe(statSync(join(expected, file)).mode & 0o777);
+    }
+  });
+
+  it('adds one starter at a time, and the second brings the layout of both', { timeout: 120_000 }, async () => {
+    const base = fakeBase();
+    const dir = product(base);
+    await add({ starters: ['python-fastapi'] }, { root: dir, ...quiet });
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'api');
+    await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    const expected = join(scratch(), 'expected');
+    assemble({ root: base.dir, target: expected, name: 'widgets', starters: ['python-fastapi', 'node-react'], engineCommit: base.sha });
+    expect(files(dir)).toEqual(files(expected));
+    for (const file of files(expected)) expect(readFileSync(join(dir, file)).equals(readFileSync(join(expected, file))), file).toBe(true);
+  });
+
+  it('refuses a dirty tree, and writes nothing', { timeout: 60_000 }, async () => {
+    const dir = product(fakeBase());
+    writeFileSync(join(dir, 'notes.txt'), 'wip');
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/uncommitted changes \(notes\.txt\)/);
+    expect(existsSync(join(dir, 'apps'))).toBe(false);
+    writeFileSync(join(dir, 'README.md'), 'edited');
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/uncommitted changes/);
+  });
+
+  it('refuses an app path that already exists, and writes nothing', { timeout: 60_000 }, async () => {
+    const dir = product(fakeBase());
+    mkdirSync(join(dir, 'apps/web'), { recursive: true });
+    writeFileSync(join(dir, 'apps/web/mine.txt'), 'mine');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'mine');
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/app "web" already exists .*apps\/web/);
+    expect(files(dir).filter((f) => f.startsWith('apps/'))).toEqual(['apps/web/mine.txt']);
+    expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).apps).toEqual({});
+  });
+
+  it('refuses a starter the product already has, by the app it declares', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'web');
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/already has the app "web" from starter "node-react"/);
+  });
+
+  it('refuses an unknown starter, naming what the base offers', { timeout: 60_000 }, async () => {
+    const dir = product(fakeBase());
+    await expect(add({ starters: ['nope'] }, { root: dir, ...quiet })).rejects.toThrow(/no starter named "nope".*node-react/);
+    expect(existsSync(join(dir, 'apps'))).toBe(false);
+  });
+
+  it('refuses a repository with no engine.commit or no base remote', { timeout: 60_000 }, async () => {
+    const dir = product(fakeBase());
+    git(dir, 'remote', 'remove', BASE_REMOTE);
+    await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(new RegExp(`no ${BASE_REMOTE} remote`));
+    const bare = scratch();
+    writeFileSync(join(bare, 'project.json'), JSON.stringify({ name: 'x', apps: {} }));
+    await expect(add({ starters: ['node-react'] }, { root: bare, ...quiet })).rejects.toThrow(/no engine\.commit/);
+  });
+
+  it('leaves a derived file the product has rewritten, and says so', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    writeFileSync(join(dir, 'CLAUDE.md'), '# widgets\n\nMy own words.\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'rewrite');
+    const lines: string[] = [];
+    const result = await add({ starters: ['node-react'] }, { root: dir, log: (l: string) => lines.push(l) });
+    expect(result.kept).toEqual(['CLAUDE.md']);
+    expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toBe('# widgets\n\nMy own words.\n');
+    expect(lines.join('\n')).toMatch(/Left as they are.*CLAUDE\.md/);
+    expect(existsSync(join(dir, 'apps/web'))).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).workspaces).toBeDefined();
   });
 });

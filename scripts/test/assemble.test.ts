@@ -818,14 +818,27 @@ describe("an assembled product passes its own harness (#281)", () => {
   const BASE_NAMED_PRODUCT = `${'bor'}is-trial`;
 
   /** Assembles, commits and runs the product's own `verify:harness`; returns the exit status and the tail of its output. */
-  const harness = (name: string, starters: string[]) => {
+  const harness = (name: string, starters: string[], addLater = false) => {
     const target = join(scratch(), 'product');
-    assemble({ target, name, starters, engineCommit: ENGINE_COMMIT });
+    assemble({ target, name, starters: addLater ? [] : starters, engineCommit: ENGINE_COMMIT });
     const git = (...args: string[]) =>
       execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: target, encoding: 'utf8', stdio: 'pipe' });
     git('init', '-q');
     git('add', '-A');
     git('commit', '-q', '-m', 'assembled');
+    if (addLater) {
+      // The starters arrive through `setup add` (#288), from a clone of this checkout standing in for the base.
+      const base = join(scratch(), 'base');
+      execFileSync('git', ['clone', '-q', '--local', ROOT, base], { stdio: 'pipe' });
+      const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: base, encoding: 'utf8' }).trim();
+      writeFileSync(join(target, 'project.json'), readFileSync(join(target, 'project.json'), 'utf8').replace(ENGINE_COMMIT, sha));
+      git('commit', '-q', '-am', 'engine commit');
+      git('remote', 'add', `${'bor'}is`, base);
+      const added = spawnSync(process.execPath, ['scripts/setup.mjs', 'add', ...starters.flatMap((s) => ['--starter', s])], { cwd: target, encoding: 'utf8', timeout: 120_000 });
+      if (added.status !== 0) return { status: added.status, output: `${added.stdout}\n${added.stderr}` };
+      git('add', '-A');
+      git('commit', '-q', '-m', 'add starters');
+    }
     // No install: the product borrows the base's toolchain.
     symlinkSync(join(ROOT, 'node_modules'), join(target, 'node_modules'));
     // The product's own `verify:harness`, in full: tsc and eslint as well as vitest, since a static
@@ -837,6 +850,12 @@ describe("an assembled product passes its own harness (#281)", () => {
   // Timeout: assembles a product, git init + commit, then runs its whole `verify:harness` (tsc, eslint, vitest; about a minute quiet, several times that under load); 600 s.
   it("a product whose name contains the base's, with both starters", { timeout: 600_000 }, () => {
     const { status, output } = harness(BASE_NAMED_PRODUCT, ['python-fastapi', 'node-react']);
+    expect(status, output).toBe(0);
+  });
+
+  // Timeout: as above, 600 s.
+  it('an engine-only product given both starters by `setup add`', { timeout: 600_000 }, () => {
+    const { status, output } = harness('widgets', ['python-fastapi', 'node-react'], true);
     expect(status, output).toBe(0);
   });
 
