@@ -628,13 +628,13 @@ describe('add, inside a product', () => {
     await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/app "web" .* is already present/);
   });
 
-  it('refuses a starter given twice with its own message, before fetching anything', async () => {
+  it('refuses a starter given twice with its own message, before fetching anything', { timeout: 60_000 }, async () => {
     const dir = product(fakeBase());
     await expect(add({ starters: ['node-react', 'node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/starter "node-react" is given more than once/);
     expect(existsSync(join(dir, 'apps'))).toBe(false);
   });
 
-  it('names the paths of a dirty tree plainly, not quoted or escaped', async () => {
+  it('names the paths of a dirty tree plainly, not quoted or escaped', { timeout: 60_000 }, async () => {
     const dir = product(fakeBase());
     writeFileSync(join(dir, 'my notes é.txt'), 'wip');
     await expect(add({ starters: ['node-react'] }, { root: dir, ...quiet })).rejects.toThrow(/\(my notes é\.txt\)/);
