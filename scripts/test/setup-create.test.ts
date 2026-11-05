@@ -667,6 +667,14 @@ describe('add, inside a product', () => {
     expect(existsSync(join(dir, 'apps'))).toBe(false);
   });
 
+  it('treats a name from Object.prototype as unknown, not as a starter', { timeout: 60_000 }, async () => {
+    const dir = product(fakeBase());
+    for (const key of ['constructor', 'toString', '__proto__']) {
+      await expect(add({ starters: [key] }, { root: dir, ...quiet })).rejects.toThrow(new RegExp(`no starter named "${key}"`));
+    }
+    expect(existsSync(join(dir, 'apps'))).toBe(false);
+  });
+
   it('refuses a repository with no engine.commit or no base remote', { timeout: 60_000 }, async () => {
     const dir = product(fakeBase());
     git(dir, 'remote', 'remove', BASE_REMOTE);

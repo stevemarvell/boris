@@ -80,8 +80,12 @@ reviews.
    `README.md` and `CLAUDE.md`: the same tree `create` would have made with
    those starters. It refuses a dirty tree, an app path that already exists and
    an unknown starter, before it writes anything. A generated file the product
-   has rewritten since is left as it is and named, for you to edit by hand. It
-   then prints the next steps: `npm run bootstrap` and `npm run verify`.
+   has rewritten since is left as it is and named, for you to edit by hand.
+   Whenever `package.json` changed, `add` also runs `npx npm@11 install`, which
+   needs the network and writes `package-lock.json` (a lockfile the product
+   already has is updated, not replaced; one a starter brings is used as it is,
+   with no install). It then prints the next steps: `npm run bootstrap` and
+   `npm run verify`.
 
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
    Run `claude setup-token`, then

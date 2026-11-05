@@ -985,12 +985,12 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
   try {
     const catalogue = loadCatalogue(join(base, 'catalogue.json'));
     for (const key of opts.starters) {
-      if (!catalogue.starters[key]) {
+      if (!Object.hasOwn(catalogue.starters, key)) {
         throw new Error(`setup add: no starter named "${key}" (catalogue.json at ${short(commit)} offers: ${Object.keys(catalogue.starters).join(', ')})`);
       }
     }
     // Starters the product already has, by their app, so the layout lists them too.
-    const have = Object.keys(catalogue.starters).filter((key) => current.apps?.[catalogue.starters[key].app]);
+    const have = Object.keys(catalogue.starters).filter((key) => Object.hasOwn(current.apps ?? {}, catalogue.starters[key].app));
     // One check for "the app is already there": declared in project.json, or its directory exists.
     const baseApps = loadProject(join(base, 'project.json')).apps;
     for (const key of opts.starters) {
