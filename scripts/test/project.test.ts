@@ -294,12 +294,16 @@ describe('cli', () => {
     expect(cli(['toolchains'], withVerify(['npm run test', 'npm run build']))).toEqual(['node=true', 'python=false', 'e2e=false']);
     // A word match, not a substring: a script that merely contains the letters is not an e2e run.
     expect(cli(['toolchains'], withVerify(['npm run fe2esque']))).toContain('e2e=false');
+    expect(cli(['toolchains'], withVerify(['npm run e2esque']))).toContain('e2e=false');
     expect(cli(['toolchains'], withVerify(['playwright test e2e/']))).toContain('e2e=true');
+    // `_` is a boundary, and playwright counts as well as e2e.
+    for (const command of ['npx playwright test', 'npm run test_e2e', 'uv run pytest tests/test_e2e.py', 'uv run pytest tests/e2e', 'e2e']) {
+      expect(cli(['toolchains'], withVerify([command])), command).toContain('e2e=true');
+    }
   });
 
-  it('says e2e=true for the base itself, whose web app verifies with npm run e2e', () => {
-    // catalogue.json is in the base only; a product holds what it was assembled with.
-    if (!existsSync(join(REPO_ROOT, 'catalogue.json'))) return;
+  // catalogue.json is in the base only; a product holds what it was assembled with.
+  it.skipIf(!existsSync(join(REPO_ROOT, 'catalogue.json')))('says e2e=true for the base itself, whose web app verifies with npm run e2e', () => {
     expect(cli(['toolchains'], loadProject())).toEqual(['node=true', 'python=true', 'e2e=true']);
   });
 

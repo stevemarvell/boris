@@ -65,6 +65,7 @@ const named = (what: RegExp) => {
 const IN_BASE = existsSync(join(REPO_ROOT, 'catalogue.json'));
 const own = () => outputsFor(loadProject());
 const hasAll = () => own().node === 'true' && own().python === 'true' && own().e2e === 'true';
+const hasBoth = () => own().node === 'true' && own().python === 'true';
 
 const engineOnly = () => validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
 // A node app whose verify has no e2e command: it needs node, not a browser.
@@ -140,15 +141,19 @@ describe('verify.yml', () => {
     }
   });
 
-  // Needs a python app and an e2e node app to subset from.
-  it.skipIf(!hasAll())('skips only Playwright and its report with no node app, and only uv with no python app', () => {
+  // Needs one app of each toolchain to subset from. Whether Playwright runs for
+  // a subset follows that subset's own e2e output, not its toolchain: e2e can
+  // come from either one.
+  it.skipIf(!hasBoth())('runs uv only with a python app, and Playwright and its report only when the subset has e2e', () => {
     const pythonOnly = outputsFor(only('python'));
-    expect([uv(), sync(), playwright()].map((s) => runs(s, pythonOnly, false))).toEqual([true, true, false]);
-    expect(runs(report(), pythonOnly, true)).toBe(false);
+    expect(pythonOnly.node).toBe('false');
+    expect([uv(), sync(), playwright()].map((s) => runs(s, pythonOnly, false))).toEqual([true, true, pythonOnly.e2e === 'true']);
+    expect(runs(report(), pythonOnly, true)).toBe(pythonOnly.e2e === 'true');
 
     const nodeOnly = outputsFor(only('node'));
-    expect([uv(), sync(), playwright()].map((s) => runs(s, nodeOnly, false))).toEqual([false, false, true]);
-    expect(runs(report(), nodeOnly, true)).toBe(true);
+    expect(nodeOnly.python).toBe('false');
+    expect([uv(), sync(), playwright()].map((s) => runs(s, nodeOnly, false))).toEqual([false, false, nodeOnly.e2e === 'true']);
+    expect(runs(report(), nodeOnly, true)).toBe(nodeOnly.e2e === 'true');
   });
 
   it('uploads the report only on failure, as before', () => {

@@ -4,19 +4,20 @@
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { missingPackages } from './lsp.mjs';
-import { apps, loadProject } from './project.mjs';
+import { apps, hasE2e, loadProject } from './project.mjs';
 import { BAND, BASE_PORT, portOffset } from './ports.mjs';
 
 /**
  * The commands that install what `project` needs, in order. A product with no
  * apps needs only the root install; a browser is for an app's end-to-end
- * suite, so one is fetched only when there is a node app to have one.
+ * suite, so one is fetched only when some app's verify runs one (hasE2e, the
+ * same fact verify.yml gates its Playwright steps on).
  */
 export function installCommands(project) {
   const commands = ['npm ci'];
   // Every Python app in project.json; node apps are npm workspaces.
   for (const [, app] of apps(project, 'python')) commands.push(`uv sync --directory ${app.path} --frozen`);
-  if (apps(project, 'node').length > 0) commands.push('npx playwright install chromium');
+  if (hasE2e(project)) commands.push('npx playwright install chromium');
   return commands;
 }
 

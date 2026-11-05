@@ -140,9 +140,14 @@ export function hasDeploy(project) {
   return deployed(project).length > 0;
 }
 
-/** Whether any app's `verify` list has an e2e command, which is what needs a browser installed. */
+/**
+ * Whether any app's `verify` list runs end-to-end tests, which is what needs a
+ * browser installed: `e2e` or `playwright` as a token, bounded by a
+ * non-alphanumeric character or the string's edge. `_` counts as a boundary
+ * (`test_e2e`), so `fe2esque` does not match but `tests/test_e2e.py` does.
+ */
 export function hasE2e(project) {
-  return apps(project).some(([, app]) => (app.verify ?? []).some((command) => /\be2e\b/.test(command)));
+  return apps(project).some(([, app]) => (app.verify ?? []).some((command) => /(?<![a-z0-9])(e2e|playwright)(?![a-z0-9])/i.test(command)));
 }
 
 /** The app whose directory holds `relativePath`, or null. The deepest path wins. */
