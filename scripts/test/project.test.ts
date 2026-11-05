@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -281,15 +281,31 @@ describe('cli', () => {
   });
 
   it('says, per toolchain, whether any app uses it, as lines $GITHUB_OUTPUT takes as they are', () => {
-    expect(cli(['toolchains'], minimal())).toEqual(['node=true', 'python=true']);
+    expect(cli(['toolchains'], minimal())).toEqual(['node=true', 'python=true', 'e2e=false']);
     const { svc, ui } = minimal().apps;
-    expect(cli(['toolchains'], { ...minimal(), apps: { svc: svc! } })).toEqual(['node=false', 'python=true']);
-    expect(cli(['toolchains'], { ...minimal(), apps: { ui: ui! } })).toEqual(['node=true', 'python=false']);
+    expect(cli(['toolchains'], { ...minimal(), apps: { svc: svc! } })).toEqual(['node=false', 'python=true', 'e2e=false']);
+    expect(cli(['toolchains'], { ...minimal(), apps: { ui: ui! } })).toEqual(['node=true', 'python=false', 'e2e=false']);
   });
 
-  it('says false for both in an engine-only product, which has no app at all', () => {
+  it('says e2e=true when an app verifies with an e2e command, and false for a node app that does not', () => {
+    const { ui } = minimal().apps;
+    const withVerify = (verify: string[]): Project => ({ ...minimal(), apps: { ui: { ...ui!, verify } } });
+    expect(cli(['toolchains'], withVerify(['npm run test', 'npm run e2e']))).toEqual(['node=true', 'python=false', 'e2e=true']);
+    expect(cli(['toolchains'], withVerify(['npm run test', 'npm run build']))).toEqual(['node=true', 'python=false', 'e2e=false']);
+    // A word match, not a substring: a script that merely contains the letters is not an e2e run.
+    expect(cli(['toolchains'], withVerify(['npm run fe2esque']))).toContain('e2e=false');
+    expect(cli(['toolchains'], withVerify(['playwright test e2e/']))).toContain('e2e=true');
+  });
+
+  it('says e2e=true for the base itself, whose web app verifies with npm run e2e', () => {
+    // catalogue.json is in the base only; a product holds what it was assembled with.
+    if (!existsSync(join(REPO_ROOT, 'catalogue.json'))) return;
+    expect(cli(['toolchains'], loadProject())).toEqual(['node=true', 'python=true', 'e2e=true']);
+  });
+
+  it('says false for all of them in an engine-only product, which has no app at all', () => {
     const engineOnly = validate({ name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} });
-    expect(cli(['toolchains'], engineOnly)).toEqual(['node=false', 'python=false']);
+    expect(cli(['toolchains'], engineOnly)).toEqual(['node=false', 'python=false', 'e2e=false']);
   });
 
   it('refuses a subcommand it does not have', () => {

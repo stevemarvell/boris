@@ -20,7 +20,7 @@
 // CLI, for workflows and shells:
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
-//     node scripts/project.mjs toolchains         # node=true / python=false, for $GITHUB_OUTPUT
+//     node scripts/project.mjs toolchains         # node=true / python=false / e2e=true, for $GITHUB_OUTPUT
 //     node scripts/project.mjs --has-deploy       # true/false; exit 0 iff true
 import { readFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
@@ -140,6 +140,11 @@ export function hasDeploy(project) {
   return deployed(project).length > 0;
 }
 
+/** Whether any app's `verify` list has an e2e command, which is what needs a browser installed. */
+export function hasE2e(project) {
+  return apps(project).some(([, app]) => (app.verify ?? []).some((command) => /\be2e\b/.test(command)));
+}
+
 /** The app whose directory holds `relativePath`, or null. The deepest path wins. */
 export function appFor(project, relativePath) {
   const path = relativePath.replace(/\\/g, '/');
@@ -185,10 +190,13 @@ export function verifiedPaths(project) {
 /** The CLI's answer as lines. Only subcommands something calls are here. */
 export function cli([command, ...args], project = loadProject()) {
   if (command === 'apps') return apps(project, args[0]).map(([, app]) => app.path);
-  // One `<toolchain>=<true|false>` line per toolchain, whether any app uses it:
-  // appended as-is to $GITHUB_OUTPUT, it is what verify.yml's later steps gate
-  // on, so a product with no node app never installs a browser.
-  if (command === 'toolchains') return [...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`);
+  // One `<toolchain>=<true|false>` line per toolchain, whether any app uses it,
+  // then `e2e=<true|false>`: whether any app's verify runs an e2e command.
+  // Appended as-is to $GITHUB_OUTPUT, they are what verify.yml's later steps
+  // gate on, so a product with no browser tests never installs a browser.
+  if (command === 'toolchains') {
+    return [...[...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`), `e2e=${hasE2e(project)}`];
+  }
   throw new Error('usage: project.mjs apps [toolchain] | toolchains | --has-deploy');
 }
 
