@@ -1,5 +1,6 @@
-This is the blank story template: copy its sections into every new issue, then fill them in. It is labelled `template`, so this issue itself is never triaged or worked.
-
+---
+name: User story
+about: Every issue is a user story. Fill in each section, unhappy paths included; put any Depends on #<n> lines last.
 ---
 
 ## Persona

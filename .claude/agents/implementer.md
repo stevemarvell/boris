@@ -85,6 +85,10 @@ the coordinator's job, from your report (`docs/sops.md` SOP 2).
   base=develop`. Not `gh pr create`: it is GraphQL, which Claude Code cloud
   sessions refuse (#225). When continuing an existing pull request,
   push to its branch and open nothing.
+- When the task is an issue, check your work against its Given/When/Then
+  scenarios, one test per scenario. Any issue you describe in your report
+  uses the sections of `.github/ISSUE_TEMPLATE/story.md`, `Depends on #<n>`
+  lines last.
 - Put `Closes #<n>` in the body if the prompt names an issue. **Never** write a
   closing keyword — close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved
   — before any *other* issue number anywhere in the body. GitHub will close

@@ -37,6 +37,7 @@ export interface OwnerIssue {
 }
 
 export declare const STORY_TEMPLATE_PATH: string;
+export declare function storyTemplateBody(text?: string): string;
 export declare const BASE_REMOTE: string;
 export declare const PREFLIGHT_NODE_MAJOR: number;
 export declare const MARK: { done: string; fixed: string; owner: string; info: string };

@@ -151,7 +151,7 @@ One round is: read every open finding from step 2, then for each one:
   repos/{owner}/{repo}/issues -f title=… -F body=@<file> -f 'labels[]=<rank>'
   -f 'labels[]=human' -f 'labels[]=do not automate' -f 'assignees[]=<login>'`),
   rank it, label it `human` + `do not automate`, assign it, and link it in
-  the reply to the finding. Write the body with a quoted heredoc, as for
+  the reply to the finding. Write the body in the sections of `.github/ISSUE_TEMPLATE/story.md` (persona, story, Given/When/Then with unhappy paths, tech notes, testing notes, references), with any `Depends on #<n>` lines last. Write the body with a quoted heredoc, as for
   replies below: it quotes the implementer's report. A reply alone is not enough to clear
   step 4's merge gate.
 - **Reply to every finding, fixed or not**, with what was done or why not:
@@ -294,8 +294,33 @@ explicitly, since the command does not decide for you:
 labels=medium            # or: labels=critical,security  -- see above
 # $id is the run the loop above settled on -- no second query.
 gh run view "$id" --log-failed > /tmp/smoke-failure.log
-printf '%s\n\n```\n%s\n```\n' "Refs #<n>. Failing step's log tail:" "$(tail -n 60 /tmp/smoke-failure.log)" \
-  > /tmp/smoke-failure.md
+# The story template's sections (.github/ISSUE_TEMPLATE/story.md); the log tail is Tech notes.
+printf '%s\n\n```\n%s\n```\n\n%s\n' \
+  "## Persona
+Maintainer of this repository.
+
+## Story
+As a maintainer, I want the smoke failure after merging #<n> fixed, so that the deployment is known good.
+
+## Acceptance criteria
+**Scenario: smoke passes**
+- **Given** the fix is merged
+- **When** the smoke workflow runs
+- **Then** it passes
+
+**Scenario: the fix does not hold**
+- **Given** the smoke workflow still fails
+- **When** the failing step is read
+- **Then** this issue stays open with the new log
+
+## Tech notes
+Failing step's log tail:" \
+  "$(tail -n 60 /tmp/smoke-failure.log)" \
+  "## Testing notes
+Add the test that would have caught it.
+
+## References
+Refs #<n>" > /tmp/smoke-failure.md
 args=(); for l in ${labels//,/ }; do args+=(-f "labels[]=$l"); done
 gh api repos/{owner}/{repo}/issues \
   -f title="smoke failed after merging #<n>" \
@@ -303,7 +328,7 @@ gh api repos/{owner}/{repo}/issues \
   "${args[@]}"
 ```
 
-(`issue_write` with method `create` does the same without the shell.)
+(`issue_write` with method `create` does the same without the shell.) Keep the body in those sections, with any `Depends on #<n>` lines last.
 
 This loop is deliberately separate from steps 1–5 above: it starts only
 after a merge has actually happened, so a ceiling hit here never blocks or
