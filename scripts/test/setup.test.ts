@@ -370,6 +370,17 @@ describe('runCheck', () => {
     expect(existsSync(join(ROOT, 'scripts/setup/story-template.md'))).toBe(false);
   });
 
+  it('keeps the whole of `about` when the front matter is read the way YAML reads it (an unquoted " #" starts a comment)', () => {
+    const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
+    const line = raw.split('\n').find((l) => l.startsWith('about:'))!;
+    const value = line.slice('about:'.length).trim();
+    // A minimal YAML scalar read: quoted values run to the closing quote; plain ones stop at " #".
+    const quoted = /^(["'])(.*)\1$/.exec(value);
+    const parsed = quoted ? quoted[2]! : value.replace(/\s+#.*$/, '');
+    expect(parsed).toContain('Depends on #<n> lines last.');
+    expect(quoted).not.toBeNull();
+  });
+
   it('refuses to file owner issues unassigned: a failed login lookup is a failure, not a quiet filing', async () => {
     const calls: string[][] = [];
     await expect(

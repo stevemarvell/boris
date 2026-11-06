@@ -1,6 +1,6 @@
 ---
 name: User story
-about: Every issue is a user story. Fill in each section, unhappy paths included; put any Depends on #<n> lines last.
+about: "Every issue is a user story. Fill in each section, unhappy paths included; put any Depends on #<n> lines last."
 ---
 
 ## Persona
