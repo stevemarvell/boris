@@ -80,9 +80,12 @@ sync. Repository-specific facts go in the sections outside this block. -->
   Team or Enterprise features, Vercel Pro — is permanently unavailable, not
   pending. An issue that needs one is labelled `blocked: no paid plan`.
 
-- **Templates are filled by people.** An issue labelled `template` is a blank
-  scaffold to copy. An agent may build the empty scaffold once; it never
-  fills one in, and triage never picks one.
+- **Issues are user stories.** Every issue, filed by a person or an agent,
+  uses the sections of `scripts/setup/story-template.md`: persona, story,
+  Given/When/Then acceptance criteria (unhappy paths included), tech notes,
+  testing notes, references, then its `Depends on #<n>` lines. The issue
+  labelled `template` is the blank copy: nobody fills that one in, and triage
+  never picks it.
 
 - **Diagrams in Markdown are Mermaid blocks**, never ASCII art.
 
