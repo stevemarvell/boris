@@ -140,7 +140,8 @@ it. An empty one is accepted, but one with any branch is refused.
      the token above, Dependabot's first PR, rewriting the README and
      `CLAUDE.md` around the product, and Telegram and Grafana, each optional
      and in its own issue;
-   - adds the story template issue;
+   - adds the story template issue, filed from `.github/ISSUE_TEMPLATE/story.md`,
+     the same file GitHub's "New issue" button offers;
    - runs the name check, which fails if this base's name is left anywhere it
      should not be;
    - reports how far behind this base the project is, in commits, from the

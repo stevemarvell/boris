@@ -81,7 +81,8 @@ sync. Repository-specific facts go in the sections outside this block. -->
   pending. An issue that needs one is labelled `blocked: no paid plan`.
 
 - **Issues are user stories.** Every issue, filed by a person or an agent,
-  uses the sections of `scripts/setup/story-template.md`: persona, story,
+  uses the sections of `.github/ISSUE_TEMPLATE/story.md` (GitHub's
+  "New issue" button offers it): persona, story,
   Given/When/Then acceptance criteria (unhappy paths included), tech notes,
   testing notes, references, then its `Depends on #<n>` lines. The issue
   labelled `template` is the blank copy: nobody fills that one in, and triage

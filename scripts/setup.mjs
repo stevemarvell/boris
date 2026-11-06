@@ -52,7 +52,12 @@ import { apply as applyLabels, loadManifest as loadLabelManifest } from './label
 import { ROOT, apps, deployed, loadProject } from './project.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-export const STORY_TEMPLATE_PATH = join(HERE, 'setup/story-template.md');
+export const STORY_TEMPLATE_PATH = join(HERE, '../.github/ISSUE_TEMPLATE/story.md');
+
+/** The template's text without its GitHub front matter: what a filed issue's body is. */
+export function storyTemplateBody(text = readFileSync(STORY_TEMPLATE_PATH, 'utf8')) {
+  return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n+/, '');
+}
 
 // The remote name a clone of this base is given, push disabled, so a clone
 // can still fetch upstream improvements without ever pushing to this base by
@@ -608,12 +613,12 @@ export async function runCheck({
   } else if (dryRun) {
     results.push({ mark: MARK.owner, text: `would file "${TEMPLATE_ISSUE_TITLE}" from ${STORY_TEMPLATE_PATH}` });
   } else {
-    const body = readFileSync(STORY_TEMPLATE_PATH, 'utf8');
+    const body = storyTemplateBody();
     const created = await run('gh', createIssueArgs(repo, { title: TEMPLATE_ISSUE_TITLE, body, labels: ['template'] }));
     results.push(
       created.status === 0
         ? { mark: MARK.fixed, text: `filed "${TEMPLATE_ISSUE_TITLE}"` }
-        : { mark: MARK.owner, text: `could not file "${TEMPLATE_ISSUE_TITLE}" (${reason(created)}) — copy it by hand from scripts/setup/story-template.md, labelled template` },
+        : { mark: MARK.owner, text: `could not file "${TEMPLATE_ISSUE_TITLE}" (${reason(created)}) — copy it by hand from .github/ISSUE_TEMPLATE/story.md (without its front matter), labelled template` },
     );
   }
 

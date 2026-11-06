@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -342,6 +342,43 @@ describe('runCheck', () => {
     // REST, never `gh issue create` (GraphQL, refused from cloud sessions).
     expect(calls.some((c) => c[1] === 'issue')).toBe(false);
     expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title) && l.startsWith(MARK.fixed))).toBe(true);
+  });
+
+  it('files the template issue from .github/ISSUE_TEMPLATE/story.md, body equal to the file minus its front matter', async () => {
+    const calls: string[][] = [];
+    await runCheck({
+      run: async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        if (cmd === 'gh' && args[1]?.includes('/issues?state=open')) return { status: 0, stdout: '[]', stderr: '' };
+        if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
+        return run(baseResponses)(cmd, args);
+      },
+      skipVerify: true,
+      runIdentityTest: identityOk,
+    });
+    const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
+    const parts = raw.split('\n---\n');
+    expect(raw.startsWith('---\n')).toBe(true);
+    const frontMatter = parts[0]!;
+    expect(frontMatter).toContain('name: User story');
+    expect(frontMatter).not.toMatch(/^labels:\s*\S/m);
+    const expectedBody = raw.slice(raw.indexOf('\n---\n', 3) + 5).replace(/^\n+/, '');
+    const createCall = calls.find((c) => c.includes('POST') && c.includes('labels[]=template'));
+    expect(createCall).toBeDefined();
+    expect(createCall).toContain(`body=${expectedBody}`);
+    expect(expectedBody.startsWith('## Persona')).toBe(true);
+    expect(existsSync(join(ROOT, 'scripts/setup/story-template.md'))).toBe(false);
+  });
+
+  it('keeps the whole of `about` when the front matter is read the way YAML reads it (an unquoted " #" starts a comment)', () => {
+    const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
+    const line = raw.split('\n').find((l) => l.startsWith('about:'))!;
+    const value = line.slice('about:'.length).trim();
+    // A minimal YAML scalar read: quoted values run to the closing quote; plain ones stop at " #".
+    const quoted = /^(["'])(.*)\1$/.exec(value);
+    const parsed = quoted ? quoted[2]! : value.replace(/\s+#.*$/, '');
+    expect(parsed).toContain('Depends on #<n> lines last.');
+    expect(quoted).not.toBeNull();
   });
 
   it('refuses to file owner issues unassigned: a failed login lookup is a failure, not a quiet filing', async () => {
