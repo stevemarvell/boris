@@ -1,4 +1,4 @@
-This is a blank template to copy into a new issue — not a task to pick up. Labelled `template` so it never gets triaged or worked. Copy the sections below into a new issue and fill them in by hand; templates here are never generated or filled in by an agent.
+This is the blank story template: copy its sections into every new issue, then fill them in. It is labelled `template`, so this issue itself is never triaged or worked.
 
 ---
 
