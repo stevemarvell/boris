@@ -13,8 +13,11 @@ issue. Steps marked **[you]** need a person: an agent may not handle
 credentials, money, or a dashboard behind a login.
 
 **Before you start:** Node 22, [uv](https://docs.astral.sh/uv/) and Python 3.12
-(only for a product with a Python app), `gh` logged in (`gh auth status`), and a Claude subscription to pay for CI
-reviews.
+(only for a product with a Python app), `gh` logged in as the owner
+(`gh api user --jq .login`), SSH access to GitHub (`ssh -T git@github.com`
+greets you by name: `create` pushes over SSH), and a Claude subscription to
+pay for CI reviews. Don't create the GitHub repository first: `create` makes
+it. An empty one is accepted, but one with any branch is refused.
 
 1. **Create the project.** From a clone of this repository, choose its parts.
    `node scripts/assemble.mjs --list` shows what [`catalogue.json`](catalogue.json)
@@ -87,17 +90,43 @@ reviews.
    with no install). It then prints the next steps: `npm run bootstrap` and
    `npm run verify`.
 
+   Until #290 is fixed: once Dependabot has bumped the root `package.json`,
+   `add` keeps it rather than regenerating it. Add the starter's
+   `workspaces` entry and workspace scripts by hand, then align the
+   starter's eslint and vitest pins with the root's (`tooling.test.ts`
+   fails until they match), then run `npx npm@11 install`.
+
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
-   Run `claude setup-token`, then
-   `gh secret set CLAUDE_CODE_OAUTH_TOKEN`. It is an OAuth token, not an API
-   key. Without it, every pull request's code and security review posts
-   "Claude encountered an error".
+   Run `claude setup-token`, then set it on the new repository by name:
+   the project has two remotes (`origin` and the fetch-only base), so `gh`
+   asks which one to use unless told (#284).
+
+   ```bash
+   gh secret set CLAUDE_CODE_OAUTH_TOKEN -R <owner>/<project>
+   ```
+
+   In Git Bash on Windows, `gh` can't show its hidden prompt ("running in
+   MinTTY without pseudo terminal support"). Pipe the token in instead:
+
+   ```bash
+   read -rs TOKEN    # paste, press Enter; nothing shows
+   printf %s "$TOKEN" | gh secret set CLAUDE_CODE_OAUTH_TOKEN -R <owner>/<project>
+   unset TOKEN
+   ```
+
+   It is an OAuth token, not an API key. Without it, every pull request's
+   code and security review posts "Claude encountered an error".
 
 3. **Run `check` until nothing is left for you.** From the new repository:
 
    ```bash
-   node scripts/setup.mjs check          # --dry-run to change nothing, --skip-verify to skip the tests
+   GH_REPO=<owner>/<project> node scripts/setup.mjs check   # --dry-run to change nothing, --skip-verify to skip the tests
    ```
+
+   `GH_REPO` is needed until #284 is fixed: with two remotes, `gh secret
+   list` fails with "multiple remotes detected", even after
+   `gh repo set-default`. `check` also files "Add CLAUDE_CODE_OAUTH_TOKEN"
+   when the secret is already set (#285); close that issue by hand.
 
    Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
    exact command or click-path). It exits 0 only when no ✋ remains. It can be
