@@ -301,14 +301,14 @@ export const OWNER_ISSUES = [
   {
     title: 'Add CLAUDE_CODE_OAUTH_TOKEN',
     rank: 'critical',
-    body:
-      'Run `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN` with the value it prints. ' +
+    body: (repo) =>
+      `Run \`claude setup-token\`, then \`gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${repo}\` with the value it prints. ` +
       'Without this secret, both the code and security reviews error on every pull request — do this before the first one.',
   },
   {
     title: 'Optional: Telegram notifications',
     rank: 'medium',
-    body:
+    body: () =>
       'Set the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets to get a message when a pull request merges. ' +
       'Skip this and merges are silent; nothing else here depends on it.',
   },
@@ -355,6 +355,29 @@ export function needsTemplateIssue(openIssues) {
 // ---------------------------------------------------------------------------
 // check: orchestration
 // ---------------------------------------------------------------------------
+
+/**
+ * The `owner/name` an `origin` remote URL points at (scp-like, ssh or https
+ * forms, with or without `.git`), or null. A product has two remotes (origin
+ * and the fetch-only base), so gh's own {owner}/{repo} placeholders prompt
+ * for a choice, and cannot prompt at all in Git Bash/MinTTY.
+ */
+export function parseGithubRepo(url) {
+  const m = /^(?:[\w.+-]+@github\.com:|(?:ssh|https?|git):\/\/(?:[^@/]+@)?github\.com(?::\d+)?\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(String(url).trim());
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/** `repo` if given, else the repository `origin` points at; throws when neither yields one. */
+async function resolveRepo(run, root, repo) {
+  if (repo) return repo;
+  const origin = await run('git', ['-C', root, 'remote', 'get-url', 'origin']);
+  const parsed = origin.status === 0 ? parseGithubRepo(origin.stdout) : null;
+  if (!parsed) {
+    const seen = origin.status === 0 ? JSON.stringify(origin.stdout.trim()) : `unreadable (${reason(origin)})`;
+    throw new Error(`check: cannot tell which repository to check: origin is ${seen}, not a github.com URL. Pass --repo <owner>/<name>.`);
+  }
+  return parsed;
+}
 
 /** The REST path of `repo` (`owner/name`), or gh's own `{owner}/{repo}` placeholders (the cwd's remote). */
 function repoRoute(repo) {
@@ -508,6 +531,7 @@ export async function runCheck({
   runVerify,
   runIdentityTest = runIdentityCensus,
 } = {}) {
+  repo = await resolveRepo(run, root, repo);
   const results = [];
   const repoArg = (args) => (repo ? [...args, '--repo', repo] : args);
 
@@ -576,7 +600,7 @@ export async function runCheck({
       ? { mark: MARK.done, text: 'CLAUDE_CODE_OAUTH_TOKEN is set' }
       : {
           mark: MARK.owner,
-          text: 'CLAUDE_CODE_OAUTH_TOKEN is missing — run `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN` — before the first PR, or every review errors',
+          text: `CLAUDE_CODE_OAUTH_TOKEN is missing — run \`claude setup-token\`, then \`gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${repo}\` — before the first PR, or every review errors`,
         },
   );
 
@@ -597,7 +621,7 @@ export async function runCheck({
       if (me.status !== 0 || !me.stdout.trim()) throw new Error(`gh api user failed: ${reason(me)}`);
       assignee = me.stdout.trim();
     }
-    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body, labels: label, assignee }));
+    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body(repo), labels: label, assignee }));
     results.push(
       created.status === 0
         ? { mark: MARK.fixed, text: `filed owner issue "${issue.title}"` }
@@ -905,6 +929,16 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
     );
   }
 
+  // Two remotes (origin and the fetch-only base) make gh ask which repository
+  // {owner}/{repo} means; pin it so every later gh command in the product works.
+  // Outside the try above: the push has succeeded, so its "rerun" advice would be
+  // wrong here. Not fatal either: the check below is given --repo regardless.
+  // (spawned, not run: it reads the product's own remotes, so it needs cwd.)
+  const pinned = spawn('gh', ['repo', 'set-default', target], { cwd: dir, stdio: 'inherit' });
+  if ((pinned.status ?? 1) !== 0) {
+    log(`\nWarning: \`gh repo set-default ${target}\` failed; run it by hand in ${dir}, or gh will ask which remote to use.`);
+  }
+
   if (opts.deploy && Object.keys(project.apps).length === 0) {
     log(`\n${opts.deploy} is not set up: ${opts.name} has no apps, so there is nothing to deploy yet. \`deploy:add\` needs an app to deploy.`);
   } else if (opts.deploy) {
@@ -912,7 +946,7 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
     for (const app of Object.keys(project.apps)) log(`  npm run deploy:add -- ${opts.deploy} --app ${app}`);
   }
 
-  const check = spawn('node', ['scripts/setup.mjs', 'check'], { cwd: dir, stdio: 'inherit' });
+  const check = spawn('node', ['scripts/setup.mjs', 'check', '--repo', target], { cwd: dir, stdio: 'inherit' });
   return check.status ?? 1;
 }
 

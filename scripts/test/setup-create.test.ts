@@ -292,7 +292,8 @@ describe('create', () => {
         at('gh api user/repos -X POST -f name=n -F private=true'),
         at(`git -C ${dir} remote add origin git@github.com:o/n.git`),
         at(`git -C ${dir} push -u origin develop`),
-        at('spawn node scripts/setup.mjs check'),
+        at('spawn gh repo set-default o/n'),
+        at('spawn node scripts/setup.mjs check --repo o/n'),
       ];
       expect(order).toEqual([...order].sort((a, b) => a - b));
       // A history-less product: nothing is cloned from the base, and nothing goes to it.
@@ -300,6 +301,22 @@ describe('create', () => {
       expect(w.calls.some((c) => c[0] === 'gh' && c[1] === 'repo')).toBe(false);
       // Everything run in the product runs in the product.
       expect(w.spawned.every((s) => s.cwd === dir)).toBe(true);
+    });
+
+    it('pins gh to the product after the push (two remotes make {owner}/{repo} ambiguous), and only warns if it fails', async () => {
+      const dir = freshDir();
+      const w = world();
+      await create(python(dir), w);
+      expect(w.spawned).toContainEqual({ key: 'gh repo set-default o/n', cwd: dir });
+      const push = w.timeline.findIndex((e) => e.includes('push -u origin develop'));
+      const pin = w.timeline.indexOf('spawn gh repo set-default o/n');
+      expect(pin).toBeGreaterThan(push);
+
+      const failing = world({}, (key) => (key.startsWith('gh repo set-default') ? 1 : 0));
+      const failDir = freshDir();
+      await expect(create(python(failDir), failing)).resolves.toBe(0);
+      expect(failing.lines.some((l) => l.includes('`gh repo set-default o/n`') && l.includes(failDir))).toBe(true);
+      expect(failing.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: failDir });
     });
 
     it('locks a python-only product with npm 11 before the first commit, and leaves a node-react one to its own lockfile', async () => {
@@ -331,7 +348,7 @@ describe('create', () => {
       expect(w.lines[0]).toContain('the engine alone (no starter)');
 
       const keys = w.spawned.map((s) => s.key);
-      expect(keys).toEqual(['npx npm@11 install', 'npm run bootstrap', 'npm run verify', 'node scripts/setup.mjs check']);
+      expect(keys).toEqual(['npx npm@11 install', 'npm run bootstrap', 'npm run verify', 'gh repo set-default o/n', 'node scripts/setup.mjs check --repo o/n']);
       expect(w.calls.some((c) => c[0] === 'uv')).toBe(false);
       expect(w.calls).toContainEqual(['gh', 'api', 'user/repos', '-X', 'POST', '-f', 'name=n', '-F', 'private=true']);
     });
@@ -358,10 +375,10 @@ describe('create', () => {
 
     it("returns the product's own check exit code, run from the product and not from this checkout", async () => {
       const dir = freshDir();
-      const w = world({}, (key) => (key === 'node scripts/setup.mjs check' ? 3 : 0));
+      const w = world({}, (key) => (key === 'node scripts/setup.mjs check --repo o/n' ? 3 : 0));
       expect(await create(python(dir), w)).toBe(3);
-      const check = w.spawned.filter((s) => s.key === 'node scripts/setup.mjs check');
-      expect(check).toEqual([{ key: 'node scripts/setup.mjs check', cwd: dir }]);
+      const check = w.spawned.filter((s) => s.key === 'node scripts/setup.mjs check --repo o/n');
+      expect(check).toEqual([{ key: 'node scripts/setup.mjs check --repo o/n', cwd: dir }]);
     });
 
     it('creates it under the organisation, publicly if asked, and under the account when that is the owner', async () => {

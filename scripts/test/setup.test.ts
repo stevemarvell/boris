@@ -8,6 +8,7 @@ import {
   BASE_REMOTE,
   MARK,
   OWNER_ISSUES,
+  parseGithubRepo,
   branchProtectionDecision,
   engineDrift,
   ensureEmptyTarget,
@@ -238,6 +239,24 @@ describe('needsTemplateIssue', () => {
   });
 });
 
+describe('parseGithubRepo', () => {
+  it('reads ssh, scp-like and https origins, with or without .git', () => {
+    for (const url of [
+      'git@github.com:octo/proj.git',
+      'git@github.com:octo/proj',
+      'ssh://git@github.com/octo/proj.git',
+      'https://github.com/octo/proj.git',
+      'https://user:tok@github.com/octo/proj\n',
+    ]) expect(parseGithubRepo(url), url).toBe('octo/proj');
+  });
+
+  it('is null for anything else', () => {
+    for (const url of ['', 'DISABLED', 'git@gitlab.com:octo/proj.git', '/srv/git/proj.git', 'https://github.com/octo']) {
+      expect(parseGithubRepo(url), url).toBeNull();
+    }
+  });
+});
+
 describe('runCheck', () => {
   function run(responses: Record<string, RunResultLike>): Run {
     return async (cmd, args) => {
@@ -264,20 +283,22 @@ describe('runCheck', () => {
   // Prefix-matched in insertion order, so the specific routes come before the
   // bare repository route they all begin with.
   const baseResponses: Record<string, RunResultLike> = {
-    'gh api repos/{owner}/{repo}/labels': { status: 0, stdout: JSON.stringify([]), stderr: '' },
-    'gh api repos/{owner}/{repo}/issues?state=all': {
+    'gh api repos/octo/proj/labels': { status: 0, stdout: JSON.stringify([]), stderr: '' },
+    'gh api repos/octo/proj/issues?state=all': {
       status: 0,
       stdout: JSON.stringify(OWNER_ISSUES.map((i) => restIssue(i.title))),
       stderr: '',
     },
-    'gh api repos/{owner}/{repo}/issues?state=open': {
+    'gh api repos/octo/proj/issues?state=open': {
       status: 0,
       stdout: JSON.stringify([restIssue('Template: User story', ['template'])]),
       stderr: '',
     },
     'gh api user': { status: 0, stdout: 'octocat\n', stderr: '' },
     'gh secret list': { status: 0, stdout: JSON.stringify([{ name: 'CLAUDE_CODE_OAUTH_TOKEN' }]), stderr: '' },
-    'gh api repos/{owner}/{repo}': { status: 0, stdout: repoJson(), stderr: '' },
+    'gh api repos/octo/proj': { status: 0, stdout: repoJson(), stderr: '' },
+    // `check` names the repository from origin; gh's {owner}/{repo} placeholders prompt when there are two remotes.
+    [`git -C ${ROOT} remote get-url origin`]: { status: 0, stdout: 'git@github.com:octo/proj.git\n', stderr: '' },
     // Only a product records the base commit it came from, and then `check` asks git how far behind it is.
     // These tests run in whichever repository this file is in, so git answers with nothing here.
     'git -C': { status: 0, stdout: '', stderr: '' },
@@ -287,6 +308,71 @@ describe('runCheck', () => {
     const result = await runCheck({ run: run(baseResponses), skipVerify: true, runIdentityTest: identityOk });
     expect(result.exitCode).toBe(0);
     expect(result.lines.some((l) => l.startsWith(MARK.owner))).toBe(false);
+  });
+
+  it('names the repository from an https origin too, and never uses the {owner}/{repo} placeholders', async () => {
+    const calls: string[][] = [];
+    const swap = (k: string, v: RunResultLike): [string, RunResultLike] => [k.replace('octo/proj', 'acme/widget'), v];
+    const inner = run({
+      ...Object.fromEntries(Object.entries(baseResponses).map(([k, v]) => swap(k, v))),
+      [`git -C ${ROOT} remote get-url origin`]: { status: 0, stdout: 'https://github.com/acme/widget.git\n', stderr: '' },
+    });
+    const result = await runCheck({
+      run: async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        return inner(cmd, args);
+      },
+      skipVerify: true,
+      runIdentityTest: identityOk,
+    });
+    expect(result.exitCode).toBe(0);
+    const gh = calls.filter((c) => c[0] === 'gh');
+    expect(gh.some((c) => c.join(' ').includes('{owner}'))).toBe(false);
+    expect(gh).toContainEqual(['gh', 'secret', 'list', '--json', 'name', '--repo', 'acme/widget']);
+    expect(gh.some((c) => c[1] === 'api' && c[2]!.startsWith('repos/acme/widget'))).toBe(true);
+  });
+
+  it('uses the repo it is given without asking origin', async () => {
+    const calls: string[][] = [];
+    await expect(
+      runCheck({
+        repo: 'a/b',
+        run: async (cmd, args) => {
+          calls.push([cmd, ...args]);
+          return { status: 1, stdout: '', stderr: 'stop' };
+        },
+        skipVerify: true,
+        runIdentityTest: identityOk,
+      }),
+    ).rejects.toThrow();
+    expect(calls.some((c) => c[0] === 'git' && c.includes('get-url'))).toBe(false);
+  });
+
+  it('fails clearly, before any gh call, when origin is not a github.com URL', async () => {
+    for (const origin of [{ status: 0, stdout: '/srv/git/p.git\n', stderr: '' }, { status: 2, stdout: '', stderr: 'no such remote' }]) {
+      const calls: string[][] = [];
+      await expect(
+        runCheck({
+          run: async (cmd, args) => {
+            calls.push([cmd, ...args]);
+            return origin;
+          },
+          skipVerify: true,
+          runIdentityTest: identityOk,
+        }),
+      ).rejects.toThrow(/cannot tell which repository.*--repo <owner>\/<name>/);
+      expect(calls.some((c) => c[0] === 'gh')).toBe(false);
+    }
+  });
+
+  it('prints the owner steps with -R owner/name', async () => {
+    const result = await runCheck({
+      run: run({ ...baseResponses, 'gh secret list': { status: 0, stdout: '[]', stderr: '' } }),
+      skipVerify: true,
+      runIdentityTest: identityOk,
+    });
+    expect(result.lines.some((l) => l.includes('gh secret set CLAUDE_CODE_OAUTH_TOKEN -R octo/proj'))).toBe(true);
+    expect(OWNER_ISSUES[0]!.body('octo/proj')).toContain('gh secret set CLAUDE_CODE_OAUTH_TOKEN -R octo/proj');
   });
 
   it('reports an owner action, and exits 1, when CLAUDE_CODE_OAUTH_TOKEN is missing', async () => {
@@ -303,7 +389,7 @@ describe('runCheck', () => {
     const calls: string[] = [];
     const dryRun = run({
       ...baseResponses,
-      'gh api repos/{owner}/{repo}': { status: 0, stdout: repoJson({ delete_branch_on_merge: false }), stderr: '' },
+      'gh api repos/octo/proj': { status: 0, stdout: repoJson({ delete_branch_on_merge: false }), stderr: '' },
     });
     const result = await runCheck({
       run: async (cmd, args) => {
@@ -335,7 +421,7 @@ describe('runCheck', () => {
     });
     const createCall = calls.find((c) => c.includes('POST') && c.includes(`title=${OWNER_ISSUES[0]!.title}`));
     expect(createCall).toBeDefined();
-    expect(createCall!.slice(0, 3)).toEqual(['gh', 'api', 'repos/{owner}/{repo}/issues']);
+    expect(createCall!.slice(0, 3)).toEqual(['gh', 'api', 'repos/octo/proj/issues']);
     expect(createCall).toContain('labels[]=human');
     expect(createCall).toContain('labels[]=do not automate');
     expect(createCall).toContain('assignees[]=octocat');
@@ -466,6 +552,7 @@ describe('runCheck', () => {
       const seen: string[] = [];
       const result = await runCheck({
         root: product,
+        repo: 'octo/proj',
         skipVerify: true,
         runIdentityTest: identityOk,
         run: async (cmd, args) => {
@@ -489,6 +576,7 @@ describe('runCheck', () => {
     it('does not fetch under --dry-run, which writes nothing, and says the drift check was skipped', async () => {
       const result = await runCheck({
         root: product,
+        repo: 'octo/proj',
         dryRun: true,
         skipVerify: true,
         runIdentityTest: identityOk,
@@ -509,6 +597,7 @@ describe('runCheck', () => {
       );
       const result = await runCheck({
         root: product,
+        repo: 'octo/proj',
         skipVerify: true,
         runIdentityTest: identityOk,
         run: async (cmd, args) => {
@@ -554,6 +643,7 @@ describe('runCheck', () => {
           },
         }),
         root,
+        repo: 'octo/proj',
         skipVerify: true,
         runIdentityTest: identityOk,
         fetchUrl: async () => ({ status: 200, text: async () => 'hello' }) as unknown as Response,
