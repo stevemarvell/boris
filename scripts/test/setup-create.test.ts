@@ -303,7 +303,7 @@ describe('create', () => {
       expect(w.spawned.every((s) => s.cwd === dir)).toBe(true);
     });
 
-    it('pins gh to the product after the push (two remotes make {owner}/{repo} ambiguous), and stops if it fails', async () => {
+    it('pins gh to the product after the push (two remotes make {owner}/{repo} ambiguous), and only warns if it fails', async () => {
       const dir = freshDir();
       const w = world();
       await create(python(dir), w);
@@ -313,8 +313,10 @@ describe('create', () => {
       expect(pin).toBeGreaterThan(push);
 
       const failing = world({}, (key) => (key.startsWith('gh repo set-default') ? 1 : 0));
-      await expect(create(python(freshDir()), failing)).rejects.toThrow(/gh repo set-default o\/n failed/);
-      expect(failing.spawned.some((x) => x.key.startsWith('node scripts/setup.mjs check'))).toBe(false);
+      const failDir = freshDir();
+      await expect(create(python(failDir), failing)).resolves.toBe(0);
+      expect(failing.lines.some((l) => l.includes('`gh repo set-default o/n`') && l.includes(failDir))).toBe(true);
+      expect(failing.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: failDir });
     });
 
     it('locks a python-only product with npm 11 before the first commit, and leaves a node-react one to its own lockfile', async () => {

@@ -922,15 +922,21 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
     await git(['remote', 'add', 'origin', `git@github.com:${target}.git`]);
     const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop']);
     if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
-    // Two remotes (origin and the fetch-only base) make gh ask which repository
-    // {owner}/{repo} means; pin it so every later gh command in the product works.
-    // (spawned, not run: it reads the product's own remotes, so it needs cwd.)
-    step('gh', ['repo', 'set-default', target], `gh repo set-default ${target}`);
   } catch (error) {
     throw new Error(
       `${error.message}\n${dir} is built and verified. ${target} may exist but be empty; a rerun accepts an empty repository, ` +
         `but --dir must be empty or absent, so remove ${dir} first.`,
     );
+  }
+
+  // Two remotes (origin and the fetch-only base) make gh ask which repository
+  // {owner}/{repo} means; pin it so every later gh command in the product works.
+  // Outside the try above: the push has succeeded, so its "rerun" advice would be
+  // wrong here. Not fatal either: the check below is given --repo regardless.
+  // (spawned, not run: it reads the product's own remotes, so it needs cwd.)
+  const pinned = spawn('gh', ['repo', 'set-default', target], { cwd: dir, stdio: 'inherit' });
+  if ((pinned.status ?? 1) !== 0) {
+    log(`\nWarning: \`gh repo set-default ${target}\` failed; run it by hand in ${dir}, or gh will ask which remote to use.`);
   }
 
   if (opts.deploy && Object.keys(project.apps).length === 0) {
