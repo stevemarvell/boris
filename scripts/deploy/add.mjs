@@ -36,6 +36,7 @@
 // short alias, which this project itself isn't guaranteed to have, so there
 // is nothing safe to default it to. Re-run with the real values once they're
 // known.
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -165,9 +166,11 @@ export function ownerSteps({ app, team, project }) {
  * filled-in `values`, the manifest written, `changed` ({key: {from, to}} for
  * deploy values that differ from the previous block) and `files` (vercel.json
  * and the skill: 'written' or 'kept'; an existing file is kept unless
- * `overwrite`) and `templateDrift` (the kept kinds whose content differs from
- * what the current template renders with the current values; deliberate
- * customisations show up here too, so it is information, not an error). Throws, before writing
+ * `overwrite`) and `templateDrift` ({kind: state} for kept files that differ from what the
+ * template renders now: 'template-moved' if the template changed since
+ * deploy:add last wrote the file, 'customised' if it has not, 'unknown' if the
+ * deploy block records no template hash). `deploy.templateHashes` holds the
+ * hashes; a write, including --overwrite, updates them. Throws, before writing
  * anything, on an app project.json doesn't declare or a provider nothing
  * registers.
  */
@@ -185,7 +188,38 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
   const changed = previous
     ? Object.fromEntries(Object.keys(values).filter((k) => previous[k] !== undefined && previous[k] !== values[k]).map((k) => [k, { from: previous[k], to: values[k] }]))
     : {};
-  target.deploy = { provider, ...values };
+  const placeholders = { app, ...values };
+  const appDir = join(root, target.path);
+  const kinds = {
+    vercelJson: { path: join(appDir, 'vercel.json'), templateFile: 'vercel.template.json' },
+    skill: { path: join(appDir, '.claude/skills/deployment/SKILL.md'), templateFile: 'SKILL.md' },
+  };
+  // What each file would be now, and a hash of the template text itself (not
+  // the render, so a changed team or project value is not mistaken for a
+  // template change). The hash recorded in the deploy block is the one from
+  // the last time deploy:add wrote that file; a kept file leaves it alone.
+  const recorded = { ...(previous?.templateHashes ?? {}) };
+  const files = {};
+  const templateDrift = {};
+  const writes = [];
+  for (const [kind, { path, templateFile }] of Object.entries(kinds)) {
+    const text = readFileSync(join(templateDir, templateFile), 'utf8');
+    const rendered = renderTemplate(text, placeholders);
+    const hash = createHash('sha256').update(text).digest('hex');
+    if (existsSync(path) && !overwrite) {
+      files[kind] = 'kept';
+      if (readFileSync(path, 'utf8') !== rendered) {
+        // 'template-moved' is the actionable case (a template fix never reaches a kept file);
+        // 'customised' is the file differing while the template is what it was; 'unknown' is a block with no record.
+        templateDrift[kind] = recorded[kind] === undefined ? 'unknown' : recorded[kind] !== hash ? 'template-moved' : 'customised';
+      }
+    } else {
+      files[kind] = 'written';
+      recorded[kind] = hash;
+      writes.push([path, rendered]);
+    }
+  }
+  target.deploy = { provider, ...values, ...(Object.keys(recorded).length ? { templateHashes: recorded } : {}) };
   validate(manifest); // throws, before anything is written, if the result is malformed
 
   // Worked out before the first write too, so a smoke.yml it cannot edit
@@ -197,25 +231,11 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
 
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  const placeholders = { app, ...values };
-  const appDir = join(root, target.path);
   mkdirSync(appDir, { recursive: true });
-  const files = {};
-  const templateDrift = [];
-  const put = (kind, path, templateFile) => {
-    const rendered = renderTemplate(readFileSync(join(templateDir, templateFile), 'utf8'), placeholders);
-    if (existsSync(path) && !overwrite) {
-      files[kind] = 'kept';
-      // A kept file never sees a later template fix; say so when it differs.
-      if (readFileSync(path, 'utf8') !== rendered) templateDrift.push(kind);
-      return;
-    }
+  for (const [path, rendered] of writes) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, rendered);
-    files[kind] = 'written';
-  };
-  put('vercelJson', join(appDir, 'vercel.json'), 'vercel.template.json');
-  put('skill', join(appDir, '.claude/skills/deployment/SKILL.md'), 'SKILL.md');
+  }
 
   let smoke = 'absent';
   if (scheduled !== null) {
@@ -240,8 +260,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       }
       console.log(`Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).`);
       if (changes.length) console.log(`  It may be stale: ${changes.join('; ')}. Update it by hand, or re-run with --overwrite.`);
-      if (templateDrift.includes(kind)) {
-        console.log(`  The kept ${names[kind]} differs from the current template (customisations always do). Compare it with the template in scripts/deploy/vercel/template/, or apply the template with --overwrite.`);
+      const drift = templateDrift[kind];
+      if (drift === 'template-moved') {
+        console.log(`  The template for the ${names[kind]} has changed since it was written, so the kept file is behind it. Compare it with scripts/deploy/vercel/template/, or apply the template with --overwrite (which discards customisations).`);
+      } else if (drift === 'unknown') {
+        console.log(`  Whether the template for the ${names[kind]} has moved is unknown (project.json records no template hash). Compare it with scripts/deploy/vercel/template/, or use --overwrite.`);
+      } else if (drift === 'customised') {
+        console.log(`  (The ${names[kind]} differs from the template only by your customisation.)`);
       }
     }
     if (smoke === 'scheduled') console.log(`Added the every-3-hours schedule to ${SMOKE_WORKFLOW}.`);

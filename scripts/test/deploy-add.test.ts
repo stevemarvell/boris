@@ -146,6 +146,7 @@ describe('addDeploy', () => {
       project: 'thing-api',
       url: 'https://thing-api.example',
       commitEndpoint: '/health',
+      templateHashes: { vercelJson: expect.stringMatching(/^[0-9a-f]{64}$/), skill: expect.stringMatching(/^[0-9a-f]{64}$/) },
     });
 
     const vercelJson = readFileSync(join(root, 'apps/api/vercel.json'), 'utf8');
@@ -224,35 +225,85 @@ describe('addDeploy', () => {
       expect(files.skill).toBe('kept');
     });
 
-    it('reports no drift for a kept file identical to what the template renders', () => {
-      const args = { provider: 'vercel', app: 'api', project: 'p', root, manifestPath } as const;
-      addDeploy(args);
-      const again = addDeploy(args);
-      expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
-      expect(again.templateDrift).toEqual([]);
+    const hashes = () => JSON.parse(readFileSync(manifestPath, 'utf8')).apps.api.deploy.templateHashes;
+    // A getter-style helper: root and manifestPath are assigned in beforeEach, after describe runs.
+    const base = () => ({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
+    const dropHashes = () => {
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      delete m.apps.api.deploy.templateHashes;
+      writeFileSync(manifestPath, JSON.stringify(m, null, 2));
+    };
+    /** Make the recorded hash of one file say the template was different when it was written. */
+    const ageRecord = (kind: string) => {
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      m.apps.api.deploy.templateHashes[kind] = 'f'.repeat(64);
+      writeFileSync(manifestPath, JSON.stringify(m, null, 2));
+    };
+
+    it('records a sha256 of each template on the first run', () => {
+      addDeploy(base());
+      expect(hashes().vercelJson).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashes().skill).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('reports drift for a kept customised file and leaves it byte for byte', () => {
+    it('reports no drift for a kept file identical to what the template renders', () => {
+      addDeploy(base());
+      const again = addDeploy(base());
+      expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+      expect(again.templateDrift).toEqual({});
+    });
+
+    it('calls a kept file that differs while the template is unchanged "customised", and leaves it byte for byte', () => {
+      addDeploy(base());
       customise();
-      const { templateDrift } = addDeploy({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
-      expect(templateDrift).toEqual(['vercelJson', 'skill']);
+      const { templateDrift } = addDeploy(base());
+      expect(templateDrift).toEqual({ vercelJson: 'customised', skill: 'customised' });
       expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
       expect(readFileSync(skillPath(), 'utf8')).toBe(customSkill);
     });
 
-    it('reports a template change on a kept file, and --overwrite clears it', () => {
-      const args = { provider: 'vercel', app: 'api', project: 'p', root, manifestPath } as const;
-      addDeploy(args);
-      // Simulate a file written by an older template: the product's copy is stale.
+    it('reports "template-moved" when the template changed since the file was written, hand-edited or not', () => {
+      addDeploy(base());
+      ageRecord('vercelJson');
       const stale = readFileSync(vercelPath(), 'utf8').replace('vercel-ignore.mjs', 'vercel-ignore-old.mjs');
-      expect(stale).not.toBe(readFileSync(vercelPath(), 'utf8'));
       writeFileSync(vercelPath(), stale);
-      const again = addDeploy(args);
-      expect(again.templateDrift).toEqual(['vercelJson']);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'template-moved' });
       expect(readFileSync(vercelPath(), 'utf8')).toBe(stale);
-      const fixed = addDeploy({ ...args, overwrite: true });
-      expect(fixed.templateDrift).toEqual([]);
-      expect(addDeploy(args).templateDrift).toEqual([]);
+      // A hand-customised file is told the same when the template has moved.
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'template-moved' });
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
+    });
+
+    it('says the drift is "unknown" for a deploy block with no recorded hashes, without failing', () => {
+      customise();
+      const first = addDeploy(base()); // files existed, so nothing was written and nothing recorded
+      expect(first.templateDrift).toEqual({ vercelJson: 'unknown', skill: 'unknown' });
+      expect(hashes()).toBeUndefined();
+      addDeploy({ ...base(), overwrite: true });
+      dropHashes();
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift.vercelJson).toBe('unknown');
+    });
+
+    it('--overwrite replaces the file and updates the recorded hashes', () => {
+      addDeploy(base());
+      ageRecord('vercelJson');
+      ageRecord('skill');
+      writeFileSync(vercelPath(), customVercel);
+      const fixed = addDeploy({ ...base(), overwrite: true });
+      expect(fixed.files).toEqual({ vercelJson: 'written', skill: 'written' });
+      expect(fixed.templateDrift).toEqual({});
+      expect(hashes().vercelJson).not.toBe('f'.repeat(64));
+      expect(hashes().skill).not.toBe('f'.repeat(64));
+      expect(addDeploy(base()).templateDrift).toEqual({});
+    });
+
+    it('a kept file does not refresh its recorded hash', () => {
+      addDeploy(base());
+      ageRecord('vercelJson');
+      addDeploy(base());
+      expect(hashes().vercelJson).toBe('f'.repeat(64));
     });
 
     it('still creates a missing file from the template, keeping the other', () => {
@@ -301,6 +352,7 @@ describe('addDeploy', () => {
       project: 'real-project',
       url: 'https://real-project.example',
       commitEndpoint: '/health',
+      templateHashes: { vercelJson: expect.stringMatching(/^[0-9a-f]{64}$/), skill: expect.stringMatching(/^[0-9a-f]{64}$/) },
     });
   });
 
