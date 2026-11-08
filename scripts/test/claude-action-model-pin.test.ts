@@ -4,8 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // An unpinned claude-code-action step runs on whatever the default model is,
-// which drifts (the @claude workflow was observed running Opus). Every step
-// must pass --model in its claude_args.
+// which can drift. Every step must pass --model in its claude_args.
 const DIR = join(
   resolve(dirname(fileURLToPath(import.meta.url)), "../.."),
   ".github/workflows",
