@@ -33,8 +33,12 @@ export interface CheckResult {
 export interface OwnerIssue {
   title: string;
   rank: 'critical' | 'high' | 'medium';
-  body: string;
+  /** The issue text for `repo` (`owner/name`), so printed commands carry `-R owner/name`. */
+  body: (repo: string) => string;
 }
+
+/** The `owner/name` a github.com remote URL (scp-like, ssh or https) points at, or null. */
+export declare function parseGithubRepo(url: string): string | null;
 
 export declare const STORY_TEMPLATE_PATH: string;
 export declare function storyTemplateBody(text?: string): string;
