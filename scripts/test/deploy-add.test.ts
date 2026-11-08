@@ -184,6 +184,17 @@ describe('addDeploy', () => {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.apps.api.deploy.project).toBe('p2');
     expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+    expect(again.changed).toEqual({
+      project: { from: 'p1', to: 'p2' },
+      url: { from: 'https://p1.example', to: 'https://p2.example' },
+    });
+  });
+
+  it('an unchanged re-run reports no changed values', () => {
+    const args = { provider: 'vercel', app: 'api', team: 't', project: 'p', url: 'https://p.example', commitEndpoint: '/health', root, manifestPath };
+    expect(addDeploy(args).changed).toEqual({});
+    expect(addDeploy(args).changed).toEqual({});
+    expect(addDeploy({ provider: 'vercel', app: 'api', root, manifestPath }).changed).toEqual({});
   });
 
   describe('app files that a product may have customised', () => {

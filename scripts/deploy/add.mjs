@@ -162,7 +162,10 @@ export function ownerSteps({ app, team, project }) {
 
 /**
  * Write `app`'s deploy block and this provider's template files. Returns the
- * filled-in `values` and the manifest written. Throws, before writing
+ * filled-in `values`, the manifest written, `changed` ({key: {from, to}} for
+ * deploy values that differ from the previous block) and `files` (vercel.json
+ * and the skill: 'written' or 'kept'; an existing file is kept unless
+ * `overwrite`). Throws, before writing
  * anything, on an app project.json doesn't declare or a provider nothing
  * registers.
  */
@@ -174,6 +177,12 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
   if (!target) throw new Error(`no app named "${app}" in project.json`);
 
   const values = withPlaceholders({ team, project, url, commitEndpoint, existing: target.deploy ?? {} });
+  // Values that differ from the app's previous deploy block (none on a first
+  // run): a kept file still holds the old ones.
+  const previous = target.deploy;
+  const changed = previous
+    ? Object.fromEntries(Object.keys(values).filter((k) => previous[k] !== undefined && previous[k] !== values[k]).map((k) => [k, { from: previous[k], to: values[k] }]))
+    : {};
   target.deploy = { provider, ...values };
   validate(manifest); // throws, before anything is written, if the result is malformed
 
@@ -208,17 +217,23 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
     if (smoke === 'scheduled') writeFileSync(workflowPath, scheduled);
   }
 
-  return { manifest, values, smoke, files };
+  return { manifest, values, smoke, files, changed };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const opts = parseArgs(process.argv.slice(2));
-    const { values, smoke, files } = addDeploy(opts);
+    const { values, smoke, files, changed } = addDeploy(opts);
     console.log(`Wrote project.json's deploy block for "${opts.app}".`);
     const names = { vercelJson: 'vercel.json', skill: 'deployment skill' };
+    const changes = Object.entries(changed).map(([k, { from, to }]) => `${k}: ${from} -> ${to}`);
     for (const [kind, state] of Object.entries(files)) {
-      console.log(state === 'kept' ? `Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).` : `Wrote the ${names[kind]}.`);
+      if (state !== 'kept') {
+        console.log(`Wrote ${kind === 'skill' ? 'the ' : ''}${names[kind]}.`);
+        continue;
+      }
+      console.log(`Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).`);
+      if (changes.length) console.log(`  It may be stale: ${changes.join('; ')}. Update it by hand, or re-run with --overwrite.`);
     }
     if (smoke === 'scheduled') console.log(`Added the every-3-hours schedule to ${SMOKE_WORKFLOW}.`);
     if (smoke === 'absent') console.log(`No ${SMOKE_WORKFLOW} here, so no scheduled smoke run was added.`);
