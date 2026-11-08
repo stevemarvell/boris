@@ -180,10 +180,12 @@ describe('addDeploy', () => {
 
   it('a re-run rewrites the deploy block but keeps an unchanged vercel.json', () => {
     addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p1', url: 'https://p1.example', commitEndpoint: '/health', root, manifestPath });
+    const firstVercelJson = readFileSync(join(root, 'apps/api/vercel.json'), 'utf8');
     const again = addDeploy({ provider: 'vercel', app: 'api', team: 't', project: 'p2', url: 'https://p2.example', commitEndpoint: '/health', root, manifestPath });
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(manifest.apps.api.deploy.project).toBe('p2');
     expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+    expect(readFileSync(join(root, 'apps/api/vercel.json'), 'utf8')).toBe(firstVercelJson);
     expect(again.changed).toEqual({
       project: { from: 'p1', to: 'p2' },
       url: { from: 'https://p1.example', to: 'https://p2.example' },
@@ -220,6 +222,37 @@ describe('addDeploy', () => {
       const { files } = addDeploy({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
       expect(readFileSync(skillPath(), 'utf8')).toBe(customSkill);
       expect(files.skill).toBe('kept');
+    });
+
+    it('reports no drift for a kept file identical to what the template renders', () => {
+      const args = { provider: 'vercel', app: 'api', project: 'p', root, manifestPath } as const;
+      addDeploy(args);
+      const again = addDeploy(args);
+      expect(again.files).toEqual({ vercelJson: 'kept', skill: 'kept' });
+      expect(again.templateDrift).toEqual([]);
+    });
+
+    it('reports drift for a kept customised file and leaves it byte for byte', () => {
+      customise();
+      const { templateDrift } = addDeploy({ provider: 'vercel', app: 'api', project: 'p', root, manifestPath });
+      expect(templateDrift).toEqual(['vercelJson', 'skill']);
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(customVercel);
+      expect(readFileSync(skillPath(), 'utf8')).toBe(customSkill);
+    });
+
+    it('reports a template change on a kept file, and --overwrite clears it', () => {
+      const args = { provider: 'vercel', app: 'api', project: 'p', root, manifestPath } as const;
+      addDeploy(args);
+      // Simulate a file written by an older template: the product's copy is stale.
+      const stale = readFileSync(vercelPath(), 'utf8').replace('vercel-ignore.mjs', 'vercel-ignore-old.mjs');
+      expect(stale).not.toBe(readFileSync(vercelPath(), 'utf8'));
+      writeFileSync(vercelPath(), stale);
+      const again = addDeploy(args);
+      expect(again.templateDrift).toEqual(['vercelJson']);
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(stale);
+      const fixed = addDeploy({ ...args, overwrite: true });
+      expect(fixed.templateDrift).toEqual([]);
+      expect(addDeploy(args).templateDrift).toEqual([]);
     });
 
     it('still creates a missing file from the template, keeping the other', () => {

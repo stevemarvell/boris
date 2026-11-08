@@ -165,7 +165,9 @@ export function ownerSteps({ app, team, project }) {
  * filled-in `values`, the manifest written, `changed` ({key: {from, to}} for
  * deploy values that differ from the previous block) and `files` (vercel.json
  * and the skill: 'written' or 'kept'; an existing file is kept unless
- * `overwrite`). Throws, before writing
+ * `overwrite`) and `templateDrift` (the kept kinds whose content differs from
+ * what the current template renders with the current values; deliberate
+ * customisations show up here too, so it is information, not an error). Throws, before writing
  * anything, on an app project.json doesn't declare or a provider nothing
  * registers.
  */
@@ -199,13 +201,17 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
   const appDir = join(root, target.path);
   mkdirSync(appDir, { recursive: true });
   const files = {};
+  const templateDrift = [];
   const put = (kind, path, templateFile) => {
+    const rendered = renderTemplate(readFileSync(join(templateDir, templateFile), 'utf8'), placeholders);
     if (existsSync(path) && !overwrite) {
       files[kind] = 'kept';
+      // A kept file never sees a later template fix; say so when it differs.
+      if (readFileSync(path, 'utf8') !== rendered) templateDrift.push(kind);
       return;
     }
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, renderTemplate(readFileSync(join(templateDir, templateFile), 'utf8'), placeholders));
+    writeFileSync(path, rendered);
     files[kind] = 'written';
   };
   put('vercelJson', join(appDir, 'vercel.json'), 'vercel.template.json');
@@ -217,13 +223,13 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
     if (smoke === 'scheduled') writeFileSync(workflowPath, scheduled);
   }
 
-  return { manifest, values, smoke, files, changed };
+  return { manifest, values, smoke, files, changed, templateDrift };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const opts = parseArgs(process.argv.slice(2));
-    const { values, smoke, files, changed } = addDeploy(opts);
+    const { values, smoke, files, changed, templateDrift } = addDeploy(opts);
     console.log(`Wrote project.json's deploy block for "${opts.app}".`);
     const names = { vercelJson: 'vercel.json', skill: 'deployment skill' };
     const changes = Object.entries(changed).map(([k, { from, to }]) => `${k}: ${from} -> ${to}`);
@@ -234,6 +240,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       }
       console.log(`Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).`);
       if (changes.length) console.log(`  It may be stale: ${changes.join('; ')}. Update it by hand, or re-run with --overwrite.`);
+      if (templateDrift.includes(kind)) {
+        console.log(`  The kept ${names[kind]} differs from the current template (customisations always do). Compare it with the template in scripts/deploy/vercel/template/, or apply the template with --overwrite.`);
+      }
     }
     if (smoke === 'scheduled') console.log(`Added the every-3-hours schedule to ${SMOKE_WORKFLOW}.`);
     if (smoke === 'absent') console.log(`No ${SMOKE_WORKFLOW} here, so no scheduled smoke run was added.`);

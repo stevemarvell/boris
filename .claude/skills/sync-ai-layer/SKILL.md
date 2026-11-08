@@ -80,7 +80,7 @@ on.
    again; `verify` fails until it does). Re-running it is safe for the app's
    own files: it leaves an existing `apps/<app>/vercel.json` and `deployment`
    skill untouched and names each one it kept (only `--overwrite` replaces
-   them), so a product's customised rewrites survive. Open a pull request;
+   them), so a product's customised rewrites survive. When a kept file differs from what the current template renders it also prints a "differs from the current template" line: that is information (a customisation always differs, a template fix never reaches a kept file), so compare the two and run `--overwrite` only if the template's version is wanted. Open a pull request;
    its body lists any file that is still intentionally different, and why.
 5. **Check.** After both merge, re-run step 1: only files outside the
    catalogue's engine list may still differ. Then run
