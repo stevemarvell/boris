@@ -65,6 +65,12 @@ supplies:
   settings file or the session's environment.
 
 Nothing here sets them; they live in the cloud environment's configuration.
+`CLAUDE_CODE_ENABLE_TELEMETRY=1` is the exception: the cloud environment
+refuses to set it (the variable is reserved), so the repository commits it in
+`.claude/settings.json`. The accepted trade-off: a session with no
+`OTEL_EXPORTER_OTLP_ENDPOINT` in its environment exports to the SDK's
+localhost default, and nothing receives it.
+
 A session with no endpoint in its environment exports nowhere useful, which is
 a missing environment setting, not a fault in this repository.
 
