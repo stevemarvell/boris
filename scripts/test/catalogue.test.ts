@@ -96,6 +96,42 @@ describe('the committed catalogue.json', () => {
   });
 });
 
+/** Existing references that say outright they say outright it is the base's own file, not a pointer to follow. */
+const NAMED_AS_BASE_OWN = [
+  '.claude/skills/sync-ai-layer/SKILL.md -> catalogue.json',
+  'docs/sops.md -> docs/adoption.md',
+];
+
+/** Engine files that name a base path, as "file -> path" strings. Base-listed files are exempt: they never ship. */
+function engineReferencesToBase(cat: Catalogue, read: (file: string) => string, files: string[]): string[] {
+  const found: string[] = [];
+  for (const file of files) {
+    if (!cat.engine.paths.some((p) => under(p, file))) continue;
+    if (cat.base.paths.some((p) => under(p, file))) continue;
+    // Prose and workflow comments are pointers a reader follows; scripts and tests name catalogue.json etc. as logic.
+    if (!/\.(md|ya?ml)$/.test(file)) continue;
+    const text = read(file);
+    for (const path of cat.base.paths) {
+      if (text.includes(path) && !NAMED_AS_BASE_OWN.includes(`${file} -> ${path}`)) found.push(`${file} -> ${path}`);
+    }
+  }
+  return found;
+}
+
+// This file is itself base-only (catalogue.base.paths), so the scan runs in the base and never downstream.
+describe('engine files and base-only paths', () => {
+  it('no engine file names a path the catalogue lists under base', { timeout: 15_000 }, () => {
+    const read = (file: string) => readFileSync(join(ROOT, file), 'utf8');
+    expect(engineReferencesToBase(catalogue, read, repositoryFiles())).toEqual([]);
+  });
+
+  it('fails naming the file and the path when an engine file gains such a reference', () => {
+    const files = ['docs/sops.md', 'scripts/test/assemble.test.ts'];
+    const read = (file: string) => (file === 'docs/sops.md' ? 'see .claude/trials/model-tiering.md' : 'catalogue.json');
+    expect(engineReferencesToBase(catalogue, read, files)).toEqual(['docs/sops.md -> .claude/trials']);
+  });
+});
+
 describe('validateCatalogue', () => {
   it('accepts the committed one', () => {
     expect(() => validateCatalogue(sample())).not.toThrow();

@@ -171,7 +171,7 @@ no model.
 
 **Spawn fewer agents.** Each one carries its own context window, loads
 `CLAUDE.md`, and costs 57k–144k tokens on the evidence in
-`.claude/trials/model-tiering.md`. Parallel agents multiply that directly; the
+the model-tiering trial recorded in the base repository. Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
 Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
@@ -179,7 +179,7 @@ focused brief writes code more cheaply than the coordinator does in its own,
 larger context — the `delegate` skill.
 
 **Model choice is the smallest of these.** Measured, it moved about 5%. It is
-worth getting right — see `.claude/trials/model-tiering.md` for where a cheaper
+worth getting right — the model-tiering trial recorded in the base repository shows where a cheaper
 model is safe and where it silently is not — but it is the last lever to reach
 for, not the first.
 

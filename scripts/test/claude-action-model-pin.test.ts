@@ -34,10 +34,21 @@ describe("every claude-code-action step pins its model", () => {
   }
 
   it("finds the steps it is meant to check", () => {
-    // 2 in claude-code-review.yml + 1 in claude.yml.
-    const all = workflows.flatMap((f) =>
-      actionSteps(readFileSync(join(DIR, f), "utf8")),
+    // Counted with a plain regex, not the splitter under test, so a step
+    // actionSteps fails to split out is noticed.
+    for (const f of workflows) {
+      const text = readFileSync(join(DIR, f), "utf8");
+      const uses = text.match(/uses:\s*anthropics\/claude-code-action@/g) ?? [];
+      expect(actionSteps(text).length, f).toBe(uses.length);
+    }
+    const total = workflows.reduce(
+      (n, f) =>
+        n +
+        (readFileSync(join(DIR, f), "utf8").match(
+          /uses:\s*anthropics\/claude-code-action@/g,
+        )?.length ?? 0),
+      0,
     );
-    expect(all.length).toBeGreaterThanOrEqual(3);
+    expect(total).toBeGreaterThan(0);
   });
 });
