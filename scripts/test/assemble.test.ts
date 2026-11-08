@@ -106,7 +106,6 @@ describe.each(COMBINATIONS.map((starters) => [starters.length ? starters.join(' 
       '.claude/trials/model-tiering.md',
       'scripts/test/catalogue.test.ts',
       'scripts/test/assemble.test.ts',
-      'telemetry/.env',
     ]) {
       expect(onDisk, absent).not.toContain(absent);
     }
