@@ -61,10 +61,10 @@ function isContainedPath(path) {
   return typeof path === 'string' && path !== '' && inside('.', path);
 }
 
-/** Throws, naming the field, unless `project` has the shape project.json documents. */
-// The files deploy:add records a template hash for.
-const TEMPLATE_HASH_KEYS = ['vercelJson', 'skill'];
+/** The files deploy:add records a template hash for: the only keys `deploy.templateHashes` may hold. */
+export const TEMPLATE_HASH_KEYS = ['vercelJson', 'skill'];
 
+/** Throws, naming the field, unless `project` has the shape project.json documents. */
 export function validate(project) {
   const fail = (what) => {
     throw new Error(`project.json: ${what}`);
