@@ -208,7 +208,11 @@ export function addDeploy({ provider, app, team, project, url, commitEndpoint, o
     const hash = createHash('sha256').update(text).digest('hex');
     if (existsSync(path) && !overwrite) {
       files[kind] = 'kept';
-      if (readFileSync(path, 'utf8') !== rendered) {
+      if (readFileSync(path, 'utf8') === rendered) {
+        // In step with the template as it is now (hand-synced, or never recorded): note that,
+        // so a later edit is a customisation and not a moved template. The file is not written.
+        recorded[kind] = hash;
+      } else {
         // 'template-moved' is the actionable case (a template fix never reaches a kept file);
         // 'customised' is the file differing while the template is what it was; 'unknown' is a block with no record.
         templateDrift[kind] = recorded[kind] === undefined ? 'unknown' : recorded[kind] !== hash ? 'template-moved' : 'customised';

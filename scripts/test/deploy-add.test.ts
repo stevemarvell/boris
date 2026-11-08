@@ -299,9 +299,31 @@ describe('addDeploy', () => {
       expect(addDeploy(base()).templateDrift).toEqual({});
     });
 
-    it('a kept file does not refresh its recorded hash', () => {
+    it('refreshes the hash of a kept file that matches the render, so a later edit is "customised"', () => {
+      addDeploy(base());
+      ageRecord('vercelJson'); // the file is in step with the template, but the record says otherwise
+      const synced = readFileSync(vercelPath(), 'utf8');
+      expect(addDeploy(base()).templateDrift).toEqual({});
+      expect(readFileSync(vercelPath(), 'utf8')).toBe(synced);
+      expect(hashes().vercelJson).not.toBe('f'.repeat(64));
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'customised' });
+    });
+
+    it('records a hash for an unknown block whose kept file matches the render', () => {
+      addDeploy(base());
+      dropHashes();
+      expect(addDeploy(base()).templateDrift).toEqual({});
+      expect(hashes().vercelJson).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashes().skill).toMatch(/^[0-9a-f]{64}$/);
+      writeFileSync(vercelPath(), customVercel);
+      expect(addDeploy(base()).templateDrift).toEqual({ vercelJson: 'customised' });
+    });
+
+    it('a kept file that differs from the render does not refresh its recorded hash', () => {
       addDeploy(base());
       ageRecord('vercelJson');
+      writeFileSync(vercelPath(), customVercel);
       addDeploy(base());
       expect(hashes().vercelJson).toBe('f'.repeat(64));
     });
