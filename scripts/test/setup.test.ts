@@ -709,8 +709,7 @@ describe('ensureEmptyTarget', () => {
     return async (cmd, args) => {
       const key = `${cmd} ${args.join(' ')}`;
       for (const [prefix, result] of Object.entries(responses)) {
-        // A leading `*` matches anywhere in the command, for routes that name a root the test does not control.
-        if (prefix.startsWith('*') ? key.includes(prefix.slice(1)) : key.startsWith(prefix)) return result;
+        if (key.startsWith(prefix)) return result;
       }
       throw new Error(`unexpected call: ${key}`);
     };

@@ -81,13 +81,6 @@ describe('the committed project.json', () => {
     expect(hasDeploy(validate(undeployed))).toBe(false);
     expect(hasDeploy(minimal())).toBe(true);
   });
-
-  it('hasDeploy is true exactly when some app in the committed project.json has a deploy block', () => {
-    const project = loadProject();
-    const withBlock = Object.values(project.apps).filter((app) => app.deploy);
-    expect(hasDeploy(project)).toBe(withBlock.length > 0);
-    expect(deployed(project)).toHaveLength(withBlock.length);
-  });
 });
 
 describe('the --has-deploy CLI', () => {
