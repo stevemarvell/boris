@@ -183,7 +183,7 @@ worth getting right — the model-tiering trial recorded in the base repository 
 model is safe and where it silently is not — but it is the last lever to reach
 for, not the first.
 
-### The other two levers `docs/adoption.md` names
+### The other two levers the adoption document names
 
 Step 3's row also names advisors and LSPs alongside model selection and
 `CLAUDE.md` → Skills. Each of the four is either in use or recorded here as
@@ -532,7 +532,7 @@ case than two sharing a file, and only CI catches it.
 
 ## SOP 9: A web-facing change is driven, not only tested
 
-`docs/adoption.md` lists, among step 2's guardrails, Claude-powered
+The adoption document the base repository holds lists, among step 2's guardrails, Claude-powered
 end-to-end verification — looking at the rendered app, not only asserting
 against it. The Playwright specs against the built bundle (`vite preview`
 plus a real `uvicorn`, never a mock) are the right foundation and

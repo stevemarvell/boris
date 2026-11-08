@@ -96,23 +96,53 @@ describe('the committed catalogue.json', () => {
   });
 });
 
-/** Existing references that say outright they say outright it is the base's own file, not a pointer to follow. */
-const NAMED_AS_BASE_OWN = [
-  '.claude/skills/sync-ai-layer/SKILL.md -> catalogue.json',
-  'docs/sops.md -> docs/adoption.md',
-];
+/**
+ * References an engine file may keep to a base-only path, one entry per "file -> path", each with its reason.
+ * An entry is for a reference that deliberately means the base repository's own copy, never a local file.
+ */
+const MASTER_COPY_REFERENCES: Record<string, string> = {
+  // sync-ai-layer is run against the master: it reads the master's catalogue.json to learn the engine paths,
+  // and says so ("from the master's `catalogue.json`"). A product has no copy and is not meant to.
+  '.claude/skills/sync-ai-layer/SKILL.md -> catalogue.json': "reads the master's engine.paths",
+  // The engine scripts below read, build from, or test catalogue.json / index.html as logic; they run
+  // in the base (assemble, setup) or exist only to guard the base's files, and fail loudly elsewhere.
+  'scripts/assemble.mjs -> catalogue.json': 'assembler reads the base catalogue',
+  'scripts/assemble.mjs -> index.html': 'assembler names the base step-0 page',
+  'scripts/project.mjs -> catalogue.json': 'reads the base catalogue',
+  'scripts/setup.mjs -> catalogue.json': 'setup runs from the base',
+  'scripts/test/identity.test.ts -> catalogue.json': 'identity census allowlist',
+  'scripts/test/identity.test.ts -> docs/adoption.md': 'identity census allowlist',
+  'scripts/test/identity.test.ts -> index.html': 'identity census allowlist',
+  'scripts/test/project.test.ts -> catalogue.json': 'tests project.mjs catalogue handling',
+  'scripts/test/review-scope.test.ts -> docs/adoption.md': 'review scope names the base document',
+  'scripts/test/setup.test.ts -> catalogue.json': 'tests setup',
+  'scripts/test/smoke.test.ts -> index.html': 'smoke fixture',
+  'scripts/test/spawn-timeout.test.ts -> catalogue.json': 'names base-only test files',
+  'scripts/test/spawn-timeout.test.ts -> scripts/test/assemble.test.ts': 'names base-only test files',
+  'scripts/test/spawn-timeout.test.ts -> scripts/test/setup-create.test.ts': 'names base-only test files',
+  'scripts/test/test-census.test.ts -> catalogue.json': 'census fixtures',
+  'scripts/test/test-census.test.ts -> docs/adoption.md': 'census fixtures',
+  'scripts/test/test-census.test.ts -> scripts/test/assemble.test.ts': 'census fixtures',
+  'scripts/test/vercel-ignore.test.ts -> index.html': 'vercel-ignore fixture',
+  'scripts/test/verify-workflow.test.ts -> catalogue.json': 'workflow fixture',
+};
+
+/** True when `path` appears in `text` as a path, not as the tail of a longer one (apps/web/index.html) or a longer word. */
+function names(text: string, path: string): boolean {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w./-])${escaped}(?![\\w-])`).test(text);
+}
 
 /** Engine files that name a base path, as "file -> path" strings. Base-listed files are exempt: they never ship. */
-function engineReferencesToBase(cat: Catalogue, read: (file: string) => string, files: string[]): string[] {
+function engineReferencesToBase(cat: Catalogue, read: (file: string) => string | null, files: string[], allow: Record<string, string> = MASTER_COPY_REFERENCES): string[] {
   const found: string[] = [];
   for (const file of files) {
     if (!cat.engine.paths.some((p) => under(p, file))) continue;
     if (cat.base.paths.some((p) => under(p, file))) continue;
-    // Prose and workflow comments are pointers a reader follows; scripts and tests name catalogue.json etc. as logic.
-    if (!/\.(md|ya?ml)$/.test(file)) continue;
     const text = read(file);
+    if (text === null) continue;
     for (const path of cat.base.paths) {
-      if (text.includes(path) && !NAMED_AS_BASE_OWN.includes(`${file} -> ${path}`)) found.push(`${file} -> ${path}`);
+      if (names(text, path) && !(`${file} -> ${path}` in allow)) found.push(`${file} -> ${path}`);
     }
   }
   return found;
@@ -121,14 +151,39 @@ function engineReferencesToBase(cat: Catalogue, read: (file: string) => string, 
 // This file is itself base-only (catalogue.base.paths), so the scan runs in the base and never downstream.
 describe('engine files and base-only paths', () => {
   it('no engine file names a path the catalogue lists under base', { timeout: 15_000 }, () => {
-    const read = (file: string) => readFileSync(join(ROOT, file), 'utf8');
+    const read = (file: string) => {
+      const buf = readFileSync(join(ROOT, file));
+      return buf.includes(0) ? null : buf.toString('utf8'); // skip binary files
+    };
     expect(engineReferencesToBase(catalogue, read, repositoryFiles())).toEqual([]);
+  });
+
+  it('keeps no allowlist entry that nothing needs any more', { timeout: 15_000 }, () => {
+    const read = (file: string) => {
+      const buf = readFileSync(join(ROOT, file));
+      return buf.includes(0) ? null : buf.toString('utf8');
+    };
+    const actual = engineReferencesToBase(catalogue, read, repositoryFiles(), {});
+    expect(Object.keys(MASTER_COPY_REFERENCES).filter((k) => !actual.includes(k))).toEqual([]);
   });
 
   it('fails naming the file and the path when an engine file gains such a reference', () => {
     const files = ['docs/sops.md', 'scripts/test/assemble.test.ts'];
     const read = (file: string) => (file === 'docs/sops.md' ? 'see .claude/trials/model-tiering.md' : 'catalogue.json');
     expect(engineReferencesToBase(catalogue, read, files)).toEqual(['docs/sops.md -> .claude/trials']);
+  });
+
+  it('catches a reference in a script or a json file, and ignores a longer path that ends the same way', () => {
+    const files = ['scripts/x.mjs', 'telemetry/y.json', 'docs/sops.md'];
+    const texts: Record<string, string> = {
+      'scripts/x.mjs': '// see .claude/trials/model-tiering.md',
+      'telemetry/y.json': '{"p": "docs/adoption.md"}',
+      'docs/sops.md': 'apps/web/index.html and my-catalogue.json',
+    };
+    expect(engineReferencesToBase(catalogue, (f) => texts[f] ?? null, files)).toEqual([
+      'scripts/x.mjs -> .claude/trials',
+      'telemetry/y.json -> docs/adoption.md',
+    ]);
   });
 });
 
