@@ -216,9 +216,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const opts = parseArgs(process.argv.slice(2));
     const { values, smoke, files } = addDeploy(opts);
     console.log(`Wrote project.json's deploy block for "${opts.app}".`);
-    const names = { vercelJson: 'vercel.json', skill: 'the deployment skill' };
+    const names = { vercelJson: 'vercel.json', skill: 'deployment skill' };
     for (const [kind, state] of Object.entries(files)) {
-      console.log(state === 'kept' ? `Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).` : `Wrote ${names[kind]}.`);
+      console.log(state === 'kept' ? `Kept the existing ${names[kind]} (pass --overwrite to replace it from the template).` : `Wrote the ${names[kind]}.`);
     }
     if (smoke === 'scheduled') console.log(`Added the every-3-hours schedule to ${SMOKE_WORKFLOW}.`);
     if (smoke === 'absent') console.log(`No ${SMOKE_WORKFLOW} here, so no scheduled smoke run was added.`);
