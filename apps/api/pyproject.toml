@@ -12,7 +12,7 @@ dependencies = [
 dev = [
     "httpx==0.28.1",
     "pytest==9.2.0",
-    "ruff==0.17.3",
+    "ruff==0.17.4",
 ]
 
 # Vercel's Root Directory for this project is apps/api (#126), so entrypoint
