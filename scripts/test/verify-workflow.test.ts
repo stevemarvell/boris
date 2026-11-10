@@ -169,6 +169,8 @@ describe('verify.yml', () => {
     const all = steps();
     expect(all.findIndex((s) => s.text === postgres().text)).toBeLessThan(all.findIndex((s) => /run: npm run verify/.test(s.text)));
     expect(postgres().text).toMatch(/postgres@sha256:[0-9a-f]{64} # 16\.\d+/);
+    // Probe over TCP: the image's temporary init server listens on the socket only.
+    expect(postgres().text).toMatch(/pg_isready -h 127\.0\.0\.1 -p 5432 /);
     expect(postgres().text).toContain('TEST_DATABASE_URL=');
     expect(postgres().text).toContain('exit 1');
   });
