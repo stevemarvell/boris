@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SMOKE_SCHEDULE, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule, smokeScheduleProblem } from '../deploy/add.mjs';
+import { SMOKE_SCHEDULE, SMOKE_EVERY_HOURS, smokeScheduleMessage, addDeploy, ownerSteps, parseArgs, renderTemplate, withPlaceholders, withSmokeSchedule, smokeScheduleProblem } from '../deploy/add.mjs';
 import { TEMPLATE_HASH_KEYS, hasDeploy, loadProject, type Project } from '../project.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -431,6 +431,14 @@ describe('the scheduled smoke run (#254)', () => {
     expect(scheduled).toContain("- cron: '17 */6 * * *'");
     expect(scheduled.indexOf('  schedule:')).toBeLessThan(scheduled.indexOf('  workflow_dispatch:'));
     expect(scheduled.replace(SMOKE_SCHEDULE, '')).toBe(base);
+  });
+
+  it('the message deploy:add prints states the same interval as the cron it inserts', () => {
+    const cronHours = Number(/- cron: '\d+ \*\/(\d+) \* \* \*'/.exec(SMOKE_SCHEDULE)?.[1]);
+    expect(cronHours).toBe(SMOKE_EVERY_HOURS);
+    expect(smokeScheduleMessage()).toContain(`every-${cronHours}-hours`);
+    expect(smokeScheduleMessage()).not.toMatch(/every-3-hours/);
+    expect(SMOKE_SCHEDULE).toContain(`# Every ${cronHours} hours`);
   });
 
   it('withSmokeSchedule is idempotent, and leaves an existing schedule alone, whatever its cron', () => {
