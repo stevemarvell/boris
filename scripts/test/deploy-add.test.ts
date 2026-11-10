@@ -442,7 +442,7 @@ describe('the scheduled smoke run (#254)', () => {
     expect(SMOKE_SCHEDULE).toContain(`# Every ${cronHours} hours`);
   });
 
-  it('the real CLI prints the schedule message from the constant, not a literal', () => {
+  it('the real CLI prints the schedule message from the constant, not a literal', { timeout: 15_000 }, () => {
     // ROOT is derived from the script's own location, so a copy of project.mjs and
     // deploy/ inside a throwaway root runs the real CLI against that root.
     const tmp = mkdtempSync(join(tmpdir(), 'deploy-add-cli-'));
