@@ -8,7 +8,9 @@ import {
   canonical,
   isProse,
   isWorkflow,
+  COMPARE_FILE_CAP,
   needsSecurityRereview,
+  printable,
   reviewScope,
 } from '../review-scope.mjs';
 
@@ -189,5 +191,37 @@ describe('needsSecurityRereview, the driver rule before merging', () => {
     const notNeeded = run('README.md\ndocs/sops.md\n');
     expect(notNeeded.status).toBe(0);
     expect(notNeeded.stdout).toContain('re-review: not needed');
+  });
+});
+
+describe('the --since edge cases', () => {
+  it('treats a file list at the compare cap as needing a review, however harmless the names', () => {
+    const docs = Array.from({ length: COMPARE_FILE_CAP }, (_, i) => `docs/page-${i}.md`);
+    expect(needsSecurityRereview(docs.slice(1))).toBe(false);
+    expect(needsSecurityRereview(docs)).toBe(true);
+  });
+
+  it('prints no control character from a file name', { timeout: 15_000 }, () => {
+    expect(printable('a\u001b[2Jb\rc\u0085d\u007fe')).toBe('a?[2Jb?c?d?e');
+    const run = spawnSync('node', ['scripts/review-scope.mjs', '--since'], {
+      cwd: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+      input: 'evil\u001b]0;pwned\u0007.py\n',
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    expect(run.status).toBe(0);
+    // eslint-disable-next-line no-control-regex
+    expect(run.stdout).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    expect(run.stdout).toContain('touches .github/workflows/: false');
+  });
+
+  it('reports a workflow edit, which the review action cannot review, on the --since output', { timeout: 15_000 }, () => {
+    const run = spawnSync('node', ['scripts/review-scope.mjs', '--since'], {
+      cwd: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+      input: '.github/workflows/verify.yml\n',
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    expect(run.stdout).toContain('touches .github/workflows/: true');
   });
 });

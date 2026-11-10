@@ -77,11 +77,8 @@ counterpart to `drive-pr`, which runs a known recipe.
      'labels[]=do not automate'`.
 3. **Drive it.** Follow `drive-pr` for that pull request. Its own ceilings
    apply inside this one (40 polls, 2 fix rounds, 30 smoke polls).
-   - `drive-pr` step 4 applies before every merge here: the reviews run once
-     per pull request, so if the diff since the last-reviewed commit touches
-     `.github/` or any path the security review covers
-     (`node scripts/review-scope.mjs --since`), add `re-review` and wait for it
-     before merging. Unattended merging without that rule voids the bound in
+   - `drive-pr` step 4, "Re-review before merging", applies before every merge
+     here. Unattended merging without it voids the bound in
      `docs/data-governance.md`.
    - If `drive-pr` stops on a ceiling, stop this skill too: report the
      pull request and what is left, and do not start the next issue.

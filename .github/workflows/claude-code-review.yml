@@ -464,6 +464,9 @@ jobs:
           WORKFLOW_CHANGED: ${{ needs.scope.outputs.workflows }}
         run: node scripts/assert-review-ran.mjs
 
+  # Bills at least a minute of its own, so a `re-review` costs about 5.6 billed
+  # minutes (scope 1, the reviews about 3.6, this 1), not just the reviews.
+  #
   # Takes the `re-review` label off once the reviews it asked for have finished,
   # whatever they concluded, so adding it again is a fresh request: GitHub sends
   # `labeled` only when a label is added, and a label that stayed would never be

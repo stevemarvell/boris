@@ -152,9 +152,8 @@ after each merge: for each deployed app in `project.json`, it waits for the
 deployment to be this commit, then runs that app's own checks
 (`scripts/smoke.mjs`). Claude Code Review comments once per pull request, when it is opened or marked
 ready, and again only when the `re-review` label is added; it does not re-run
-on a push, and it is advisory. After a fix round the driver adds `re-review`
-only if the round changed code for a high finding or touched a control;
-otherwise it replies and merges on a green `verify` (`drive-pr` step 3).
+on a push, and it is advisory. When the driver adds `re-review` is defined in
+`drive-pr` step 4.
 
 ## Agents and skills
 

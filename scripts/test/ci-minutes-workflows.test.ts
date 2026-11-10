@@ -39,27 +39,44 @@ function types(wf: Workflow, event: string): string[] {
  * `${{ ... }}` holes made of ==, !=, &&, ||, !, parentheses, string literals
  * and the context values github.event.action / label.name / run_id / ref.
  */
-function evaluate(template: string | boolean, ctx: { action: string; label?: string; runId?: string }): string {
-  if (typeof template === 'boolean') return String(template);
-  const values: Record<string, string | undefined> = {
-    'github.event.action': ctx.action,
-    'github.event.label.name': ctx.label,
-    'github.run_id': ctx.runId ?? '999',
-    'github.ref': 'refs/pull/1/merge',
-  };
-  const hole = (expr: string): string => {
-    const js = expr
-      .replace(/github\.event\.action|github\.event\.label\.name|github\.run_id|github\.ref/g, (m) => `V[${JSON.stringify(m)}]`)
-      .replace(/(?<![=!<>])==(?!=)/g, '===')
-      .replace(/!=(?!=)/g, '!==');
-    if (/[^\w\s'"[\].\-&|!=()/]/.test(js)) throw new Error(`unexpected character in expression: ${expr}`);
-    return String(new Function('V', `return (${js});`)(values));
-  };
-  return template.replace(/\$\{\{\s*([\s\S]*?)\s*\}\}/g, (_m, expr: string) => hole(expr));
+interface Ctx {
+  action?: string;
+  label?: string;
+  runId?: string;
+  /** The `changes` object of an `edited` event: `{ body: {...} }` for a body edit, `{ title: {...} }` for a title edit. */
+  changes?: Record<string, unknown>;
 }
 
-const group = (wf: Workflow, ctx: Parameters<typeof evaluate>[1]) => evaluate(wf.concurrency!.group, ctx);
-const cancels = (wf: Workflow, ctx: Parameters<typeof evaluate>[1]) => evaluate(wf.concurrency!['cancel-in-progress'], ctx) === 'true';
+/** One expression (no `${{ }}`), evaluated with Actions' truthiness for objects and empty strings. */
+function evaluateExpression(expr: string, ctx: Ctx): unknown {
+  const values: Record<string, unknown> = {
+    'github.event.action': ctx.action,
+    'github.event.label.name': ctx.label,
+    'github.event.changes.body': ctx.changes?.['body'],
+    'github.run_id': ctx.runId ?? '999',
+    'github.ref': 'refs/pull/1/merge',
+    'github.event_name': 'pull_request',
+  };
+  const js = expr
+    .replace(/github\.event\.action|github\.event\.label\.name|github\.event\.changes\.body|github\.run_id|github\.ref|github\.event_name/g, (m) => `V[${JSON.stringify(m)}]`)
+    .replace(/(?<![=!<>])==(?!=)/g, '===')
+    .replace(/!=(?!=)/g, '!==');
+  if (/[^\w\s'"[\].\-&|!=(){},/]/.test(js)) throw new Error(`unexpected character in expression: ${expr}`);
+  const format = (fmt: string, ...args: unknown[]) => fmt.replace(/\{(\d)\}/g, (_m, i: string) => String(args[Number(i)]));
+  return new Function('V', 'format', `return (${js});`)(values, format);
+}
+
+/** A template with `${{ }}` holes, or a bare boolean, evaluated to a string. */
+function evaluate(template: string | boolean, ctx: Ctx): string {
+  if (typeof template === 'boolean') return String(template);
+  return template.replace(/\$\{\{\s*([\s\S]*?)\s*\}\}/g, (_m, expr: string) => String(evaluateExpression(expr, ctx)));
+}
+
+/** Whether a job-level `if:` lets the job start. */
+const jobRuns = (condition: string, ctx: Ctx) => Boolean(evaluateExpression(condition.replace(/^\$\{\{\s*|\s*\}\}$/g, ''), ctx));
+
+const group = (wf: Workflow, ctx: Ctx) => evaluate(wf.concurrency!.group, ctx);
+const cancels = (wf: Workflow, ctx: Ctx) => evaluate(wf.concurrency!['cancel-in-progress'], ctx) === 'true';
 
 describe('the types helper cannot pass vacuously', () => {
   it('reads inline and block lists alike, and throws on a trigger that lists nothing', () => {
@@ -122,13 +139,36 @@ describe('pr-checks.yml, the census and contention in one job', () => {
   });
 
   it('puts an edit in a different concurrency group from a push, and keeps per-ref cancel for both', () => {
-    const edit = group(wf, { action: 'edited' });
+    const body = { action: 'edited', changes: { body: { from: 'old' } } };
+    const edit = group(wf, body);
     const push = group(wf, { action: 'synchronize' });
     expect(edit).not.toBe(push);
     expect(group(wf, { action: 'opened' })).toBe(push);
-    expect(group(wf, { action: 'edited' })).toBe(edit);
-    expect(cancels(wf, { action: 'edited' })).toBe(true);
+    expect(group(wf, { ...body, runId: '5' })).toBe(edit);
+    // A body that was empty before is `{ from: '' }`: still an object, still a body edit.
+    expect(group(wf, { action: 'edited', changes: { body: { from: '' } } })).toBe(edit);
+    expect(cancels(wf, body)).toBe(true);
     expect(cancels(wf, { action: 'synchronize' })).toBe(true);
+  });
+
+  it('starts a billable job for a body edit and every other event, and nothing for a title or base edit', () => {
+    const condition = Object.values(wf.jobs)[0]!.if!;
+    expect(condition).toBeTypeOf('string');
+    expect(jobRuns(condition, { action: 'edited', changes: { body: { from: 'old' } } })).toBe(true);
+    expect(jobRuns(condition, { action: 'edited', changes: { body: { from: '' } } })).toBe(true);
+    expect(jobRuns(condition, { action: 'edited', changes: { title: { from: 'old' } } })).toBe(false);
+    expect(jobRuns(condition, { action: 'edited', changes: { base: { ref: { from: 'main' } } } })).toBe(false);
+    for (const action of ['opened', 'synchronize', 'reopened', 'ready_for_review', undefined]) {
+      expect(jobRuns(condition, { action }), String(action)).toBe(true);
+    }
+  });
+
+  it('keeps a title edit out of the body edit group, so it cannot cancel a census in flight', () => {
+    const bodyGroup = group(wf, { action: 'edited', changes: { body: { from: 'x' } }, runId: '1' });
+    const title1 = group(wf, { action: 'edited', changes: { title: { from: 'x' } }, runId: '2' });
+    const title2 = group(wf, { action: 'edited', changes: { title: { from: 'y' } }, runId: '3' });
+    expect(title1).not.toBe(bodyGroup);
+    expect(title1).not.toBe(title2);
   });
 
   it('can write comments and nothing wider than the old contention job', () => {

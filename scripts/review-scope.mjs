@@ -137,7 +137,23 @@ export function reviewScope(paths) {
  * the head has not moved since the last review.
  */
 export function needsSecurityRereview(paths) {
-  return reviewScope(paths).security;
+  const files = [...paths].map((path) => String(path).trim()).filter(Boolean);
+  // `compare` returns at most 300 files, so a list that long may be cut off and
+  // the rest unseen. Treat it as needing a review rather than trust the part.
+  if (files.length >= COMPARE_FILE_CAP) return true;
+  return reviewScope(files).security;
+}
+
+/** The most files GitHub's `compare` endpoint lists; a list this long may be truncated. */
+export const COMPARE_FILE_CAP = 300;
+
+/**
+ * A string safe to print to a terminal: control characters (escape sequences,
+ * carriage returns, anything below space and the C1 range) become `?`. A
+ * changed file's name is attacker-chosen text, and this prints some.
+ */
+export function printable(text) {
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
 }
 
 /** Read the whole of stdin, so the caller can pipe `gh api ... --jq` into us. */
@@ -152,8 +168,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   if (process.argv.includes('--since')) {
     // `gh api repos/{owner}/{repo}/compare/<sha>...<head> --jq '.files[].filename' | node scripts/review-scope.mjs --since`
     const needed = needsSecurityRereview(input);
+    const scope = reviewScope(input);
     console.log(`re-review: ${needed ? 'needed' : 'not needed'}`);
-    console.log(reviewScope(input).why);
+    console.log(`touches .github/workflows/: ${scope.workflows}`);
+    console.log(printable(scope.why));
     process.exit(0);
   }
   const scope = reviewScope(input);
@@ -167,5 +185,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   console.log(`code review: ${scope.code}`);
   console.log(`security review: ${scope.security}`);
   console.log(`touches .github/workflows/: ${scope.workflows}`);
-  console.log(scope.why);
+  console.log(printable(scope.why));
 }

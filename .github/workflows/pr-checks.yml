@@ -47,12 +47,21 @@ concurrency:
   # (which an edit skips) then never ran for the new head. Pushes keep per-ref
   # cancel, so a newer push still supersedes an older one; two edits supersede
   # each other, which is right because only the latest body counts.
-  group: pr-checks-${{ github.ref }}${{ github.event.action == 'edited' && '-edited' || '' }}
+  # `edited` also fires for a title or base change, which the job skips (below)
+  # and which must not cancel a body edit's census either, so only a body edit
+  # shares the `-edited` group; any other edit gets a group of its own.
+  group: pr-checks-${{ github.ref }}${{ github.event.action == 'edited' && (github.event.changes.body && '-edited' || format('-{0}', github.run_id)) || '' }}
   cancel-in-progress: true
 
 jobs:
   checks:
     name: pr checks
+    # `edited` fires for a title or base change as well as a body change, and
+    # each would bill a minute for a census only a body edit can alter (and a
+    # contention verdict that nothing about a title changes). `changes.body` is
+    # an object, `{from: ...}`, only when the body changed; the job is skipped
+    # (not billed) otherwise. Every non-`edited` event passes.
+    if: github.event.action != 'edited' || github.event.changes.body
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

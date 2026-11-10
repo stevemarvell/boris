@@ -102,11 +102,9 @@ what a push or a merge starts is a spending decision and is written down here.
   credentialed jobs too.
 - **The Claude reviews run once per pull request**: when it is opened, reopened
   or marked ready. They do not re-run on a push. The `re-review` label runs
-  both once more and the workflow removes it when they finish. The driver adds
-  it only when a fix round changed code in response to a `high` or `critical`
-  finding, or touched a control; otherwise it replies to the findings and
-  merges once `verify` is green (`drive-pr` step 3). Nothing adds the label by
-  itself, so no review loop can run unattended.
+  both once more and the workflow removes it when they finish. When the driver
+  adds it is defined in `drive-pr` step 4 and nowhere else. Nothing adds the
+  label by itself, so no review loop can run unattended.
 - **`smoke` runs on every push to `develop`** and, once an app deploys, on a
   schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
 
@@ -116,7 +114,7 @@ requests, code review about 1.9, security review about 1.7, and `scope`, census
 and contention about 1 each (rounded up per job). Before these cuts that was
 about 9 billed minutes per push to a pull request, and about 4 more per merge.
 After, a push should cost about 3.4 (`verify` and `pr checks`), the reviews
-about 4.6 more (with `scope`) only on open and on `re-review`, and a merge about
+about 5.6 more (`scope`, both reviews, and the `clear re-review` job, which bills at least a minute) only on open and on `re-review`, and a merge about
 2 (`pr checks` and `smoke`). Re-measure from the Actions usage report before
 relying on these.
 

@@ -125,7 +125,7 @@ to. Everything else — a numbered/bulleted finding, an inline comment — is a
 finding to work in step 3.
 
 **The reviews run once per pull request**, when it is opened, reopened or
-marked ready, and again only when the `re-review` label is added (step 3).
+marked ready, and again only when the `re-review` label is added (step 4).
 They do not re-run on a push. So after a fix round the original comments are
 still there and nothing new has been posted, and the driver has to tell a
 fresh finding from one already answered. **A finding is answered when a reply
@@ -191,20 +191,10 @@ One round is: read every open finding from step 2, then for each one:
     <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
     replies quote CI and review output, and `$(…)` or a backtick in that text
     would be executed by the shell.
-- **Decide whether to ask for a re-review.** Nothing re-runs the reviews after
-  a push, so a fix is not looked at again unless the driver asks. Add the
-  `re-review` label (delete it first, then add it: `gh api -X DELETE
-  repos/{owner}/{repo}/issues/<n>/labels/re-review` — a 404 is fine — then `gh
-  api -X POST repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=re-review'`;
-  a cancelled run can leave the label on, and GitHub sends `labeled` only when a
-  label is *added*, so a stuck one would swallow the request) **only** when the round changed code in response to
-  a `high` or `critical` finding, or touched a control (anything meant to
-  *prevent* something: a header, a permission, a gate, a filter; SOP 3), since a
-  control's fix is exactly what a passing test does not prove. Otherwise do
-  not: reply to the findings and merge when `verify` is green. The workflow
-  runs both reviews once and removes the label when they finish, so wait for the
-  new review checks (step 1) before reading step 2 again. Each label costs
-  about 4 billed minutes.
+- **Whether to ask for a re-review is decided once, in step 4** ("Re-review
+  before merging"). Do not add the label here; note whether this round changed
+  code for a `high` or `critical` finding or touched a control, because step 4
+  asks.
 - Send one brief per round covering every finding that reproduced, so the
   implementer pushes the round's fixes together and the branch never sits
   with a fix committed but unexplained. Reply to each finding once its fix
@@ -224,27 +214,69 @@ attempt a third round, do not merge with an unanswered finding. Go to step 5.
 
 ### 4. Merge and prune
 
-**Before merging, check what changed since the last review.** The reviews run
-once per pull request, so a pull request opened harmlessly and extended later
-was never looked at. A workflow cannot add the label itself (a label added with
-`GITHUB_TOKEN` starts no run), so this is the driver's rule, and the label is
-added with the coordinator's own token, which does:
+#### Re-review before merging
+
+This is the one place the condition for `re-review` is defined; everything else
+points here. The reviews run once per pull request and never re-run on a push,
+so a fix, or a pull request opened harmlessly and extended later, is not looked
+at again unless the driver asks. A workflow cannot ask for it (a label added
+with `GITHUB_TOKEN` starts no run); the coordinator's own token can. Ask when
+**either** holds:
+
+- a fix round (step 3) changed code in response to a `high` or `critical`
+  finding, or touched a control (anything meant to *prevent* something: a
+  header, a permission, a gate, a filter; SOP 3), since a control's fix is what
+  a passing test does not prove; or
+- the diff since the last review touches `.github/` or any path
+  `scripts/review-scope.mjs` sends to the security review (everything that is
+  not plain Markdown outside `.claude/` and `.github/`).
+
+Otherwise reply to the findings and merge when `verify` is green. Work it out
+with one block (`$BRANCH` is the pull request's head branch, `<n>` its number):
 
 ```bash
-# The head the last review ran on: the newest non-skipped, non-cancelled run.
-last=$(gh api "repos/{owner}/{repo}/actions/workflows/claude-code-review.yml/runs?event=pull_request&branch=<branch>" \
-  --jq '[.workflow_runs[] | select(.conclusion=="success" or .conclusion=="failure")] | .[0].head_sha')
-head=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)
-[ "$last" = "$head" ] || gh api repos/{owner}/{repo}/compare/$last...$head --jq '.files[].filename' \
-  | node scripts/review-scope.mjs --since
+BRANCH=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.ref)
+HEAD=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)
+LAST=$(node scripts/last-reviewed.mjs "$BRANCH"); code=$?
+echo "last reviewed: $LAST (exit $code)"
+if [ "$code" = 0 ] && [ "$LAST" != "$HEAD" ]; then
+  gh api "repos/{owner}/{repo}/compare/$LAST...$HEAD" --jq '.files[].filename' | node scripts/review-scope.mjs --since
+fi
 ```
 
-`re-review: needed` means the diff since then touches `.github/`, `.claude/`, or
-any path `review-scope.mjs` sends to the security review (everything that is not
-plain Markdown); an empty or unreadable `$last` also counts as needed. Then add
-`re-review` as in step 3 (delete, then add), wait for the review checks (step 1)
-and read them (step 2) before merging. `not needed` means merge on the usual
-terms.
+`last-reviewed.mjs` counts a `claude-code-review.yml` run only if its `code
+review` or `security review` job succeeded, so a failed run, a cancelled one and
+a label-only run in which everything was skipped are not "reviewed". Read the
+result:
+
+- **exit 2** (`gh` failed): an API error is not "no runs". Retry once; if it
+  still fails, do not guess; stop and report.
+- **exit 3, `none`, or exit 4, `pending`**: no review has finished, so the
+  initial review is queued, running or has never worked. **Wait for the initial
+  review** (step 1) and do not add the label. If it never arrives, run the
+  checkers by hand (below).
+- **exit 0 and `LAST` equals `HEAD`**: nothing changed since a review; only the
+  fix-round condition above can still ask.
+- **`re-review: needed`**, or a compare that returned 300 files (the endpoint's
+  cap; the real diff may be larger, so count it as needed): ask. An empty or
+  unreadable diff also counts as needed.
+- **`touches .github/workflows/: true`**: the review action refuses a pull
+  request that edits workflows, so a label would buy nothing. Run
+  `security-checker` and `code-checker` by hand instead, as the `delegate`
+  skill says, and reply to what they find.
+- **A pull request authored by `dependabot[bot]`**: do not add the label (its
+  runs have no review credential, `docs/data-governance.md`). Run the checkers
+  by hand.
+
+To ask, delete the label and then add it: `gh api -X DELETE
+repos/{owner}/{repo}/issues/<n>/labels/re-review` (a 404 is fine), then `gh api
+-X POST repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=re-review'`. A
+cancelled run can leave the label on, and GitHub sends `labeled` only when a
+label is *added*, so a stuck one would swallow the request. The workflow runs
+both reviews once and removes the label when they finish; wait for the review
+checks (step 1) and read them (step 2) before merging. A label costs about 5.6
+billed minutes (scope, both reviews, and the `clear re-review` job, which bills
+at least a minute).
 
 Merge only when **both** are true, checked, not assumed:
 - `npm run verify` is green on the branch's current head.

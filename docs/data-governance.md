@@ -110,7 +110,9 @@ Two things, and only one of them is written in the configuration:
   it has not been verified here. One consequence follows:
   `CLAUDE_CODE_OAUTH_TOKEN` is a repository secret, so it is not there either,
   and the code and security reviews do not run on a `dependabot[bot]` pull
-  request. Each review job checks whether the token is available and, when it
+  request (unless that secret is added, below; the driver also does not add
+  `re-review` to one, because whether a human-added label would get the
+  repository's secrets there has not been tested, and runs the checkers by hand). Each review job checks whether the token is available and, when it
   is empty and the author is `dependabot[bot]`, skips the review and ends green
   with a notice naming #244 (`.github/workflows/claude-code-review.yml`); those
   pull requests are reviewed by hand. An empty token on any other pull request
@@ -177,11 +179,10 @@ marked ready, and again only when the `re-review` label is added. They do not
 re-run on a push, so a pull request opened harmlessly and extended later gets no
 automated review of the later commits. A workflow cannot close that: a label
 added with `GITHUB_TOKEN` starts no workflow run. What closes it is the driver
-rule in `drive-pr` step 4 and `work-backlog`: before merging, if the diff since
-the last-reviewed commit touches `.github/` or any path
-`scripts/review-scope.mjs` sends to the security review
-(`node scripts/review-scope.mjs --since`), add `re-review` with the
-coordinator's own token and wait for it. The reviews are advisory, not required.
+rule in `drive-pr` step 4 (which `work-backlog` applies before every merge): it
+defines when to add `re-review` with the coordinator's own token and wait for
+it, and what to do instead for a workflow edit or a Dependabot pull request.
+The reviews are advisory, not required.
 The bound therefore holds while one person with write access drives merges and
 follows that rule; **a second writer, or unattended merging without the rule,
 voids it.**

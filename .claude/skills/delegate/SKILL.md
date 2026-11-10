@@ -29,8 +29,10 @@ the comparison behind that choice is recorded in the base repository).
 
 CI runs both checkers once per pull request, when it is opened, reopened or
 marked ready, and again only when the `re-review` label is added; it does not
-re-run on a push (`claude-code-review.yml`, `drive-pr` step 3). Spawn one by hand only for a review CI cannot do — a pull request that edits
-`.github/workflows/`, where `claude-code-action` refuses to run.
+re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
+`drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
+request that edits `.github/workflows/`, where `claude-code-action` refuses to
+run, or one authored by `dependabot[bot]`.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
