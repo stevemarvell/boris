@@ -14,6 +14,9 @@ are the base application's. The AI layer's rules — the loop,
 hold here too. The AI layer learns about this application only from
 `project.json`; swapping the application means editing `apps/`, `project.json`
 and this file.
+An app may declare `"services": ["postgres"]` in `project.json`; CI then starts
+a `postgres:16` container and exports `TEST_DATABASE_URL` before `verify`
+(`.github/workflows/verify.yml`). Apps that declare nothing cost nothing.
 
 ## Layout
 
