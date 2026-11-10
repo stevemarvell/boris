@@ -42,7 +42,12 @@ on:
     branches: [develop]
 
 concurrency:
-  group: pr-checks-${{ github.ref }}
+  # A body edit gets its own group. Sharing one with pushes let an edit made
+  # right after a push cancel the push's run, and that run's contention steps
+  # (which an edit skips) then never ran for the new head. Pushes keep per-ref
+  # cancel, so a newer push still supersedes an older one; two edits supersede
+  # each other, which is right because only the latest body counts.
+  group: pr-checks-${{ github.ref }}${{ github.event.action == 'edited' && '-edited' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -88,9 +93,11 @@ jobs:
         # would go green on a failed count. The script writes
         # `$GITHUB_STEP_SUMMARY` itself, so there is nothing to pipe.
         #
-        # This step is the only one that can fail the job. The contention
-        # steps below run `if: ${{ !cancelled() }}`, so a failing census does
-        # not stop them, and they exit 0 whatever they find.
+        # A failing count is how the census fails the job. The contention
+        # steps below run `if: ${{ !cancelled() && ... }}`, so a failing census
+        # does not stop them. They are advisory: the script exits 0 whatever it
+        # finds, though a step that crashes (checkout, the API, git) would still
+        # turn the job red, which is the same signal as any broken workflow.
         run: |
           node scripts/test-census.mjs \
             "${{ github.event.pull_request.base.sha }}" \

@@ -42,7 +42,7 @@ sync. Repository-specific facts go in the sections outside this block. -->
 - **Every behaviour change ships with a test.** A bug fix means a test that
   fails before the fix. A new feature means the happy path and the error path.
   A change that ends up with *fewer* tests than its base says so in the pull
-  request body, in a line beginning `Removes tests:` — the `test census` check
+  request body, in a line beginning `Removes tests:` — the `pr checks` job
   counts both sides and goes red without one.
 
 - **Code is written by `implementer` agents.** The coordinating session — the

@@ -67,10 +67,11 @@ what the *pull request checks* hold, because it has the same shape and needs
 the same kind of written trigger.
 
 Three jobs run branch code with something live in the step. Two are in
-`.github/workflows/claude-code-review.yml` and carry a credential — the code
-review and the security review; the third is the `pr checks` job (`contention` and the test census), which carries a
-write-scoped token instead and is described after them. Each one checks out the pull request and
-then runs a script from that checkout before the review starts.
+`.github/workflows/claude-code-review.yml` and carry a credential: the code
+review and the security review. The third is the `pr checks` job in
+`.github/workflows/pr-checks.yml`, which carries a write-scoped token instead
+and is described after them. Each one checks out the pull request and runs a
+script from that checkout before its main work starts.
 
 ```yaml
 - name: Checkout repository
@@ -146,27 +147,44 @@ the step that hands it the credential.
 
 ### A third job of the same shape, holding a different thing
 
-`pr checks` in `.github/workflows/pr-checks.yml` (the contention step; the test
-census step now runs under the same token) carries no Grafana
+`pr checks` in `.github/workflows/pr-checks.yml` carries no Grafana
 credential, and it is in this list anyway, because the structure is identical:
 it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
-from *that* checkout, with `GITHUB_TOKEN` scoped `pull-requests: write` live in
-the step.
+and `scripts/test-census.mjs` from *that* checkout, with `GITHUB_TOKEN` scoped
+`pull-requests: write` live in the job. (The census used to run in its own
+workflow with a read-only token; folding it in widened it to this scope.)
 
 What that scope permits is wider than what the job does with it. GitHub has no
 comment-only permission, so the scope that lets it post and edit its own
 comment also permits **merging, closing, retitling and labelling any open pull
-request**. A pull request that edits `scripts/pr-contention.mjs` runs its own
-code with that scope, the same way one editing
+request**. A pull request that edits `scripts/pr-contention.mjs` or
+`scripts/test-census.mjs` runs its own code with that scope, the same way one editing
 `scripts/write-ci-telemetry-settings.mjs` runs its own code with the Grafana
 credential.
 
 The same two things bound it — `pull_request` rather than `pull_request_target`,
 and one account with write access — and the same trigger voids it. So on that
-day this job needs the same treatment as the other two: run the script from the
-default branch rather than the branch under review. It is listed here because
+day this job needs the same treatment as the other two: run
+`scripts/pr-contention.mjs` and `scripts/test-census.mjs` from the default
+branch rather than the branch under review. It is listed here because
 the remediation plan below has to be a complete list on the day it is used, and
 a job missing from the inventory is a job nobody remembers to fix.
+
+### Reviews run once, and are advisory
+
+The code and security reviews run when a pull request is opened, reopened or
+marked ready, and again only when the `re-review` label is added. They do not
+re-run on a push, so a pull request opened harmlessly and extended later gets no
+automated review of the later commits. A workflow cannot close that: a label
+added with `GITHUB_TOKEN` starts no workflow run. What closes it is the driver
+rule in `drive-pr` step 4 and `work-backlog`: before merging, if the diff since
+the last-reviewed commit touches `.github/` or any path
+`scripts/review-scope.mjs` sends to the security review
+(`node scripts/review-scope.mjs --since`), add `re-review` with the
+coordinator's own token and wait for it. The reviews are advisory, not required.
+The bound therefore holds while one person with write access drives merges and
+follows that rule; **a second writer, or unattended merging without the rule,
+voids it.**
 
 ### A fourth credential, held the other way round
 

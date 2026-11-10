@@ -70,12 +70,24 @@ on:
     types: [opened, ready_for_review, reopened, labeled]
 
 concurrency:
-  # A label that is not `re-review` still starts a run of this workflow (every
-  # job below is skipped, which bills nothing), and a run in the group would
-  # cancel an in-flight review. So such a run gets a group of its own, keyed on
-  # its run id, and cancels nobody.
-  group: claude-code-review-${{ github.ref }}-${{ github.event.action == 'labeled' && github.event.label.name != 're-review' && github.run_id || 'review' }}
-  cancel-in-progress: true
+  # Three kinds of run, three groups.
+  #  - opened / reopened / ready_for_review: one group per ref, newer cancels
+  #    older (a review of a superseded state is not worth finishing).
+  #  - `re-review`: its own group with cancel-in-progress false, so a second
+  #    request queues behind the running one instead of killing it, and a
+  #    `ready_for_review` cannot cancel it either. GitHub keeps one pending run
+  #    per group, so a third request replaces a second still waiting; that is
+  #    harmless, because the one that runs removes the same label.
+  #  - any other label: starts this workflow with every job skipped (nothing
+  #    billed), so it gets a group of its own, keyed on run id, and cancels
+  #    nobody.
+  # Cancellations still possible: opened/reopened/ready_for_review runs cancel
+  # each other, and a person can cancel a run by hand. A cancelled workflow does
+  # not execute `clear-re-review`, so the label can be left on; drive-pr deletes
+  # the label before adding it (a 404 is fine), so a stuck label cannot swallow
+  # a later request.
+  group: claude-code-review-${{ github.ref }}-${{ github.event.action == 'labeled' && (github.event.label.name == 're-review' && 're-review' || github.run_id) || 'review' }}
+  cancel-in-progress: ${{ !(github.event.action == 'labeled' && github.event.label.name == 're-review') }}
 
 jobs:
   # Which reviews this pull request is worth spending a session on. One job so

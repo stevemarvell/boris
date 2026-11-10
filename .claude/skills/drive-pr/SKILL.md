@@ -193,8 +193,11 @@ One round is: read every open finding from step 2, then for each one:
     would be executed by the shell.
 - **Decide whether to ask for a re-review.** Nothing re-runs the reviews after
   a push, so a fix is not looked at again unless the driver asks. Add the
-  `re-review` label (`gh api -X POST repos/{owner}/{repo}/issues/<n>/labels
-  -f 'labels[]=re-review'`) **only** when the round changed code in response to
+  `re-review` label (delete it first, then add it: `gh api -X DELETE
+  repos/{owner}/{repo}/issues/<n>/labels/re-review` — a 404 is fine — then `gh
+  api -X POST repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=re-review'`;
+  a cancelled run can leave the label on, and GitHub sends `labeled` only when a
+  label is *added*, so a stuck one would swallow the request) **only** when the round changed code in response to
   a `high` or `critical` finding, or touched a control (anything meant to
   *prevent* something: a header, a permission, a gate, a filter; SOP 3), since a
   control's fix is exactly what a passing test does not prove. Otherwise do
@@ -221,8 +224,29 @@ attempt a third round, do not merge with an unanswered finding. Go to step 5.
 
 ### 4. Merge and prune
 
-Merge only when **both** are true, checked, not assumed:
+**Before merging, check what changed since the last review.** The reviews run
+once per pull request, so a pull request opened harmlessly and extended later
+was never looked at. A workflow cannot add the label itself (a label added with
+`GITHUB_TOKEN` starts no run), so this is the driver's rule, and the label is
+added with the coordinator's own token, which does:
 
+```bash
+# The head the last review ran on: the newest non-skipped, non-cancelled run.
+last=$(gh api "repos/{owner}/{repo}/actions/workflows/claude-code-review.yml/runs?event=pull_request&branch=<branch>" \
+  --jq '[.workflow_runs[] | select(.conclusion=="success" or .conclusion=="failure")] | .[0].head_sha')
+head=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)
+[ "$last" = "$head" ] || gh api repos/{owner}/{repo}/compare/$last...$head --jq '.files[].filename' \
+  | node scripts/review-scope.mjs --since
+```
+
+`re-review: needed` means the diff since then touches `.github/`, `.claude/`, or
+any path `review-scope.mjs` sends to the security review (everything that is not
+plain Markdown); an empty or unreadable `$last` also counts as needed. Then add
+`re-review` as in step 3 (delete, then add), wait for the review checks (step 1)
+and read them (step 2) before merging. `not needed` means merge on the usual
+terms.
+
+Merge only when **both** are true, checked, not assumed:
 - `npm run verify` is green on the branch's current head.
 - Every finding from step 2 has a reply posted in step 3 (or needed none),
   and every one that needs a person has its own `human` issue linked in

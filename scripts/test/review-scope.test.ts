@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { renderMarkdown } from '../markdown.mjs';
 import {
@@ -5,6 +8,7 @@ import {
   canonical,
   isProse,
   isWorkflow,
+  needsSecurityRereview,
   reviewScope,
 } from '../review-scope.mjs';
 
@@ -149,5 +153,41 @@ describe('the premise that lets prose be skipped', () => {
     const html = renderMarkdown('[click](javascript:alert(1))\n');
     expect(html).not.toMatch(/<a\s/);
     expect(html).toContain('[click](javascript:alert(1))');
+  });
+});
+
+describe('needsSecurityRereview, the driver rule before merging', () => {
+  it('is needed when the diff since the last review touches .github/ or code', () => {
+    expect(needsSecurityRereview(['.github/workflows/verify.yml'])).toBe(true);
+    expect(needsSecurityRereview(['.github/CODEOWNERS.md'])).toBe(true);
+    expect(needsSecurityRereview(['apps/api/src/api/main.py', 'README.md'])).toBe(true);
+    expect(needsSecurityRereview(['.claude/agents/security-checker.md'])).toBe(true);
+    expect(needsSecurityRereview([GOVERNANCE])).toBe(true);
+  });
+
+  it('is not needed for prose outside .claude/ and .github/', () => {
+    expect(needsSecurityRereview(['README.md', 'docs/sops.md'])).toBe(false);
+  });
+
+  it('is needed when the diff could not be read, rather than merging unreviewed', () => {
+    expect(needsSecurityRereview([])).toBe(true);
+    expect(needsSecurityRereview(['', '\n'])).toBe(true);
+  });
+
+  it('agrees with reviewScope for the same paths, and the CLI flag prints it', { timeout: 15_000 }, () => {
+    const paths = ['docs/sops.md', 'scripts/review-scope.mjs'];
+    expect(needsSecurityRereview(paths)).toBe(reviewScope(paths).security);
+    const run = (input: string) =>
+      spawnSync('node', ['scripts/review-scope.mjs', '--since'], {
+        cwd: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+        input,
+        encoding: 'utf8',
+      });
+    const needed = run('.github/workflows/verify.yml\n');
+    expect(needed.status).toBe(0);
+    expect(needed.stdout).toContain('re-review: needed');
+    const notNeeded = run('README.md\ndocs/sops.md\n');
+    expect(notNeeded.status).toBe(0);
+    expect(notNeeded.stdout).toContain('re-review: not needed');
   });
 });

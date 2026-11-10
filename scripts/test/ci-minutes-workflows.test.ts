@@ -2,152 +2,193 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { loadManifest } from '../labels.mjs';
 
 // The Actions-minutes cuts are about which events start which jobs, and a
 // trigger that is silently wrong costs either money or a check that never runs.
-// These read the workflow files CI runs and pin the triggers and structure
-// that the cuts rely on.
+// These parse the workflow files CI runs with a real YAML parser (YAML 1.2, so
+// the `on:` key stays a string), so trigger types are read from structure
+// whether written inline or as a list, and a missing key fails loudly.
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const read = (name: string) => readFileSync(join(REPO_ROOT, '.github/workflows', name), 'utf8');
+const path = (name: string) => join(REPO_ROOT, '.github/workflows', name);
 
-/** The text of the top-level `on:` block. */
-function onBlock(text: string): string {
-  const start = text.search(/^on:\n/m);
-  const rest = text.slice(start + 4);
-  const end = rest.search(/^\S/m);
-  return rest.slice(0, end === -1 ? undefined : end);
+interface Workflow {
+  on: Record<string, { types?: string[]; branches?: string[] } | null>;
+  concurrency?: { group: string; 'cancel-in-progress': boolean | string };
+  jobs: Record<string, { if?: string; needs?: string | string[]; permissions?: Record<string, string>; steps?: { name?: string; if?: string; uses?: string; run?: string }[] }>;
 }
 
-/** The event types listed under one trigger, e.g. `types: [opened, edited]`. */
-function types(text: string, event: string): string[] {
-  const block = onBlock(text);
-  const m = block.match(new RegExp(`^ {2}${event}:\\n {4}types: \\[([^\\]]*)\\]`, 'm'));
-  return m ? m[1]!.split(',').map((t) => t.trim()) : [];
+function load(name: string): Workflow {
+  const doc = parse(readFileSync(path(name), 'utf8')) as Workflow;
+  expect(doc.on, `${name} has an on: block`).toBeTypeOf('object');
+  return doc;
 }
 
-/** The text of one job. */
-function job(text: string, name: string): string {
-  const header = `\n  ${name}:\n`;
-  const start = text.indexOf(header);
-  expect(start, `job ${name}`).toBeGreaterThan(-1);
-  const rest = text.slice(start + header.length);
-  const next = rest.search(/^ {2}[a-z-]+:\n/m);
-  return rest.slice(0, next === -1 ? undefined : next);
+/** The event types a trigger lists; throws if the trigger is absent or lists none. */
+function types(wf: Workflow, event: string): string[] {
+  const trigger = wf.on[event];
+  const list = trigger?.types;
+  if (!Array.isArray(list) || list.length === 0) throw new Error(`no types listed under ${event}`);
+  return list;
 }
+
+/**
+ * Evaluate a `concurrency.group` / `cancel-in-progress` expression for a
+ * given event, for the tiny subset of the expression language used there:
+ * `${{ ... }}` holes made of ==, !=, &&, ||, !, parentheses, string literals
+ * and the context values github.event.action / label.name / run_id / ref.
+ */
+function evaluate(template: string | boolean, ctx: { action: string; label?: string; runId?: string }): string {
+  if (typeof template === 'boolean') return String(template);
+  const values: Record<string, string | undefined> = {
+    'github.event.action': ctx.action,
+    'github.event.label.name': ctx.label,
+    'github.run_id': ctx.runId ?? '999',
+    'github.ref': 'refs/pull/1/merge',
+  };
+  const hole = (expr: string): string => {
+    const js = expr
+      .replace(/github\.event\.action|github\.event\.label\.name|github\.run_id|github\.ref/g, (m) => `V[${JSON.stringify(m)}]`)
+      .replace(/(?<![=!<>])==(?!=)/g, '===')
+      .replace(/!=(?!=)/g, '!==');
+    if (/[^\w\s'"[\].\-&|!=()/]/.test(js)) throw new Error(`unexpected character in expression: ${expr}`);
+    return String(new Function('V', `return (${js});`)(values));
+  };
+  return template.replace(/\$\{\{\s*([\s\S]*?)\s*\}\}/g, (_m, expr: string) => hole(expr));
+}
+
+const group = (wf: Workflow, ctx: Parameters<typeof evaluate>[1]) => evaluate(wf.concurrency!.group, ctx);
+const cancels = (wf: Workflow, ctx: Parameters<typeof evaluate>[1]) => evaluate(wf.concurrency!['cancel-in-progress'], ctx) === 'true';
+
+describe('the types helper cannot pass vacuously', () => {
+  it('reads inline and block lists alike, and throws on a trigger that lists nothing', () => {
+    const inline = parse('on:\n  pull_request:\n    types: [opened, labeled]\n') as Workflow;
+    const block = parse('on:\n  pull_request:\n    types:\n      - opened\n      - labeled\n') as Workflow;
+    expect(types(inline, 'pull_request')).toEqual(['opened', 'labeled']);
+    expect(types(block, 'pull_request')).toEqual(['opened', 'labeled']);
+    expect(() => types(parse('on:\n  pull_request:\n') as Workflow, 'pull_request')).toThrow(/no types/);
+    expect(() => types(inline, 'push')).toThrow(/no types/);
+  });
+});
 
 describe('verify.yml', () => {
-  const text = read('verify.yml');
+  const wf = load('verify.yml');
 
   it('runs on pull requests and by hand, and not on a push to develop', () => {
-    const on = onBlock(text);
-    expect(on).toMatch(/^ {2}pull_request:/m);
-    expect(on).toMatch(/^ {2}workflow_dispatch:/m);
-    expect(on).not.toMatch(/^ {2}push:/m);
+    expect(Object.keys(wf.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
   });
 
-  it('does not run on pull request body edits: only the census wants those', () => {
-    expect(onBlock(text)).not.toContain('edited');
+  it('lists no types on pull_request, so it cannot run on `edited`', () => {
+    expect(wf.on['pull_request']?.types).toBeUndefined();
   });
 });
 
 describe('smoke.yml', () => {
   it('still runs on every push to develop', () => {
-    expect(onBlock(read('smoke.yml'))).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(load('smoke.yml').on['push']?.branches).toEqual(['develop']);
   });
 });
 
 describe('pr-checks.yml, the census and contention in one job', () => {
-  const text = read('pr-checks.yml');
+  const wf = load('pr-checks.yml');
 
   it('replaces the two workflows it folds, so neither also runs', () => {
-    expect(existsSync(join(REPO_ROOT, '.github/workflows/test-census.yml'))).toBe(false);
-    expect(existsSync(join(REPO_ROOT, '.github/workflows/contention.yml'))).toBe(false);
+    expect(existsSync(path('test-census.yml'))).toBe(false);
+    expect(existsSync(path('contention.yml'))).toBe(false);
   });
 
   it('has exactly one job, so the two checks bill one minute', () => {
-    const jobs = text.slice(text.search(/^jobs:\n/m)).match(/^ {2}[a-z-]+:\n/gm) ?? [];
-    expect(jobs).toHaveLength(1);
+    expect(Object.keys(wf.jobs)).toHaveLength(1);
   });
 
   it('still re-runs on a body edit, which is how a Removes tests: line is read', () => {
-    expect(types(text, 'pull_request')).toEqual(
+    expect(types(wf, 'pull_request')).toEqual(
       expect.arrayContaining(['opened', 'synchronize', 'reopened', 'ready_for_review', 'edited']),
     );
   });
 
   it('keeps the push to develop, the only thing that tells an open pull request a merge broke it', () => {
-    expect(onBlock(text)).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(wf.on['push']?.branches).toEqual(['develop']);
   });
 
-  it('runs the census on pull requests only, since a push has no base and head', () => {
-    const census = text.slice(text.indexOf('- name: Count the tests on both sides'));
-    expect(census.slice(0, census.indexOf('\n      - ')) ).toContain("if: github.event_name == 'pull_request'");
-    expect(text).toContain('node scripts/test-census.mjs');
+  it('runs the census on pull requests only, and the contention steps through a failed census, not on an edit', () => {
+    const steps = Object.values(wf.jobs)[0]!.steps!;
+    const byRun = (needle: string) => steps.find((s) => s.run?.includes(needle));
+    expect(byRun('scripts/test-census.mjs')?.if).toBe("github.event_name == 'pull_request'");
+    const contention = steps.filter((s) => s.run?.includes('pr-contention.mjs') || s.name === 'List the open pull requests');
+    expect(contention).toHaveLength(3);
+    for (const s of contention) expect(s.if, s.name).toBe("${{ !cancelled() && github.event.action != 'edited' }}");
   });
 
-  it('runs every contention step even when the census failed, and not on an edit', () => {
-    for (const name of ['List the open pull requests', 'Fetch the heads being compared', 'Say what collides with what']) {
-      const at = text.indexOf(`- name: ${name}`);
-      expect(at, name).toBeGreaterThan(-1);
-      const step = text.slice(at, text.indexOf('\n      - ', at + 1) === -1 ? undefined : text.indexOf('\n      - ', at + 1));
-      expect(step, name).toContain("if: ${{ !cancelled() && github.event.action != 'edited' }}");
-    }
-    expect(text).toContain('node scripts/pr-contention.mjs');
-  });
-
-  it('groups per ref and cancels a superseded run, as the census did', () => {
-    expect(text).toMatch(/concurrency:\n {2}group: pr-checks-\$\{\{ github\.ref \}\}\n {2}cancel-in-progress: true/);
+  it('puts an edit in a different concurrency group from a push, and keeps per-ref cancel for both', () => {
+    const edit = group(wf, { action: 'edited' });
+    const push = group(wf, { action: 'synchronize' });
+    expect(edit).not.toBe(push);
+    expect(group(wf, { action: 'opened' })).toBe(push);
+    expect(group(wf, { action: 'edited' })).toBe(edit);
+    expect(cancels(wf, { action: 'edited' })).toBe(true);
+    expect(cancels(wf, { action: 'synchronize' })).toBe(true);
   });
 
   it('can write comments and nothing wider than the old contention job', () => {
-    expect(job(text, 'checks')).toMatch(/permissions:\n {6}contents: read\n {6}pull-requests: write\n/);
+    expect(Object.values(wf.jobs)[0]!.permissions).toEqual({ contents: 'read', 'pull-requests': 'write' });
   });
 });
 
 describe('claude-code-review.yml, once per pull request (cut 3)', () => {
-  const text = read('claude-code-review.yml');
+  const wf = load('claude-code-review.yml');
 
   it('no longer re-runs on every push', () => {
-    const t = types(text, 'pull_request');
+    const t = types(wf, 'pull_request');
     expect(t).not.toContain('synchronize');
     expect(t).toEqual(expect.arrayContaining(['opened', 'reopened', 'ready_for_review', 'labeled']));
   });
 
   it('starts the scope job, and so the reviews, for the re-review label and no other', () => {
-    const scope = job(text, 'scope');
-    expect(scope).toContain("if: github.event.action != 'labeled' || github.event.label.name == 're-review'");
+    expect(wf.jobs['scope']!.if).toBe("github.event.action != 'labeled' || github.event.label.name == 're-review'");
   });
 
   it('keeps both reviews behind scope, so a skipped scope skips them', () => {
-    for (const name of ['code-review', 'security-review']) {
-      expect(job(text, name), name).toMatch(/^ {4}needs: scope$/m);
-    }
+    for (const name of ['code-review', 'security-review']) expect(wf.jobs[name]!.needs, name).toBe('scope');
   });
 
-  it('gives a run for some other label its own concurrency group, so it cannot cancel a review', () => {
-    expect(text).toContain(
-      "github.event.action == 'labeled' && github.event.label.name != 're-review' && github.run_id || 'review'",
-    );
-    expect(text).toMatch(/cancel-in-progress: true/);
+  it('queues re-review runs behind each other instead of cancelling', () => {
+    const rr = { action: 'labeled', label: 're-review' };
+    expect(cancels(wf, rr)).toBe(false);
+    expect(group(wf, rr)).toBe(group(wf, { ...rr, runId: '12345' }));
+  });
+
+  it('keeps a ready_for_review run out of the re-review group, so it cannot cancel one', () => {
+    const rr = { action: 'labeled', label: 're-review' };
+    expect(group(wf, { action: 'ready_for_review' })).not.toBe(group(wf, rr));
+    expect(cancels(wf, { action: 'ready_for_review' })).toBe(true);
+    expect(group(wf, { action: 'opened' })).toBe(group(wf, { action: 'ready_for_review' }));
+  });
+
+  it('gives a run for some other label a group of its own, so it cancels nothing', () => {
+    const a = group(wf, { action: 'labeled', label: 'high', runId: '1' });
+    const b = group(wf, { action: 'labeled', label: 'high', runId: '2' });
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(group(wf, { action: 'opened' }));
+    expect(a).not.toBe(group(wf, { action: 'labeled', label: 're-review' }));
   });
 
   it('removes the label at the end, after both reviews, whatever they concluded', () => {
-    const clear = job(text, 'clear-re-review');
-    expect(clear).toMatch(/needs: \[scope, code-review, security-review\]/);
-    expect(clear).toContain("if: always() && github.event.action == 'labeled' && github.event.label.name == 're-review'");
-    expect(clear).toContain('-X DELETE');
-    expect(clear).toContain('labels/re-review');
+    const clear = wf.jobs['clear-re-review']!;
+    expect(clear.needs).toEqual(['scope', 'code-review', 'security-review']);
+    expect(clear.if).toBe("always() && github.event.action == 'labeled' && github.event.label.name == 're-review'");
+    const text = JSON.stringify(clear);
+    expect(text).toContain('-X DELETE');
+    expect(text).toContain('labels/re-review');
     // It writes labels only: no secret, no checkout of the pull request.
-    expect(clear).not.toContain('secrets.');
-    expect(clear).not.toContain('actions/checkout');
+    expect(text).not.toContain('secrets.');
+    expect(clear.steps!.some((s) => s.uses?.includes('actions/checkout'))).toBe(false);
   });
 
   it('names a label that labels.json defines, so scripts/labels.mjs creates it', () => {
-    const names = loadManifest().map((l) => l.name);
-    expect(names).toContain('re-review');
-    expect(text).toContain("'re-review'");
     const label = loadManifest().find((l) => l.name === 're-review');
-    expect(label?.description.length).toBeLessThanOrEqual(100);
+    expect(label).toBeDefined();
+    expect(label!.description.length).toBeLessThanOrEqual(100);
   });
 });

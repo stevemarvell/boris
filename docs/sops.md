@@ -110,11 +110,15 @@ what a push or a merge starts is a spending decision and is written down here.
 - **`smoke` runs on every push to `develop`** and, once an app deploys, on a
   schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
 
-Rough cost per pull request push before these cuts: about 9 billed minutes
-(`verify` 2.4, code review 1.9, security review 1.7, `scope` 1, census 1,
-contention 1), and about 4 more per merge. After: a push to a pull request
-starts `verify` and `pr checks` (about 3.4), the reviews only on open and on
-`re-review`, and a merge starts `pr checks` and `smoke` (about 2).
+Cost, **estimated**, not metered per change. The source is the billed minutes
+per job measured over 2026-11-08 to 2026-11-10: `verify` about 2.4 on pull
+requests, code review about 1.9, security review about 1.7, and `scope`, census
+and contention about 1 each (rounded up per job). Before these cuts that was
+about 9 billed minutes per push to a pull request, and about 4 more per merge.
+After, a push should cost about 3.4 (`verify` and `pr checks`), the reviews
+about 4.6 more (with `scope`) only on open and on `re-review`, and a merge about
+2 (`pr checks` and `smoke`). Re-measure from the Actions usage report before
+relying on these.
 
 ---
 
@@ -551,14 +555,13 @@ conflict by deleting evidence, and nothing in the file's own suite can tell.
 
 ### What enforces this
 
-The `test census` check (`scripts/test-census.mjs`, a step of the `pr checks`
-job) counts declarations on
+The test census (`scripts/test-census.mjs`, a step of the `pr checks` job) counts declarations on
 both sides of a pull request and goes red when the head has fewer without that
 line. It is the backstop, and it counts declarations rather than results — a
 row deleted from inside an `it.each` table is still invisible.
 
-The `contention` check (`scripts/pr-contention.mjs`, the other step of `pr
-checks`) is the earlier warning.
+The contention step (`scripts/pr-contention.mjs`, the other step of the `pr
+checks` job) is the earlier warning.
 It three-way merges every open pull request against the base tip and against
 every other open head, and comments when two collide — naming which of the
 conflicting files are test files, because those are the ones this SOP is about.

@@ -292,7 +292,7 @@ flowchart LR
   issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>≤ 3 per run"]
   triage --> pr["Pull request<br/>own worktree"]
   pr --> checks{"verify<br/>(merge gate)"}
-  pr -.-> reviews["code + security review,<br/>census, contention<br/>(advisory)"]
+  pr -.-> reviews["code + security review,<br/>pr checks<br/>(advisory)"]
   checks -- green --> merge[Merge to develop]
   merge --> deploy["deployed apps build,<br/>or skip unchanged ones<br/>(none, by default)"]
   deploy --> smoke["smoke: this commit?<br/>then the app's checks"]
@@ -307,8 +307,8 @@ flowchart LR
    open dependencies, and takes at most three per run.
 3. **A pull request**, written by an `implementer` agent in its own worktree.
    `verify` is the one check the coordinator waits for before merging;
-   nothing mechanical requires it on a free-plan private repository. The code review, security review, test census and cross-PR
-   conflict check comment on it but don't block it.
+   nothing mechanical requires it on a free-plan private repository. The code review, security review and `pr checks` (test census and cross-PR
+   conflict check) comment on it but don't block it.
 4. **Merge deploys whatever has a `deploy` block.** By default nothing does
    — `npm run deploy:add` is what adds one — but a deployed app builds from
    `develop`, unless nothing it reads changed, in which case the build is

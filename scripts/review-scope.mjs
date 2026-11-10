@@ -126,6 +126,20 @@ export function reviewScope(paths) {
   };
 }
 
+/**
+ * Whether paths changed since a pull request was last reviewed are ones the
+ * security review would run for: the driver's rule before merging (drive-pr
+ * step 4). The reviews run once per pull request, so a pull request opened
+ * harmlessly and extended later is otherwise never looked at. This is the same
+ * answer `reviewScope` gives, so `.github/**`, `.claude/**` and every non-prose
+ * file count, and an empty list counts too: a diff that could not be read must
+ * not be the reason a change merges unreviewed. The caller skips the check when
+ * the head has not moved since the last review.
+ */
+export function needsSecurityRereview(paths) {
+  return reviewScope(paths).security;
+}
+
 /** Read the whole of stdin, so the caller can pipe `gh api ... --jq` into us. */
 async function readStdin() {
   const chunks = [];
@@ -134,7 +148,15 @@ async function readStdin() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const scope = reviewScope((await readStdin()).split('\n'));
+  const input = (await readStdin()).split('\n');
+  if (process.argv.includes('--since')) {
+    // `gh api repos/{owner}/{repo}/compare/<sha>...<head> --jq '.files[].filename' | node scripts/review-scope.mjs --since`
+    const needed = needsSecurityRereview(input);
+    console.log(`re-review: ${needed ? 'needed' : 'not needed'}`);
+    console.log(reviewScope(input).why);
+    process.exit(0);
+  }
+  const scope = reviewScope(input);
   const output = process.env['GITHUB_OUTPUT'];
   if (output) {
     appendFileSync(
