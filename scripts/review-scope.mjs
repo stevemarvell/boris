@@ -138,13 +138,15 @@ export function reviewScope(paths) {
  */
 export function needsSecurityRereview(paths) {
   const files = [...paths].map((path) => String(path).trim()).filter(Boolean);
-  // `compare` returns at most 300 files, so a list that long may be cut off and
-  // the rest unseen. Treat it as needing a review rather than trust the part.
+  // A list taken from the API is cut off (`compare` lists 30 files by default
+  // and at most 300), and the rest is unseen. `git diff --name-only` is not cut
+  // off, which is why drive-pr uses it; this is the fallback for a list that
+  // came from the API anyway. Treat it as needing a review rather than trust the part.
   if (files.length >= COMPARE_FILE_CAP) return true;
   return reviewScope(files).security;
 }
 
-/** The most files GitHub's `compare` endpoint lists; a list this long may be truncated. */
+/** The most files GitHub's `compare` endpoint ever lists; an API-sourced list this long may be truncated. */
 export const COMPARE_FILE_CAP = 300;
 
 /**
@@ -166,7 +168,7 @@ async function readStdin() {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const input = (await readStdin()).split('\n');
   if (process.argv.includes('--since')) {
-    // `gh api repos/{owner}/{repo}/compare/<sha>...<head> --jq '.files[].filename' | node scripts/review-scope.mjs --since`
+    // `git diff --name-only <last>...<head> | node scripts/review-scope.mjs --since`
     const needed = needsSecurityRereview(input);
     const scope = reviewScope(input);
     console.log(`re-review: ${needed ? 'needed' : 'not needed'}`);

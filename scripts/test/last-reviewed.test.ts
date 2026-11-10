@@ -2,10 +2,14 @@ import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MAX_RUNS, lastReviewed, type Job, type Run } from '../last-reviewed.mjs';
+import { ASSERT_STEP, MAX_RUNS, isReview, lastReviewed, type Job, type Run } from '../last-reviewed.mjs';
 
 const run = (id: number, sha: string, status = 'completed'): Run => ({ id, head_sha: sha, status });
-const job = (name: string, conclusion: string | null): Job => ({ name, conclusion });
+const job = (name: string, conclusion: string | null, assertion: string | null = conclusion === 'success' ? 'success' : 'skipped'): Job => ({
+  name,
+  conclusion,
+  steps: [{ name: 'Review the change', conclusion }, { name: ASSERT_STEP, conclusion: assertion }],
+});
 const lookup = (table: Record<number, Job[]>) => (r: Run) => table[r.id as number];
 
 describe('lastReviewed', () => {
@@ -84,5 +88,40 @@ describe('the last-reviewed CLI', () => {
     const run = spawnSync(process.execPath, ['scripts/last-reviewed.mjs'], { cwd, encoding: 'utf8', timeout: 10_000 });
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('usage');
+  });
+});
+
+describe('isReview, which jobs amount to a review', () => {
+  it('counts one success with the other review skipped by scope', () => {
+    expect(isReview([job('code review', 'success'), job('security review', 'skipped')])).toBe(true);
+  });
+
+  it('counts two successes', () => {
+    expect(isReview([job('code review', 'success'), job('security review', 'success')])).toBe(true);
+  });
+
+  it('does not count a success beside a failure', () => {
+    expect(isReview([job('code review', 'success'), job('security review', 'failure')])).toBe(false);
+  });
+
+  it('does not count a success beside a cancelled review', () => {
+    expect(isReview([job('code review', 'success'), job('security review', 'cancelled')])).toBe(false);
+  });
+
+  it('does not count a run whose reviews were both skipped', () => {
+    expect(isReview([job('scope', 'success'), job('code review', 'skipped'), job('security review', 'skipped')])).toBe(false);
+    expect(isReview([])).toBe(false);
+    expect(isReview(undefined)).toBe(false);
+  });
+
+  it('does not count a Dependabot run that ends green with every step skipped', () => {
+    const dependabot = [job('code review', 'success', 'skipped'), job('security review', 'success', 'skipped')];
+    expect(isReview(dependabot)).toBe(false);
+    expect(lastReviewed([run(1, 'aaa')], () => dependabot)).toEqual({ state: 'none' });
+  });
+
+  it('needs the assertion step in every review job that ran, not only one', () => {
+    expect(isReview([job('code review', 'success'), job('security review', 'success', 'skipped')])).toBe(false);
+    expect(isReview([{ name: 'code review', conclusion: 'success' }])).toBe(false);
   });
 });

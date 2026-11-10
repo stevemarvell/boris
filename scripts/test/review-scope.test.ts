@@ -225,3 +225,25 @@ describe('the --since edge cases', () => {
     expect(run.stdout).toContain('touches .github/workflows/: true');
   });
 });
+
+describe('--since over a long list, taken from git', () => {
+  const run = (names: string[]) =>
+    spawnSync('node', ['scripts/review-scope.mjs', '--since'], {
+      cwd: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+      input: `${names.join('\n')}\n`,
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+  const docs = (n: number) => Array.from({ length: n }, (_, i) => `docs/page-${i}.md`);
+
+  it('sees a security-relevant path that is only the 31st name', { timeout: 15_000 }, () => {
+    const names = [...docs(30), 'apps/api/src/api/main.py'];
+    expect(names).toHaveLength(31);
+    expect(needsSecurityRereview(names)).toBe(true);
+    expect(run(names).stdout).toContain('re-review: needed');
+  });
+
+  it('says not needed when all 31 names are plain prose', { timeout: 15_000 }, () => {
+    expect(run(docs(31)).stdout).toContain('re-review: not needed');
+  });
+});

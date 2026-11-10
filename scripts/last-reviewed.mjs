@@ -11,10 +11,19 @@
 //     `re-review` starts this workflow and skips everything);
 //   - a cancelled run.
 //
-// So a run counts only if its `code review` or `security review` job has
-// `conclusion == "success"`. A review that was skipped by scope has the
-// conclusion `skipped`, and that is not a review either: the newest run that
-// really reviewed is what is wanted.
+// So a run counts only when every review job that ran was a review:
+//
+//   - at least one of `code review` / `security review` is not `skipped` (a
+//     review skipped by scope is simply not wanted, and does not spoil a run
+//     whose other review succeeded);
+//   - every such job has `conclusion == "success"`, so a run in which one review
+//     succeeded and the other failed or was cancelled is not "reviewed";
+//   - in each, the step `Check a review was actually produced` (the
+//     assert-review-ran step) has `conclusion == "success"`. A Dependabot run
+//     with no credential skips every step and ENDS GREEN, and its job
+//     conclusion alone would read as a review; the step is the evidence.
+//
+// The newest run that meets that is what is wanted.
 //
 // CLI:  node scripts/last-reviewed.mjs <branch>
 //   exit 0  prints the head sha last reviewed
@@ -30,8 +39,18 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-/** The review jobs; a run is a review only if one of them succeeded. */
+/** The review jobs. */
 export const REVIEW_JOBS = ['code review', 'security review'];
+
+/** The step in each review job that fails unless a review was actually produced. */
+export const ASSERT_STEP = 'Check a review was actually produced';
+
+/** Whether a run's jobs amount to a review, by the rule in this file's header. */
+export function isReview(jobs) {
+  const ran = (jobs ?? []).filter((job) => REVIEW_JOBS.includes(job.name) && job.conclusion !== 'skipped');
+  if (ran.length === 0) return false;
+  return ran.every((job) => job.conclusion === 'success' && (job.steps ?? []).some((step) => step.name === ASSERT_STEP && step.conclusion === 'success'));
+}
 
 /** How many of the newest runs are examined: the loop is bounded (SOP 1). */
 export const MAX_RUNS = 20;
@@ -49,8 +68,7 @@ export function lastReviewed(runs, jobsFor) {
       pending = true;
       continue;
     }
-    const reviewed = (jobsFor(run) ?? []).some((job) => REVIEW_JOBS.includes(job.name) && job.conclusion === 'success');
-    if (reviewed) return pending ? { state: 'pending', sha: run.head_sha } : { state: 'reviewed', sha: run.head_sha };
+    if (isReview(jobsFor(run))) return pending ? { state: 'pending', sha: run.head_sha } : { state: 'reviewed', sha: run.head_sha };
   }
   return pending ? { state: 'pending' } : { state: 'none' };
 }

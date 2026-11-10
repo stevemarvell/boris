@@ -59,9 +59,8 @@ name: Claude Code Review
 # are a fix round answering the review before it. They now run when a pull
 # request is opened, reopened or marked ready, and again only when somebody
 # adds the `re-review` label (the `labeled` event, filtered below to that one
-# label). The driver adds it when a fix round changed code in response to a high
-# finding or touched a control; otherwise it replies and merges on a green
-# `verify` (`drive-pr` step 3). The last job removes the label so it can be
+# label). When the driver adds it is defined in one place, `drive-pr` step 4
+# ("Re-review before merging"). The last job removes the label so it can be
 # added again. Nothing re-runs a review by itself after a push, so a pull
 # request that grows after its review is not reviewed again unless someone
 # asks.

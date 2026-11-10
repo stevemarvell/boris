@@ -240,13 +240,22 @@ HEAD=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)
 LAST=$(node scripts/last-reviewed.mjs "$BRANCH"); code=$?
 echo "last reviewed: $LAST (exit $code)"
 if [ "$code" = 0 ] && [ "$LAST" != "$HEAD" ]; then
-  gh api "repos/{owner}/{repo}/compare/$LAST...$HEAD" --jq '.files[].filename' | node scripts/review-scope.mjs --since
+  # The file list comes from git, not the API: `compare` lists 30 files by
+  # default and `gh api --paginate` does not work through the cloud proxy.
+  if git fetch -q origin "$LAST" "$HEAD" && git cat-file -e "$LAST^{commit}"; then
+    git diff --name-only "$LAST...$HEAD" | node scripts/review-scope.mjs --since
+  else
+    echo "re-review: needed (cannot fetch $LAST, probably force-pushed away)"
+  fi
 fi
 ```
 
-`last-reviewed.mjs` counts a `claude-code-review.yml` run only if its `code
-review` or `security review` job succeeded, so a failed run, a cancelled one and
-a label-only run in which everything was skipped are not "reviewed". Read the
+`last-reviewed.mjs` counts a `claude-code-review.yml` run only if every review
+job that ran succeeded and its `Check a review was actually produced` step
+succeeded (one review skipped by scope is fine; one failed or cancelled is not;
+a Dependabot run that skips every step and ends green is not). A failed run, a
+cancelled one and a label-only run in which everything was skipped are not
+"reviewed". Read the
 result:
 
 - **exit 2** (`gh` failed): an API error is not "no runs". Retry once; if it
@@ -257,9 +266,12 @@ result:
   checkers by hand (below).
 - **exit 0 and `LAST` equals `HEAD`**: nothing changed since a review; only the
   fix-round condition above can still ask.
-- **`re-review: needed`**, or a compare that returned 300 files (the endpoint's
-  cap; the real diff may be larger, so count it as needed): ask. An empty or
-  unreadable diff also counts as needed.
+- **`re-review: needed`**, or `LAST` could not be fetched (a force-push removed
+  it, so nothing is known about what changed): ask. An empty or unreadable diff
+  also counts as needed. `review-scope.mjs --since` also treats a list of 300
+  or more names as needed; that guard (`COMPARE_FILE_CAP`) is for a list taken
+  from the API, which truncates, and is only a fallback here because `git diff`
+  does not.
 - **`touches .github/workflows/: true`**: the review action refuses a pull
   request that edits workflows, so a label would buy nothing. Run
   `security-checker` and `code-checker` by hand instead, as the `delegate`
