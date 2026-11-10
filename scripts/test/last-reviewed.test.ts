@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ASSERT_STEP, MAX_RUNS, isReview, lastReviewed, type Job, type Run } from '../last-reviewed.mjs';
+import { parse } from 'yaml';
+import { ASSERT_STEP, MAX_RUNS, REVIEW_JOBS, isReview, lastReviewed, type Job, type Run } from '../last-reviewed.mjs';
 
 const run = (id: number, sha: string, status = 'completed'): Run => ({ id, head_sha: sha, status });
 const job = (name: string, conclusion: string | null, assertion: string | null = conclusion === 'success' ? 'success' : 'skipped'): Job => ({
@@ -123,5 +125,24 @@ describe('isReview, which jobs amount to a review', () => {
   it('needs the assertion step in every review job that ran, not only one', () => {
     expect(isReview([job('code review', 'success'), job('security review', 'success', 'skipped')])).toBe(false);
     expect(isReview([{ name: 'code review', conclusion: 'success' }])).toBe(false);
+  });
+});
+
+describe('the names last-reviewed.mjs relies on exist in the workflow', () => {
+  // The fixtures above are built from ASSERT_STEP, so they cannot notice the
+  // constant and the workflow's real step name drifting apart.
+  const workflow = parse(
+    readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../.github/workflows/claude-code-review.yml'), 'utf8'),
+  ) as { jobs: Record<string, { name: string; steps: { name?: string }[] }> };
+  const reviewJobs = [workflow.jobs['code-review']!, workflow.jobs['security-review']!];
+
+  it('names both review jobs as REVIEW_JOBS does', () => {
+    expect(reviewJobs.map((j) => j.name)).toEqual(REVIEW_JOBS);
+  });
+
+  it('has the assertion step, named ASSERT_STEP, in both review jobs', () => {
+    for (const j of reviewJobs) {
+      expect(j.steps.filter((s) => s.name === ASSERT_STEP)).toHaveLength(1);
+    }
   });
 });

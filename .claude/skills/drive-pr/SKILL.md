@@ -243,7 +243,9 @@ if [ "$code" = 0 ] && [ "$LAST" != "$HEAD" ]; then
   # The file list comes from git, not the API: `compare` lists 30 files by
   # default and `gh api --paginate` does not work through the cloud proxy.
   if git fetch -q origin "$LAST" "$HEAD" && git cat-file -e "$LAST^{commit}"; then
-    git diff --name-only "$LAST...$HEAD" | node scripts/review-scope.mjs --since
+    # --no-renames: a rename otherwise prints only its new path, so moving
+    # a security-relevant file to a .md path would look like prose.
+    git diff --name-only --no-renames "$LAST...$HEAD" | node scripts/review-scope.mjs --since
   else
     echo "re-review: needed (cannot fetch $LAST, probably force-pushed away)"
   fi

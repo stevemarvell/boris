@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -245,5 +247,44 @@ describe('--since over a long list, taken from git', () => {
 
   it('says not needed when all 31 names are plain prose', { timeout: 15_000 }, () => {
     expect(run(docs(31)).stdout).toContain('re-review: not needed');
+  });
+});
+
+describe('--since over a rename, taken from a real git repository', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const git = (cwd: string, args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    return r.stdout.trim();
+  };
+  const since = (names: string) =>
+    spawnSync('node', [resolve(root, 'scripts/review-scope.mjs'), '--since'], { input: names, encoding: 'utf8', timeout: 15_000 }).stdout;
+
+  it('lists the old path too with --no-renames, so a move to prose is still re-reviewed', { timeout: 30_000 }, () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'rename-scope-'));
+    try {
+      git(dir, ['init', '-q']);
+      mkdirSync(resolve(dir, 'apps/api/src'), { recursive: true });
+      mkdirSync(resolve(dir, 'docs'));
+      writeFileSync(resolve(dir, 'apps/api/src/auth.py'), 'def check(token):\n    return token == "x"\n'.repeat(5));
+      git(dir, ['add', '-A']);
+      git(dir, ['commit', '-qm', 'add auth']);
+      const a = git(dir, ['rev-parse', 'HEAD']);
+      git(dir, ['mv', 'apps/api/src/auth.py', 'docs/auth.md']);
+      git(dir, ['commit', '-qm', 'rename to prose']);
+      const b = git(dir, ['rev-parse', 'HEAD']);
+
+      const fixed = git(dir, ['diff', '--name-only', '--no-renames', `${a}...${b}`]);
+      expect(fixed.split('\n').sort()).toEqual(['apps/api/src/auth.py', 'docs/auth.md']);
+      expect(since(`${fixed}\n`)).toContain('re-review: needed');
+
+      // Without the flag git collapses the rename to its new path, which is
+      // prose: this is what proves the assertion above is not vacuous.
+      const collapsed = git(dir, ['diff', '--name-only', `${a}...${b}`]);
+      expect(collapsed).toBe('docs/auth.md');
+      expect(since(`${collapsed}\n`)).toContain('re-review: not needed');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
