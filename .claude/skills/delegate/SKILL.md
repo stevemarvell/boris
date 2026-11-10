@@ -27,8 +27,9 @@ the comparison behind that choice is recorded in the base repository).
 | `code-checker` | Correctness and quality review of a diff or pull request. | nothing |
 | `security-checker` | Exposure review against `docs/data-governance.md`. | nothing |
 
-CI already runs both checkers on every pull request (`claude-code-review.yml`).
-Spawn one by hand only for a review CI cannot do — a pull request that edits
+CI runs both checkers once per pull request, when it is opened, reopened or
+marked ready, and again only when the `re-review` label is added; it does not
+re-run on a push (`claude-code-review.yml`, `drive-pr` step 3). Spawn one by hand only for a review CI cannot do — a pull request that edits
 `.github/workflows/`, where `claude-code-action` refuses to run.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or

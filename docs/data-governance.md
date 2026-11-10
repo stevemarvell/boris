@@ -68,7 +68,7 @@ the same kind of written trigger.
 
 Three jobs run branch code with something live in the step. Two are in
 `.github/workflows/claude-code-review.yml` and carry a credential — the code
-review and the security review; the third is `contention`, which carries a
+review and the security review; the third is the `pr checks` job (`contention` and the test census), which carries a
 write-scoped token instead and is described after them. Each one checks out the pull request and
 then runs a script from that checkout before the review starts.
 
@@ -146,7 +146,8 @@ the step that hands it the credential.
 
 ### A third job of the same shape, holding a different thing
 
-`contention` in `.github/workflows/contention.yml` carries no Grafana
+`pr checks` in `.github/workflows/pr-checks.yml` (the contention step; the test
+census step now runs under the same token) carries no Grafana
 credential, and it is in this list anyway, because the structure is identical:
 it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
 from *that* checkout, with `GITHUB_TOKEN` scoped `pull-requests: write` live in

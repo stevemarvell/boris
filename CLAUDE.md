@@ -144,12 +144,17 @@ npm run verify:apps                # every app's own checks, from project.json
 node scripts/verify-apps.mjs web   # one app's: typecheck, eslint, vitest, build, e2e
 ```
 
-CI runs `verify` on every pull request and on pushes to `develop`; it is the
-one check the coordinator waits for before merging. A `smoke` workflow runs
+CI runs `verify` on every pull request and by hand (`workflow_dispatch`); it is
+the one check the coordinator waits for before merging. It does **not** run on
+a push to `develop`: nothing mechanical verifies a direct push, so "never push
+to `develop`" is discipline alone (SOP 1, "What CI runs, and when"). A `smoke` workflow runs
 after each merge: for each deployed app in `project.json`, it waits for the
 deployment to be this commit, then runs that app's own checks
-(`scripts/smoke.mjs`). Claude Code Review comments on every pull request; it
-is advisory.
+(`scripts/smoke.mjs`). Claude Code Review comments once per pull request, when it is opened or marked
+ready, and again only when the `re-review` label is added; it does not re-run
+on a push, and it is advisory. After a fix round the driver adds `re-review`
+only if the round changed code for a high finding or touched a control;
+otherwise it replies and merges on a green `verify` (`drive-pr` step 3).
 
 ## Agents and skills
 

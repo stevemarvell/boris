@@ -124,6 +124,30 @@ matching that shape as answered already — nothing to fix, nothing to reply
 to. Everything else — a numbered/bulleted finding, an inline comment — is a
 finding to work in step 3.
 
+**The reviews run once per pull request**, when it is opened, reopened or
+marked ready, and again only when the `re-review` label is added (step 3).
+They do not re-run on a push. So after a fix round the original comments are
+still there and nothing new has been posted, and the driver has to tell a
+fresh finding from one already answered. **A finding is answered when a reply
+from this driver or its implementer already sits under it**: an inline comment
+whose thread has a reply posted by someone other than `claude[bot]`, or a
+top-level verdict comment that a later pull-request comment references (or
+that step 3 resolved). A `claude[bot]` comment with no such reply is fresh.
+List the inline ones still open with:
+
+```bash
+# A reply carries in_reply_to_id; a finding is open while nothing replies to it.
+gh api repos/{owner}/{repo}/pulls/<n>/comments --paginate \
+  --jq '[.[] | select(.in_reply_to_id != null) | .in_reply_to_id] as $answered
+        | .[] | select(.user.login=="claude[bot]" and .in_reply_to_id == null
+                       and ([.id] | inside($answered) | not))
+        | {id, path, line, body}'
+```
+
+Anything that comes back is open. A top-level verdict comment has no thread, so
+read the pull request comments in order: one that follows your reply is a new
+review, one that precedes it is old.
+
 ### 3. Fix real findings and reply — ceiling: 2 rounds (SOP 1, "sending an agent back for rework")
 
 One round is: read every open finding from step 2, then for each one:
@@ -167,6 +191,17 @@ One round is: read every open finding from step 2, then for each one:
     <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
     replies quote CI and review output, and `$(…)` or a backtick in that text
     would be executed by the shell.
+- **Decide whether to ask for a re-review.** Nothing re-runs the reviews after
+  a push, so a fix is not looked at again unless the driver asks. Add the
+  `re-review` label (`gh api -X POST repos/{owner}/{repo}/issues/<n>/labels
+  -f 'labels[]=re-review'`) **only** when the round changed code in response to
+  a `high` or `critical` finding, or touched a control (anything meant to
+  *prevent* something: a header, a permission, a gate, a filter; SOP 3), since a
+  control's fix is exactly what a passing test does not prove. Otherwise do
+  not: reply to the findings and merge when `verify` is green. The workflow
+  runs both reviews once and removes the label when they finish, so wait for the
+  new review checks (step 1) before reading step 2 again. Each label costs
+  about 4 billed minutes.
 - Send one brief per round covering every finding that reproduced, so the
   implementer pushes the round's fixes together and the branch never sits
   with a fix committed but unexplained. Reply to each finding once its fix
@@ -178,8 +213,8 @@ a separate budget for that); the driver confirms it from the checks.
 
 **Round 2 exists only if round 1 left something unresolved** — a finding
 still disputed, a fix that did not turn `verify` green, or new findings
-posted against the round-1 push (the reviews re-run on `synchronize`). Redo
-the same procedure once more.
+posted by a `re-review` the driver asked for after round 1 (the reviews do
+not re-run on a push). Redo the same procedure once more.
 
 **Ceiling hit** (something is still unresolved after round 2): stop. Do not
 attempt a third round, do not merge with an unanswered finding. Go to step 5.

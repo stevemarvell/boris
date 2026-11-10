@@ -249,7 +249,7 @@ flowchart TB
 
 - the contract (`npm run verify`) and a stop hook that blocks an agent from
   ending its turn while `verify` is red, giving up after three attempts;
-- automatic code and security review on every pull request;
+- automatic code and security review once per pull request (and again on a `re-review` label), not on every push;
 - per-agent worktrees with their own ports;
 - an optional per-app `deploy` block, build skipping, post-merge smoke and
   preview cleanup for whichever apps actually have one;
