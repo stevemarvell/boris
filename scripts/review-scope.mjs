@@ -168,7 +168,7 @@ async function readStdin() {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const input = (await readStdin()).split('\n');
   if (process.argv.includes('--since')) {
-    // `git diff --name-only <last>...<head> | node scripts/review-scope.mjs --since`
+    // `git diff --name-only --no-renames <last>...<head> | node scripts/review-scope.mjs --since`
     const needed = needsSecurityRereview(input);
     const scope = reviewScope(input);
     console.log(`re-review: ${needed ? 'needed' : 'not needed'}`);
