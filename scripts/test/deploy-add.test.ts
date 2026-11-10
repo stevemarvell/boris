@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -439,6 +440,31 @@ describe('the scheduled smoke run (#254)', () => {
     expect(smokeScheduleMessage()).toContain(`every-${cronHours}-hours`);
     expect(smokeScheduleMessage()).not.toMatch(/every-3-hours/);
     expect(SMOKE_SCHEDULE).toContain(`# Every ${cronHours} hours`);
+  });
+
+  it('the real CLI prints the schedule message from the constant, not a literal', () => {
+    // ROOT is derived from the script's own location, so a copy of project.mjs and
+    // deploy/ inside a throwaway root runs the real CLI against that root.
+    const tmp = mkdtempSync(join(tmpdir(), 'deploy-add-cli-'));
+    try {
+      mkdirSync(join(tmp, 'scripts'), { recursive: true });
+      cpSync(join(REPO_ROOT, 'scripts/project.mjs'), join(tmp, 'scripts/project.mjs'));
+      cpSync(join(REPO_ROOT, 'scripts/deploy'), join(tmp, 'scripts/deploy'), { recursive: true });
+      mkdirSync(join(tmp, 'apps/api'), { recursive: true });
+      mkdirSync(join(tmp, '.github/workflows'), { recursive: true });
+      writeFileSync(join(tmp, SMOKE), realSmoke());
+      writeFileSync(
+        join(tmp, 'project.json'),
+        JSON.stringify({ name: 'thing', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'] } } }, null, 2),
+      );
+      const run = spawnSync(process.execPath, [join(tmp, 'scripts/deploy/add.mjs'), 'vercel', '--app', 'api', '--project', 'thing-api'], { encoding: 'utf8' });
+      expect(run.status, run.stderr).toBe(0);
+      expect(run.stdout).toContain(smokeScheduleMessage());
+      expect(run.stdout).not.toContain('3-hours');
+      expect(readFileSync(join(tmp, SMOKE), 'utf8')).toContain(`- cron: '17 */${SMOKE_EVERY_HOURS} * * *'`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('withSmokeSchedule is idempotent, and leaves an existing schedule alone, whatever its cron', () => {
