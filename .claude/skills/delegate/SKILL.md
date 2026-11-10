@@ -38,7 +38,7 @@ the same check.
 
 **Ceiling: 3 implementers at once**, matching `MAX_ISSUES_PER_RUN` (SOP 1).
 Each costs 57k–144k tokens (SOP 4), and parallel agents on overlapping files
-only produce `contention`.
+only produce contention warnings (`pr checks`).
 
 ## The brief
 
