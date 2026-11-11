@@ -539,7 +539,8 @@ describe('runCheck', () => {
       const details = text.slice(text.indexOf('## Details to complete'), text.indexOf('## Tech notes'));
       expect(details, issue.title).toMatch(/^1\. /m);
       for (const line of text.split('\n').filter((l) => l.startsWith('- **Then**'))) {
-        expect(line, issue.title).not.toMatch(/\b(not|no longer|stops|never|without)\b/i);
+        // A quoted log line is the repository's own wording, not ours.
+        expect(line.replace(/"[^"]*"/g, ''), issue.title).not.toMatch(/\b(not|no longer|stops|never|without)\b/i);
       }
     }
   });
