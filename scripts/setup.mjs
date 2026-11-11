@@ -324,7 +324,7 @@ export const OWNER_ISSUES = [
           'As the **owner**, I want the `CLAUDE_CODE_OAUTH_TOKEN` secret set on the repository, so that the code and security reviews post real verdicts on every pull request.',
         scenarios: [
           ['the secret is set', 'the token is saved as a repository secret', 'the next pull request is opened', 'both reviews post a verdict on it'],
-          ['the secret is missing', 'the secret is absent', 'a pull request is opened', 'each review comments that the token is missing'],
+          ['the secret is missing', 'the secret is absent', 'a pull request is opened', 'the review job logs the warning "Code review has no credential" and its assertion step fails'],
         ],
         details:
           '1. In a terminal where you are logged in to Claude, generate a token. The command prints it; copy it from the terminal yourself.\n\n' +
@@ -345,12 +345,12 @@ export const OWNER_ISSUES = [
           'As the **owner**, I want a Telegram message when a pull request merges, so that I see merges as they happen. Optional: skip it and merges are silent.',
         scenarios: [
           ['notifications are on', 'both secrets are set', 'a pull request merges', 'a Telegram message about that merge arrives in the chat'],
-          ['notifications are skipped', 'neither secret is set', 'a pull request merges', 'the merge completes and the workflow log says Telegram is unconfigured'],
+          ['notifications are skipped', 'neither secret is set', 'a pull request merges', 'the job\'s log says "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on this repository."'],
         ],
         details:
-          '1. In Telegram, message @BotFather, send `/newbot`, and follow the prompts. It gives you a bot token; copy it yourself.\n' +
-          '2. Send any message to your new bot, then open the chat id lookup for it in a browser at `https://api.telegram.org/bot<token>/getUpdates` (replace `<token>` yourself) and copy `message.chat.id`.\n' +
-          '3. Save the bot token as a secret. The command prompts for the value: paste it yourself. It never goes in the repository, an issue or a chat.\n\n' +
+          '1. Create a bot with Telegram\'s @BotFather and find the chat id your bot sends to, as Telegram\'s bot documentation describes: https://core.telegram.org/bots\n' +
+          '2. The repository needs exactly two values: the bot token and the chat id. The merge workflow (`.github/workflows/telegram-notify.yml`) posts to `https://api.telegram.org/bot<token>/sendMessage` with that `chat_id`.\n' +
+          '3. Save the bot token. The command prompts for the value: paste it yourself. It never goes in the repository, an issue or a chat.\n\n' +
           `\`\`\`bash\ngh secret set TELEGRAM_BOT_TOKEN -R ${repo}\n\`\`\`\n\n` +
           '4. Save the chat id the same way.\n\n' +
           `\`\`\`bash\ngh secret set TELEGRAM_CHAT_ID -R ${repo}\n\`\`\`\n\n` +
@@ -366,15 +366,16 @@ export const OWNER_ISSUES = [
           'As the **owner**, I want Claude Code CI usage sent to Grafana Cloud (`telemetry/README.md`), so that I can see what CI spends. Optional: skip it and CI telemetry goes nowhere; local sessions are unaffected.',
         scenarios: [
           ['telemetry is on', 'both secrets are set', 'a CI job that runs Claude Code finishes', 'its usage appears in Grafana Cloud'],
-          ['telemetry is skipped', 'neither secret is set', 'a CI job finishes', 'the job succeeds and its usage stays local'],
+          ['telemetry is skipped', 'neither secret is set', 'a CI job finishes', 'both workflows run with telemetry off'],
         ],
         details:
-          '1. In Grafana Cloud, open your stack, then Connections, then OpenTelemetry, and copy the OTLP endpoint URL and the instance id. Create an API token there with the metrics write scope; copy it yourself.\n' +
-          '2. Save the endpoint. The command prompts for the value: paste it yourself.\n\n' +
+          '1. In the Grafana Cloud Portal, open your stack, then the **OpenTelemetry** tile, then Configure. Generate a token; it prints the `OTEL_*` variables ready-made.\n' +
+          '2. Install the **Claude Code** integration from Connections.\n' +
+          '3. Save the endpoint (the `OTEL_EXPORTER_OTLP_ENDPOINT` value, ending `/otlp`). The command prompts for the value: paste it yourself.\n\n' +
           `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_ENDPOINT -R ${repo}\n\`\`\`\n\n` +
-          '3. Save the auth header value, in the form `Authorization=Basic <base64 of instance-id:token>`; build it yourself and paste it at the prompt. The token never goes in the repository, an issue or a chat.\n\n' +
+          '4. Save the whole `OTEL_EXPORTER_OTLP_HEADERS` value, `Authorization=Basic <base64>`, at the prompt. The token never goes in the repository, an issue or a chat.\n\n' +
           `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_AUTH -R ${repo}\n\`\`\`\n\n` +
-          '4. Comment on this issue "done" (or "skipped") and close it.',
+          '5. Comment on this issue "done". An agent then checks the next CI run, as `telemetry/README.md` ("Checking it actually arrives") describes. Comment "skipped" instead to leave it off.',
       }),
   },
   {

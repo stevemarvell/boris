@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -541,6 +541,31 @@ describe('runCheck', () => {
       for (const line of text.split('\n').filter((l) => l.startsWith('- **Then**'))) {
         expect(line, issue.title).not.toMatch(/\b(not|no longer|stops|never|without)\b/i);
       }
+    }
+  });
+
+  it('owner issue bodies name exactly the secrets the workflows read, and none of the removed invented phrases', () => {
+    const dir = join(ROOT, '.github/workflows');
+    const used = new Set<string>();
+    for (const f of readdirSync(dir)) {
+      for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/secrets\.([A-Z_]+)/g)) used.add(m[1]!);
+    }
+    const all = OWNER_ISSUES.map((i) => i.body('o/n')).join('\n');
+    for (const name of [...all.matchAll(/gh secret set ([A-Z_]+)/g)].map((m) => m[1]!)) {
+      expect(used.has(name), name).toBe(true);
+    }
+    for (const name of [
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'TELEGRAM_BOT_TOKEN',
+      'TELEGRAM_CHAT_ID',
+      'GRAFANA_CLOUD_OTLP_ENDPOINT',
+      'GRAFANA_CLOUD_OTLP_AUTH',
+    ]) {
+      expect(used.has(name), name).toBe(true);
+      expect(all, name).toContain(`gh secret set ${name} -R o/n`);
+    }
+    for (const bad of ['instance id', 'metrics write scope', 'getUpdates', 'instance-id']) {
+      expect(all).not.toContain(bad);
     }
   });
 
