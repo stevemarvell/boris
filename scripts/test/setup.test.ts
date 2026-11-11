@@ -502,6 +502,48 @@ describe('runCheck', () => {
     expect(existsSync(join(ROOT, 'scripts/setup/story-template.md'))).toBe(false);
   });
 
+  it('story.md has its sections in order and the positive-phrasing instruction', () => {
+    const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
+    const headings = [...raw.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(headings).toEqual([
+      'Persona',
+      'Story',
+      'Acceptance criteria',
+      'Details to complete',
+      'Tech notes',
+      'Testing notes',
+      'References',
+      'Images',
+    ]);
+    const criteria = raw.slice(raw.indexOf('## Acceptance criteria'), raw.indexOf('## Details to complete'));
+    expect(criteria).toContain('what is true afterwards, in positive terms');
+    expect(criteria).toContain('"not", "no longer", "stops", "never" and "without"');
+    const details = raw.slice(raw.indexOf('## Details to complete'), raw.indexOf('## Tech notes'));
+    expect(details).toContain('so nothing has to be looked up or guessed');
+    expect(details).toContain('Write "None" if nothing is needed.');
+  });
+
+  it('every owner issue body follows the template: Details to complete present, numbered, and Then lines free of negatives', () => {
+    for (const issue of OWNER_ISSUES) {
+      const text = issue.body('o/n');
+      const headings = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+      expect(headings, issue.title).toEqual([
+        'Persona',
+        'Story',
+        'Acceptance criteria',
+        'Details to complete',
+        'Tech notes',
+        'Testing notes',
+        'References',
+      ]);
+      const details = text.slice(text.indexOf('## Details to complete'), text.indexOf('## Tech notes'));
+      expect(details, issue.title).toMatch(/^1\. /m);
+      for (const line of text.split('\n').filter((l) => l.startsWith('- **Then**'))) {
+        expect(line, issue.title).not.toMatch(/\b(not|no longer|stops|never|without)\b/i);
+      }
+    }
+  });
+
   it('keeps the whole of `about` when the front matter is read the way YAML reads it (an unquoted " #" starts a comment)', () => {
     const raw = readFileSync(join(ROOT, '.github/ISSUE_TEMPLATE/story.md'), 'utf8');
     const line = raw.split('\n').find((l) => l.startsWith('about:'))!;

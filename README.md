@@ -151,7 +151,8 @@ it. An empty one is accepted, but one with any branch is refused.
 
 4. **File the backlog.** Give every issue a rank label
    (`critical`/`high`/`medium`), a `Depends on #<n>` line where it has one,
-   and acceptance criteria. Triage is only as good as that data.
+   positive acceptance criteria, and details to complete. Triage is only as
+   good as that data.
 
 5. **Ship one small PR end to end** before trusting the loop. Check that both
    reviews post real verdicts rather than errors.
