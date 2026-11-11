@@ -207,6 +207,9 @@ export function parseCheckArgs(argv) {
     } else if (flag === '--repo') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error('usage: --repo needs a value');
+      if (!/^[\w.-]+\/[\w.-]+$/.test(value)) {
+        throw new Error(`usage: --repo must look like owner/name (letters, digits, "_", "." and "-" only), got ${JSON.stringify(value)}`);
+      }
       opts.repo = value;
       i++;
     } else {
@@ -294,9 +297,6 @@ export function branchProtectionDecision({ isPrivate }) {
   };
 }
 
-// The owner issues `check` files, each matched by exact title so a re-run
-// never duplicates one. Every one carries `human` + `do not automate`
-// (docs/sops.md SOP 2) plus its own rank.
 /** An owner issue body in the sections of .github/ISSUE_TEMPLATE/story.md.
  * Every owner issue is `human`, so Details to complete holds the instructions. */
 function ownerBody({ story, scenarios, details }) {
@@ -314,6 +314,9 @@ function ownerBody({ story, scenarios, details }) {
   );
 }
 
+// The owner issues `check` files, each matched by exact title so a re-run
+// never duplicates one. Every one carries `human` + `do not automate`
+// (docs/sops.md SOP 2) plus its own rank.
 export const OWNER_ISSUES = [
   {
     title: 'Add CLAUDE_CODE_OAUTH_TOKEN',
@@ -324,7 +327,7 @@ export const OWNER_ISSUES = [
           'As the **owner**, I want the `CLAUDE_CODE_OAUTH_TOKEN` secret set on the repository, so that the code and security reviews post real verdicts on every pull request.',
         scenarios: [
           ['the secret is set', 'the token is saved as a repository secret', 'the next pull request is opened', 'both reviews post a verdict on it'],
-          ['the secret is missing', 'the secret is absent', 'a pull request is opened', 'the review job logs the warning "Code review has no credential" and its assertion step fails'],
+          ['the secret is missing', 'the secret is absent', 'a pull request that is not Dependabot\'s is opened', 'the review job logs the warning "Code review has no credential" and its assertion step fails'],
         ],
         details:
           '1. In a terminal where you are logged in to Claude, generate a token. The command prints it; copy it from the terminal yourself.\n\n' +
@@ -348,13 +351,12 @@ export const OWNER_ISSUES = [
           ['notifications are skipped', 'neither secret is set', 'a pull request merges', 'the job\'s log says "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on this repository."'],
         ],
         details:
-          '1. Create a bot with Telegram\'s @BotFather and find the chat id your bot sends to, as Telegram\'s bot documentation describes: https://core.telegram.org/bots\n' +
-          '2. The repository needs exactly two values: the bot token and the chat id. The merge workflow (`.github/workflows/telegram-notify.yml`) posts to `https://api.telegram.org/bot<token>/sendMessage` with that `chat_id`.\n' +
-          '3. Save the bot token. The command prompts for the value: paste it yourself. It never goes in the repository, an issue or a chat.\n\n' +
+          "1. These two steps happen in Telegram and are described in Telegram's own documentation, which this repository does not copy: https://core.telegram.org/bots. You need to come back with two values: the bot token and the chat id. The merge workflow (`.github/workflows/telegram-notify.yml`) posts to `https://api.telegram.org/bot<token>/sendMessage` with that `chat_id`.\n" +
+          '2. Save the bot token. The command prompts for the value: paste it yourself. It never goes in the repository, an issue or a chat.\n\n' +
           `\`\`\`bash\ngh secret set TELEGRAM_BOT_TOKEN -R ${repo}\n\`\`\`\n\n` +
-          '4. Save the chat id the same way.\n\n' +
+          '3. Save the chat id the same way.\n\n' +
           `\`\`\`bash\ngh secret set TELEGRAM_CHAT_ID -R ${repo}\n\`\`\`\n\n` +
-          '5. Comment on this issue "done" (or "skipped") and close it.',
+          '4. Comment on this issue "done" (or "skipped") and close it.',
       }),
   },
   {
@@ -375,7 +377,7 @@ export const OWNER_ISSUES = [
           `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_ENDPOINT -R ${repo}\n\`\`\`\n\n` +
           '4. Save the whole `OTEL_EXPORTER_OTLP_HEADERS` value, `Authorization=Basic <base64>`, at the prompt. The token never goes in the repository, an issue or a chat.\n\n' +
           `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_AUTH -R ${repo}\n\`\`\`\n\n` +
-          '5. Comment on this issue "done". An agent then checks the next CI run, as `telemetry/README.md` ("Checking it actually arrives") describes. Comment "skipped" instead to leave it off.',
+          '5. Comment on this issue "done". The next CI run\'s review job log shows telemetry enabled, as `telemetry/README.md` ("Checking it actually arrives") describes. Comment "skipped" instead to leave it off.',
       }),
   },
   {
@@ -387,7 +389,7 @@ export const OWNER_ISSUES = [
           "As the **owner**, I want Dependabot's first pull request reviewed and merged, so that the dependency-update loop is proven to work end to end, not just configured.",
         scenarios: [
           ['the first update merges', "Dependabot's pull request has a green `verify`", 'you merge it', 'the dependency version on `develop` is the bumped one'],
-          ['there is no pull request yet', 'no dependency has an update', 'you list open pull requests by Dependabot', 'the list is empty and this issue waits until one appears'],
+          ['there is no pull request yet', 'there is no open Dependabot pull request', 'you list the open pull requests by Dependabot', 'the list is empty'],
         ],
         details:
           '1. List the open pull requests Dependabot has made.\n\n' +

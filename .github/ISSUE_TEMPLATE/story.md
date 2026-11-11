@@ -33,7 +33,7 @@ _Given/When/Then. One block per scenario — add as many as the story needs, inc
 
 _Everything the assignee needs, so nothing has to be looked up or guessed._
 
-_**For a person's task** (label `human`): numbered steps in the order to do them; where to click or what to run; the exact values (names, URLs, scopes, variable names); each command in its own fenced code block, with no leading `$` and no interleaved output; and what to comment back when done. Where a step needs a secret, say that the person enters it themselves and that it never goes in the repository, an issue or a chat._
+_**For a person's task** (label `human`): numbered steps in the order to do them; where to click or what to run; the exact values (names, URLs, scopes, variable names); each command in its own fenced code block, with no leading `$` and no interleaved output; and what to comment back when done. A step that happens in an external tool may link to that tool's documentation instead of reproducing it, saying what to bring back. Where a step needs a secret, say that the person enters it themselves and that it never goes in the repository, an issue or a chat._
 
 _**For an agent's task**: the inputs, values and decisions already made._
 
