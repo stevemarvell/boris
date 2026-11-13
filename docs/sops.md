@@ -110,10 +110,10 @@ what a push or a merge starts is a spending decision and is written down here.
 - **A deployed app rebuilds only for what it reads.** Its `reads` and
   `ignores`, `scripts/project.mjs` and the provider's ignore script are
   diffed as paths. `project.json` is not watched as a file, because every
-  engine sync bumps `engine.commit` in it: when it differs, only that app's
-  own `apps[<name>]` entry is compared, base against HEAD, and a change to
-  another app's entry or to `engine.commit` skips the build. An unreadable or
-  unparseable manifest builds. The ignore step and the `smoke` freshness gate
+  engine sync bumps `engine.commit` in it: when it differs, base and HEAD are
+  compared with exactly two things removed, the `engine` block and the other
+  apps' entries, and any other difference (this app's entry, the top-level
+  `name`, a new key) builds. An unreadable or unparseable manifest builds. The ignore step and the `smoke` freshness gate
   ask this through one function, `buildInputsChanged` in `scripts/project.mjs`.
 
 Cost, **estimated**, not metered per change. The source is the billed minutes

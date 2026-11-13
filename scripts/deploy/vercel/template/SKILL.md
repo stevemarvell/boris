@@ -29,9 +29,9 @@ Load-bearing and non-obvious settings:
   skipped one) against `HEAD` over the paths this app reads (`project.json`'s
   `reads`/`ignores` for `<app>`), and skips when nothing changed.
   `project.json` itself is not a watched path (an engine sync bumps
-  `engine.commit` in it): when it differs, only this app's own `apps.<app>`
-  entry is compared, base against `HEAD`, and the build runs only if that
-  entry changed or the manifest cannot be read. A branch's
+  `engine.commit` in it): when it differs, base and `HEAD` are compared
+  with only the `engine` block and the other apps' entries removed, and the
+  build runs for any other difference or if the manifest cannot be read. A branch's
   first push has no previous SHA, and Vercel's clone cannot fetch `develop`
   (no credentials), so it compares with the nearest squash-merge ancestor
   instead (`forkPoint`). Exit 0 means *skip*; every failure path exits 1 and

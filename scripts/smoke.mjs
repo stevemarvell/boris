@@ -54,10 +54,22 @@ export function appUrls(project) {
   return Object.fromEntries(deployed(project).map(([name, app]) => [name.toUpperCase().replace(/[^A-Z0-9]/g, '_'), app.deploy.url]));
 }
 
+export function isCommitSha(value) {
+  return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+}
+
+/** The production git runner: stdout matters, buildInputsChanged reads `git show`. */
+export function runGit(args, cwd = ROOT) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return { status: result.status ?? -1, stdout: result.stdout ?? '' };
+}
+
 async function reportedCommit(fetchJson, url) {
   try {
     const body = await fetchJson(url);
-    return typeof body?.commit === 'string' ? body.commit : '';
+    // Reaches `git diff` and `git show` as a revision: anything but a full
+    // lowercase SHA is an unknown deployment, which keeps polling and fails safe.
+    return isCommitSha(body?.commit) ? body.commit : '';
   } catch {
     return ''; // A cold start or a stale route: not an answer yet, go round again.
   }
@@ -141,10 +153,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       if (!response.ok) throw new Error(`${response.status}`);
       return response.json();
     },
-    git: (args) => {
-      const result = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
-      return { status: result.status ?? -1 };
-    },
+    git: runGit,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     run: (script, urls) =>
       spawnSync('bash', [script], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, ...urls } }).status ?? -1,

@@ -80,7 +80,7 @@ describe('decide', () => {
     const log = 'b1\tdev123\tme@example.com\tStart\n' + 'dev123\tpar1\tnoreply@github.com\tAdd a thing (#42)\n';
     const { git, calls } = fakeGit({ log: { status: 0, stdout: log }, diff: { status: 0 } });
     expect(decide('web', {}, git, FIXTURE).build).toBe(false);
-    expect(calls.find((c) => c[0] === 'diff')?.slice(0, 4)).toEqual(['diff', '--quiet', 'dev123', 'HEAD']);
+    expect(calls.find((c) => c[0] === 'diff')?.slice(0, 5)).toEqual(['diff', '--quiet', '--end-of-options', 'dev123', 'HEAD']);
   });
 
   // A fresh project has no previous production deployment, so
@@ -301,6 +301,20 @@ describe('the manifest', () => {
   });
 
   // Timeout: spawns git in a real repository; 30 s.
+  it('builds for a top-level name change, which the web build reads', { timeout: 30_000 }, () => {
+    commitFiles({ 'project.json': edited((p) => { p.name = 'renamed'; }) });
+    expect(both('api')).toBe(true);
+    expect(both('web')).toBe(true);
+  });
+
+  // Timeout: spawns git in a real repository; 30 s.
+  it('builds for an unknown top-level key, which fails closed', { timeout: 30_000 }, () => {
+    commitFiles({ 'project.json': edited((p) => { (p as unknown as Record<string, unknown>).somethingNew = 1; }) });
+    expect(both('api')).toBe(true);
+    expect(both('web')).toBe(true);
+  });
+
+  // Timeout: spawns git in a real repository; 30 s.
   it('builds when the base manifest is unparseable', { timeout: 30_000 }, () => {
     commitFiles({ 'project.json': '{ not json' });
     base = git(['rev-parse', 'HEAD']).stdout.trim();
@@ -333,7 +347,7 @@ describe('the manifest, with git stubbed', () => {
     const git: Git = (args) => {
       if (args[0] === 'diff') return { status: args.includes('project.json') ? diffs.manifest : diffs.paths, stdout: '' };
       if (args[0] === 'show') {
-        const text = shown[args[1]!.split(':')[0]!];
+        const text = shown[args[2]!.split(':')[0]!];
         return text === undefined ? { status: 128, stdout: '' } : { status: 0, stdout: text };
       }
       return { status: 0, stdout: '' };
@@ -359,6 +373,16 @@ describe('the manifest, with git stubbed', () => {
     for (const shown of [{ abc: undefined, HEAD: entry(FIXTURE) }, { abc: 'nope', HEAD: entry(FIXTURE) }, { abc: entry(FIXTURE), HEAD: '[' }]) {
       expect(decide('api', { VERCEL_GIT_PREVIOUS_SHA: 'abc' }, stub({ paths: 0, manifest: 1 }, shown), FIXTURE).build).toBe(true);
     }
+  });
+
+  it('builds when the base is a flag-looking value only as a revision, after --end-of-options', () => {
+    const seen: string[][] = [];
+    const git: Git = (args) => {
+      seen.push(args);
+      return { status: 1, stdout: '' };
+    };
+    decide('api', { VERCEL_GIT_PREVIOUS_SHA: '--output=x' }, git, FIXTURE);
+    for (const call of seen.filter((c) => c[0] === 'diff')) expect(call.indexOf('--end-of-options')).toBeLessThan(call.indexOf('--output=x'));
   });
 
   it('builds when diffing the manifest errors', () => {

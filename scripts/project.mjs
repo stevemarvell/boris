@@ -201,7 +201,7 @@ export function appFor(project, relativePath) {
  * included too — not for an undeployed app, which has no ignore step to be
  * wrong about. `project.json` is deliberately NOT a pathspec: every engine sync
  * bumps `engine.commit` in it, and a plain pathspec would rebuild every app for
- * that. It is compared by `buildInputsChanged` below, entry by entry.
+ * that. It is compared by `buildInputsChanged` below, minus the `engine` block and other apps' entries.
  */
 export function buildPathspecs(project, name) {
   const app = project.apps[name];
@@ -224,12 +224,20 @@ function deepEqual(a, b) {
   return keys.every((key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]));
 }
 
-/** `apps[name]` of project.json as of `rev`, or undefined when it cannot be read or parsed. */
-function manifestEntry(git, rev, name) {
-  const shown = git(['show', `${rev}:project.json`]);
+/**
+ * project.json as of `rev`, reduced to what can change `name`'s build: the
+ * parsed manifest without its `engine` block and `$comment`, and with every
+ * other app's entry dropped. Anything else — the top-level `name`, a key added
+ * later, this app's own entry — stays, so an unknown key fails closed. Returns
+ * undefined when it cannot be read or parsed or `name` is not in it.
+ */
+function relevantManifest(git, rev, name) {
+  const shown = git(['show', '--end-of-options', `${rev}:project.json`]);
   if (shown.status !== 0) return undefined;
   try {
-    return JSON.parse(shown.stdout ?? '')?.apps?.[name];
+    const { engine: _engine, $comment: _comment, apps, ...rest } = JSON.parse(shown.stdout);
+    if (!apps || typeof apps !== 'object' || apps[name] === undefined) return undefined;
+    return { ...rest, apps: { [name]: apps[name] } };
   } catch {
     return undefined;
   }
@@ -239,27 +247,29 @@ function manifestEntry(git, rev, name) {
  * The one question both the Vercel ignore step and the post-merge smoke
  * freshness gate ask: did anything build `name` reads change between `base` and
  * `head`? `git` runs a git command in the repository root and returns
- * `{ status, stdout }`. Answers `'unchanged'`, `'changed'` or `'failed'` (git
- * itself errored); callers build on anything but `'unchanged'`.
+ * `{ status, stdout }`; `stdout` is required, since the manifest comparison
+ * reads `git show`. Answers `'unchanged'`, `'changed'` or `'failed'` (git
+ * itself errored); callers build on anything but `'unchanged'`. `base` and
+ * `head` follow `--end-of-options`, so a value that looks like a flag is a
+ * revision, never an option.
  *
  * Two parts. The app's pathspecs (`buildPathspecs`) are diffed as they are.
- * `project.json` is diffed only when it differs at all, and then only the
- * parsed `apps[name]` entry at `base` against `head` is compared: another app's
- * entry, the engine commit and every other top-level key cannot change this
- * app's decision. If either entry cannot be read or parsed, or is missing, the
- * manifest counts as changed — fail open.
+ * `project.json` is diffed only when it differs at all, and then the manifest
+ * is compared with exactly two things removed: the `engine` block (every sync
+ * bumps its commit) and the other apps' entries. Every other difference
+ * builds. If either side cannot be read or parsed, it builds — fail open.
  */
 export function buildInputsChanged({ git, project, name, base, head }) {
   const pathspecs = buildPathspecs(project, name);
   if (!pathspecs) return 'changed';
-  const paths = git(['diff', '--quiet', base, head, '--', ...pathspecs]);
+  const paths = git(['diff', '--quiet', '--end-of-options', base, head, '--', ...pathspecs]);
   if (paths.status === 1) return 'changed';
   if (paths.status !== 0) return 'failed';
-  const manifest = git(['diff', '--quiet', base, head, '--', 'project.json']);
+  const manifest = git(['diff', '--quiet', '--end-of-options', base, head, '--', 'project.json']);
   if (manifest.status === 0) return 'unchanged';
   if (manifest.status !== 1) return 'failed';
-  const before = manifestEntry(git, base, name);
-  const after = manifestEntry(git, head, name);
+  const before = relevantManifest(git, base, name);
+  const after = relevantManifest(git, head, name);
   if (before === undefined || after === undefined) return 'changed';
   return deepEqual(before, after) ? 'unchanged' : 'changed';
 }

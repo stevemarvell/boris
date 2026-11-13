@@ -37,9 +37,10 @@ const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)
 // decision. See scripts/project.mjs's buildPathspecs. project.json itself is
 // NOT watched as a file: every engine sync bumps `engine.commit` in it, which
 // would rebuild every app for a commit that changed nothing it ships. When it
-// differs, only the app's own `apps[<name>]` entry (reads, ignores, deploy,
-// anything under that key) is compared, base against HEAD; equal means
-// irrelevant, and anything unreadable or unparseable builds. See
+// differs, base and HEAD are compared with exactly the `engine` block and the
+// OTHER apps' entries removed; anything else that differs (this app's entry,
+// the top-level `name`, an unknown key) builds, and so does anything
+// unreadable or unparseable. See
 // buildInputsChanged. The list is what a build
 // reads, not what it does not, so a path no app declares rebuilds nothing;
 // smoke.yml's two freshness gates are what catch a read left undeclared.
