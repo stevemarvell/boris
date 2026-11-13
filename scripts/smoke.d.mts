@@ -1,7 +1,7 @@
 import type { Project } from './project.mjs';
 
 export type FetchJson = (url: string) => Promise<unknown>;
-export type Git = (args: string[]) => { status: number };
+export type Git = (args: string[]) => { status: number; stdout?: string };
 export interface Result {
   ok: boolean;
   reason: string;
