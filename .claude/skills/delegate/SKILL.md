@@ -70,7 +70,9 @@ its checkout, ports and branch are its own — see the `worktrees` skill.
 The report is a claim, not evidence. Its pull request is the work:
 
 1. Read the diff. Check that it stayed inside its files and did what the brief
-   asked — not only that `verify` is green. Where it changed something a person
+   asked — not only that `verify` is green. Read its
+   "Decisions made" list: open questions it decided and recorded with the
+   reason (SOP 6) rather than stopped for. Where it changed something a person
    would see, look at it on the preview (SOP 3, SOP 9).
 2. Run `drive-pr <n>`. That polls checks, sends review findings back to an
    implementer, merges, and confirms smoke.
