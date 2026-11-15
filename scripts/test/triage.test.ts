@@ -311,6 +311,24 @@ describe('trusted: only text written by the owner or someone with write access',
     expect(JSON.stringify(triage([issue(1, ['high'], '', 'stranger', 'NONE')], []))).not.toContain('issue 1');
   });
 
+  const strangerLabelled = (label: string) => {
+    const plan = triage([issue(1, [label], '', 'stranger', 'NONE')], []);
+    expect(render(plan)).toContain('#1 opened by stranger (NONE); copy it into an owner issue to work it\n');
+    expect(render(plan)).not.toContain('issue 1');
+    expect(JSON.stringify(plan)).not.toContain('issue 1');
+    expect(plan.skip[0]).toMatchObject({ number: 1, author: 'stranger', association: 'NONE' });
+  };
+
+  it("lists a stranger's issue labelled human without its title", () => strangerLabelled('human'));
+
+  it("lists a stranger's issue labelled template without its title", () => strangerLabelled('template'));
+
+  it("still skips an owner's issue labelled human with its title and reason", () => {
+    const plan = triage([issue(1, ['human'])], []);
+    expect(plan.skip[0]).toMatchObject({ number: 1, title: 'issue 1', reason: 'needs a person (human)' });
+    expect(render(plan)).toContain('issue 1');
+  });
+
   it('holds an issue with no association recorded', () => {
     expect(trusted({ number: 1, title: 't', labels: ['high'], user: { login: OWNER } }, () => 'admin')).toBe(false);
     expect(triage([{ number: 1, title: 't', labels: [] }], []).skip[0]).toMatchObject({ author: 'unknown', association: 'unknown' });
