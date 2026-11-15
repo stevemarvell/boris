@@ -119,7 +119,7 @@ what a push or a merge starts is a spending decision and is written down here.
   engine sync bumps `engine.commit` in it: when it differs, base and HEAD are
   compared with exactly two things removed, the `engine` block and the other
   apps' entries, and any other difference (this app's entry, the top-level
-  `name`, a new key) builds. An unreadable or unparseable manifest builds. The ignore step and the `smoke` freshness gate
+  `name`, a new key) builds. An unreadable or unparseable manifest builds. Dropping the other apps' entries assumes no build reads another app's entry (a CORS list or API base URL built from its `deploy.url`); `scripts/test/apps-read-manifest.test.ts` fails if an app reads anything from `project.json` but `name`. The ignore step and the `smoke` freshness gate
   ask this through one function, `buildInputsChanged` in `scripts/project.mjs`.
 
 Cost, **estimated**, not metered per change. The source is the billed minutes
