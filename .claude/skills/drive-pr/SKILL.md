@@ -105,12 +105,17 @@ finding about the code. Tell the two apart by whether any runner was assigned.
 A refused job has `conclusion: failure`, `runner_id: 0`, an empty
 `runner_name` and no steps; a job that ran had a runner, however fast it
 failed (so a pull request cannot fake this by failing its own `verify` early).
-A check run's id is its job id: read each failed check's job and pass the
-array to the helper.
+A check run's id is its job id: read each failed GitHub Actions check's job
+and pass the array to the helper. Only Actions check runs count; a Vercel or
+other app's check has no Actions job. If no Actions check run failed, this path
+does not apply.
 
 ```bash
-# <ids> are the failed check runs' ids; collect the jobs into one JSON array.
-{ echo '['; sep=; for id in <ids>; do echo "$sep"; gh api "repos/{owner}/{repo}/actions/jobs/$id"; sep=,; done; echo ']'; } \
+# <ids>: the failed Actions check runs' ids.
+ids=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs?per_page=100" --jq \
+  '.check_runs[] | select(.app.slug=="github-actions" and .conclusion!="success" and .conclusion!="skipped" and .conclusion!="neutral") | .id')
+# Collect their jobs into one JSON array.
+{ echo '['; sep=; for id in $ids; do echo "$sep"; gh api "repos/{owner}/{repo}/actions/jobs/$id"; sep=,; done; echo ']'; } \
   | node scripts/ci-health.mjs      # prints true or false; exit 2 on unreadable input
 ```
 
@@ -121,15 +126,18 @@ it false, and the red check is an ordinary red check (step 2 onward, as before).
 Duration is not used, and logs are not fetched.
 
 When it is true, classify it as **CI did not run**. A pull request that touches
-`.github/workflows/` is never eligible for the local path below: it waits for
-CI. Otherwise:
+`.github/workflows/`, or is authored by `dependabot[bot]`, is never eligible for
+the local path below: it waits for CI. The path is only for the owner's own
+agents' pull requests, because the branch's code runs as the coordinator's user
+and can read files outside the empty `HOME` below
+(`docs/data-governance.md`, "What CI holds"). Otherwise:
 
 1. **Verify locally.** In a clean worktree on the pull request's head, run
    `npm run verify`, with `TEST_DATABASE_URL` set when
    `node scripts/project.mjs toolchains` prints `postgres=true`. The run
-   executes the branch's code, so give it no credentials: run it as
-   `env -u GH_TOKEN -u GITHUB_TOKEN -u VERCEL_TOKEN ...`, also unsetting every
-   other `*_TOKEN` and `*_SECRET` variable in the environment, for that command.
+   executes the branch's code, so give it an allowlisted environment, not the
+   coordinator's: `env -i PATH="$PATH" HOME="$(mktemp -d)" npm run verify`
+   (plus `TEST_DATABASE_URL=...` when needed).
    Start the `postgres` service the machine has, or the image pinned in
    `.github/workflows/verify.yml`. If neither is available, say so in the
    comment below and **merge is refused**.
@@ -147,7 +155,6 @@ CI. Otherwise:
    condition "verify is green" is met by that local run, and only under this
    rule. Just before merging, re-read the pull request's head sha and merge
    only if it equals the sha in the comment; a push since means verify again.
-
 
 ### 2. Read both automated reviews
 

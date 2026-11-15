@@ -1,17 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ciDidNotRun } from '../ci-health.mjs';
 
-// Fields of job 132561360422 (a refused verify, 2026-11-14), from the jobs endpoint.
-const refused = {
-  status: 'completed',
-  conclusion: 'failure',
-  runner_id: 0,
-  runner_name: '',
-  runner_group_id: 0,
-  steps: [],
-};
+// Job 132561360422 (a refused verify, 2026-11-14), exactly as the jobs
+// endpoint returned it.
+const refused = JSON.parse(
+  readFileSync(resolve(__dirname, 'fixtures/refused-job-2026-11-14.json'), 'utf8'),
+);
 // A real failure, fast, that had a runner.
 const realFast = { ...refused, runner_id: 7, runner_name: 'GitHub Actions 7', steps: [{ name: 'verify' }] };
 const success = { ...realFast, conclusion: 'success' };
