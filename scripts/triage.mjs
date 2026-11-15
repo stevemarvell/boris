@@ -121,6 +121,15 @@ function sections(body) {
   return out;
 }
 
+/** A real `**Then**` line: not a `_` line, and not the template's bracketed placeholder or `...`. */
+function hasThen(line) {
+  if (line.startsWith('_')) return false;
+  const match = /\*\*Then\*\*(.*)$/.exec(line);
+  if (!match) return false;
+  const text = match[1].trim();
+  return text !== '' && text !== '...' && !/^\[[^\]]*\]$/.test(text);
+}
+
 /**
  * Whether an issue can be briefed as it stands: null if so, else the reason it
  * cannot. Reads structure only, never acts on the text. The sections are those
@@ -130,7 +139,7 @@ function sections(body) {
  */
 export function readiness(issue) {
   const found = sections(issue.body);
-  const criteria = (found.get('Acceptance criteria') ?? []).filter((l) => /\*\*Then\*\*/.test(l) && !l.startsWith('_'));
+  const criteria = (found.get('Acceptance criteria') ?? []).filter((l) => hasThen(l));
   if (criteria.length === 0) return 'no acceptance criteria';
   const details = (found.get('Details to complete') ?? []).map((l) => l.trim()).filter((l) => l && !l.startsWith('_') && !/^1\.$/.test(l));
   if (details.length === 0) return 'no details to complete';

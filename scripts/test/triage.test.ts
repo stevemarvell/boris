@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   FETCH_LIMIT,
@@ -412,6 +413,22 @@ describe('readiness', () => {
 
   it('matches headings exactly', () => {
     expect(ready(`### Acceptance criteria\n${THEN}\n## Details to complete\nNone`)).toBe('no acceptance criteria');
+  });
+});
+
+describe('readiness against the real template', () => {
+  const template = readFileSync(new URL('../../.github/ISSUE_TEMPLATE/story.md', import.meta.url), 'utf8');
+  const details = (text: string) => template.replace(/## Details to complete[\s\S]*?\n1\. \n/, `## Details to complete\n\n${text}\n`);
+
+  it('judges the untouched acceptance block of the template not ready, even with real details', () => {
+    const filled = details('Use X.');
+    expect(filled).toContain('Use X.');
+    expect(readiness({ number: 1, title: 't', labels: [], body: filled })).toBe('no acceptance criteria');
+  });
+
+  it('judges the template with real Then text ready', () => {
+    const filled = details('None').replace('- **Then** [expected outcome]', '- **Then** the API answers 401');
+    expect(readiness({ number: 1, title: 't', labels: [], body: filled })).toBeNull();
   });
 });
 
