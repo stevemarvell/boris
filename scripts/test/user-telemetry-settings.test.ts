@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,12 +133,63 @@ describe('user-telemetry-settings', () => {
   });
 });
 
+describe('user-telemetry-settings hardening', () => {
+  it('exits 0 with a notice and writes nothing when the repository has no telemetry keys', { timeout: 30_000 }, () => {
+    writeRepo(JSON.stringify({ env: { FOO: 'bar' } }));
+    const result = run(['--repo', repo, '--user-settings', user]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toMatch(/no telemetry keys/);
+    expect(() => readFileSync(user)).toThrow();
+  });
+
+  it('does not copy the content-bearing OTEL_LOG_* switches', { timeout: 30_000 }, () => {
+    writeRepo(
+      JSON.stringify({
+        env: {
+          CLAUDE_CODE_ENABLE_TELEMETRY: '1',
+          OTEL_LOG_USER_PROMPTS: '1',
+          OTEL_LOG_TOOL_DETAILS: '1',
+          OTEL_LOG_TOOL_CONTENT: '1',
+        },
+      }),
+    );
+    expect(run(['--repo', repo, '--user-settings', user]).status).toBe(0);
+    expect(readUser()).toEqual({ env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' } });
+  });
+
+  it('refuses an endpoint carrying userinfo and writes nothing', { timeout: 30_000 }, () => {
+    writeRepo(JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://id:token@host/otlp' } }));
+    const result = run(['--repo', repo, '--user-settings', user]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/must not contain "@"/);
+    expect(() => readFileSync(user)).toThrow();
+  });
+
+  it('keeps a 0600 user file at 0600 and leaves no temp file', { timeout: 30_000 }, () => {
+    writeRepo(JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' } }));
+    mkdirSync(dirname(user), { recursive: true });
+    writeFileSync(user, '{}');
+    chmodSync(user, 0o600);
+    expect(run(['--repo', repo, '--user-settings', user]).status).toBe(0);
+    expect(statSync(user).mode & 0o777).toBe(0o600);
+    expect(readdirSync(dirname(user))).toEqual(['settings.json']);
+  });
+
+  it('creates a new user file no wider than 0600', { timeout: 30_000 }, () => {
+    writeRepo(JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' } }));
+    expect(run(['--repo', repo, '--user-settings', user]).status).toBe(0);
+    expect(statSync(user).mode & 0o777).toBe(0o600);
+  });
+});
+
 describe('isTelemetryKey', () => {
   it('admits the enable flag and OTEL_* but not headers or anything else', () => {
     expect(isTelemetryKey('CLAUDE_CODE_ENABLE_TELEMETRY')).toBe(true);
     expect(isTelemetryKey('OTEL_METRICS_EXPORTER')).toBe(true);
     expect(isTelemetryKey('OTEL_EXPORTER_OTLP_HEADERS')).toBe(false);
     expect(isTelemetryKey('OTEL_EXPORTER_OTLP_LOGS_HEADERS')).toBe(false);
+    expect(isTelemetryKey('OTEL_LOG_USER_PROMPTS')).toBe(false);
+    expect(isTelemetryKey('OTEL_LOG_TOOL_DETAILS')).toBe(false);
     expect(isTelemetryKey('PATH')).toBe(false);
   });
 });

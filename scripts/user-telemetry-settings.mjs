@@ -7,21 +7,40 @@
 // environment's setup script runs this once, as root, after the repositories
 // are cloned and before Claude starts (telemetry/README.md).
 //
-// Only `CLAUDE_CODE_ENABLE_TELEMETRY` and `OTEL_*` keys are copied, and never
-// `*_HEADERS`: the committed settings hold the endpoint and protocol only, and
+// Only the explicit TELEMETRY_KEYS are copied, never a headers key: the committed settings hold the endpoint and protocol only, and
 // the credential is the cloud environment's network secret. Every other key
 // already in the user file is kept. The file is replaced by a rename, so a
 // failure part-way leaves the old one; invalid JSON in either file stops the
 // script before anything is written.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** The keys that may travel: telemetry switches, never a header (a credential). */
+/**
+ * The keys that may travel: exactly the telemetry keys `.claude/settings.json`
+ * commits, and nothing else. An explicit list, not an `OTEL_*` prefix: the
+ * prefix would also carry OTEL_LOG_USER_PROMPTS, OTEL_LOG_TOOL_DETAILS and
+ * OTEL_LOG_TOOL_CONTENT, which turn events into prompts and file contents and
+ * must stay absent. No headers key is on it (a credential).
+ */
+export const TELEMETRY_KEYS = [
+  'CLAUDE_CODE_ENABLE_TELEMETRY',
+  'OTEL_EXPORTER_OTLP_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_PROTOCOL',
+  'OTEL_METRICS_EXPORTER',
+  'OTEL_LOGS_EXPORTER',
+  'OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE',
+  'OTEL_METRIC_EXPORT_INTERVAL',
+  'OTEL_LOGS_EXPORT_INTERVAL',
+  'OTEL_METRICS_INCLUDE_SESSION_ID',
+  'OTEL_METRICS_INCLUDE_VERSION',
+  'OTEL_METRICS_INCLUDE_ACCOUNT_UUID',
+];
+
 export function isTelemetryKey(key) {
-  if (/(^|_)HEADERS$/.test(key)) return false;
-  return key === 'CLAUDE_CODE_ENABLE_TELEMETRY' || key.startsWith('OTEL_');
+  return TELEMETRY_KEYS.includes(key);
 }
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -58,8 +77,10 @@ export function repoTelemetryEnv(repoDir) {
     }
     picked[key] = value;
   }
-  if (Object.keys(picked).length === 0) {
-    throw new Error(`Repository settings ${path} has no telemetry keys in "env"`);
+  const endpoint = picked.OTEL_EXPORTER_OTLP_ENDPOINT;
+  if (endpoint !== undefined && endpoint.includes('@')) {
+    // userinfo in the URL would be a credential in a committed file
+    throw new Error(`Repository settings ${path}: OTEL_EXPORTER_OTLP_ENDPOINT must not contain "@"`);
   }
   return picked;
 }
@@ -70,14 +91,21 @@ export function defaultUserSettingsPath(env = process.env) {
 
 export function writeUserTelemetrySettings(repoDir, userPath = defaultUserSettingsPath()) {
   const telemetry = repoTelemetryEnv(repoDir);
+  if (Object.keys(telemetry).length === 0) return { path: userPath, keys: [] };
   const existing = readJsonObject(userPath, 'User settings') ?? {};
   if (existing.env !== undefined && !isObject(existing.env)) {
     throw new Error(`User settings ${userPath} has an "env" that is not an object`);
   }
   const merged = { ...existing, env: { ...(existing.env ?? {}), ...telemetry } };
   mkdirSync(dirname(userPath), { recursive: true });
-  const temp = `${userPath}.${process.pid}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(merged, null, 2)}\n`);
+  const temp = `${userPath}.${randomBytes(8).toString('hex')}.tmp`;
+  // 'wx' refuses an existing path or a planted link; 0600 until the real mode is known.
+  writeFileSync(temp, `${JSON.stringify(merged, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  try {
+    chmodSync(temp, statSync(userPath).mode & 0o777);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   renameSync(temp, userPath);
   return { path: userPath, keys: Object.keys(telemetry) };
 }
@@ -104,7 +132,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { repo, user } = parseArgs(process.argv.slice(2));
     const { path, keys } = writeUserTelemetrySettings(resolve(repo), user ? resolve(user) : undefined);
-    console.log(`Wrote ${keys.length} telemetry settings to ${path}.`);
+    if (keys.length === 0) {
+      console.error(`user-telemetry-settings: no telemetry keys in ${resolve(repo)}/.claude/settings.json; nothing written.`);
+    } else {
+      console.log(`Wrote ${keys.length} telemetry settings to ${path}.`);
+    }
   } catch (error) {
     console.error(`user-telemetry-settings: ${error.message}`);
     process.exit(1);
