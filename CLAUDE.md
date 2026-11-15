@@ -161,6 +161,7 @@ deployment to be this commit, then runs that app's own checks
 ready, and again only when the `re-review` label is added; it does not re-run
 on a push, and it is advisory. When the driver adds `re-review` is defined in
 `drive-pr` step 4.
+Merging on a local `verify` is allowed only when CI did not run (`drive-pr` step 1).
 
 ## Agents and skills
 

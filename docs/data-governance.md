@@ -274,6 +274,16 @@ is the owner. Once a second person can open or edit issues, it is the only
 thing keeping their text from steering a loop that deploys. Confirm it still
 holds before access is granted.
 
+One more path runs branch code outside CI. When Actions refuses every job
+(`drive-pr`, "When CI does not run"), the coordinator runs `npm run verify` on
+the pull request's head on its own machine, in an empty `HOME` with a minimal
+environment, and may merge on that result. The code runs as the coordinator's
+user and can still read files outside that `HOME`, so the path is only for the
+owner's own agents' pull requests: it excludes any that touch
+`.github/workflows/` and any by `dependabot[bot]`. It is bounded by one writer
+and own-agent pull requests only. A second writer, or a third-party pull
+request taking this path, voids it: close the path before either happens.
+
 ## What going private did, and did not do
 
 The repository is private. That makes the source, the issue tracker and the
