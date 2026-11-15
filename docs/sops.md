@@ -322,8 +322,8 @@ posture, what bounds it, and the trigger that voids the decision.
 - An exposed schema ranks where it does because it describes invented data.
   The trigger is the same one above.
 - `docs/data-governance.md` is defensible while it matches what the deployed
-  apps serve, which that document states. The trigger is what is served
-  changing without it.
+  apps serve, which that document states. The trigger is real data landing
+  in an app (what is served changing) without that document being updated.
 
 A `medium` with no stated bound is a guess wearing a label. The bound is the
 argument; the label is only its conclusion.
