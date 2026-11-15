@@ -96,6 +96,47 @@ done
 not start fixing findings against checks that never finished. Go straight to
 step 5.
 
+#### When CI does not run
+
+If the account's Actions allowance is spent, GitHub refuses every job before a
+runner starts (this happened 2026-11-11 to 2026-11-15: `verify` failed in 3 to
+10 seconds, and #321 merged against it in silence). A red check is then not a
+finding about the code. Tell the two apart from the check runs alone:
+
+```bash
+gh api "repos/{owner}/{repo}/commits/$sha/check-runs?per_page=100" --jq .check_runs \
+  | node scripts/ci-health.mjs      # prints true or false
+```
+
+`ciDidNotRun` (`scripts/ci-health.mjs`) is true when there is at least one check
+run, every one is `completed` with conclusion `failure`, and each has
+`completed_at - started_at` under 30 seconds. That is sufficient: do not
+fetch job logs (`actions/jobs/<id>/logs`) to confirm; a real failure runs the
+toolchain and takes longer. One success, one slow failure or one unfinished run
+makes it false, and the red check is an ordinary red check (step 2 onward, as
+before).
+
+When it is true, classify it as **CI did not run** and:
+
+1. **Verify locally.** In a clean worktree on the pull request's head, run
+   `npm run verify`, with `TEST_DATABASE_URL` set when
+   `node scripts/project.mjs toolchains` prints `postgres=true`. Start the
+   `postgres` service the machine has, or the image pinned in
+   `.github/workflows/verify.yml`. If neither is available, say so in the
+   comment below and **merge is refused**.
+2. **Record it on the pull request.** Comment, headed
+   `CI did not run: verified locally at <sha>`, with the last 20 lines of that
+   run (`add_issue_comment`; body from a quoted heredoc, as in step 3).
+3. **Open one issue for the outage**, unless an open issue titled
+   `CI is not running` exists: labelled `critical`, `human` and
+   `do not automate`, assigned to the owner, in the story template's sections,
+   stating the first failing run's URL and asking the owner to read the Actions
+   usage page.
+4. **Red local `verify`**: the pull request stays open and the findings go to
+   an implementer under step 3's two-round ceiling. **Green**: step 4's merge
+   condition "verify is green" is met by that local run, at that sha, and only
+   under this rule.
+
 ### 2. Read both automated reviews
 
 `claude-code-review.yml` posts two kinds of comment, both authored by
