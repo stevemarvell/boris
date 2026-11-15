@@ -2,6 +2,8 @@
 // Prepare a fresh worktree: install every app's toolchain and report the ports this
 // checkout will use. node_modules and .venv are per-worktree, not shared.
 import { execSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { missingPackages } from './lsp.mjs';
 import { apps, hasE2e, loadProject } from './project.mjs';
@@ -21,6 +23,18 @@ export function installCommands(project) {
   return commands;
 }
 
+// `uv sync` rewrites nothing in .venv when the packages already match, so
+// neither the directory's nor pyvenv.cfg's mtime says when the last install
+// ran (measured, #361). A stamp written after a successful install does.
+export const STAMP = '.bootstrap-stamp';
+
+/** Write each Python app's stamp, now; call only after the installs succeeded. */
+export function writeStamps(root, project) {
+  for (const [, app] of apps(project, 'python')) {
+    writeFileSync(join(root, app.path, '.venv', STAMP), `${new Date().toISOString()}\n`);
+  }
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const run = (command) => {
     process.stdout.write(`$ ${command}\n`);
@@ -28,6 +42,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   };
 
   for (const command of installCommands(loadProject())) run(command);
+
+  writeStamps(process.cwd(), loadProject());
 
   // Language servers for the LSP plugins in .claude/settings.json -- global,
   // because the plugins only look on PATH. See scripts/lsp.mjs.
