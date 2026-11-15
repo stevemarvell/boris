@@ -15,11 +15,12 @@ Ship the current working-tree changes:
    GitHub MCP tool). The fallback is `gh api -X POST
    repos/{owner}/{repo}/pulls -f title=… -F body=@<file> -f head=<branch> -f
    base=develop`. Not `gh pr create`: it is GraphQL, which Claude Code cloud
-   sessions refuse (#225).
+   sessions refuse (#225). The body carries a "Decisions made" list: anything
+   decided rather than stopped for, with the reason (`docs/sops.md` SOP 6).
 5. Report the PR URL. Merge once CI is green (`merge_pull_request`, or `gh
    api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=squash`);
    stop only for work nobody can get back, money, or anything reaching a
-   third party (`docs/sops.md` SOP 6); decide everything else and say what was
-   decided in the pull request body.
+   third party (`docs/sops.md` SOP 6); decide everything else and add any further
+   decision to that list.
 
 $ARGUMENTS
