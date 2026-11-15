@@ -484,7 +484,7 @@ describe('runCheck', () => {
           return { status: 0, stdout: JSON.stringify([]), stderr: '' };
         }
         if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
-        return run(baseResponses)(cmd, args);
+        return run(tokenMissing)(cmd, args);
       },
       skipVerify: true,
       runIdentityTest: identityOk,
@@ -643,7 +643,7 @@ describe('runCheck', () => {
             return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
           }
           if (cmd === 'gh' && args[1] === 'user') return { status: 1, stdout: '', stderr: 'HTTP 403' };
-          return run(baseResponses)(cmd, args);
+          return run(tokenMissing)(cmd, args);
         },
         skipVerify: true,
         runIdentityTest: identityOk,
