@@ -1,9 +1,30 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 
+// Lines that may still say "private repository": the history of when it was.
+const HISTORY_ALLOWED: string[] = [];
+
 describe('visibility statements', () => {
+  it('no doc calls the repository a private repository, history aside', () => {
+    const files = [
+      'README.md',
+      'CLAUDE.md',
+      ...readdirSync(new URL('../../docs', import.meta.url))
+        .filter((f) => f.endsWith('.md'))
+        .map((f) => `docs/${f}`),
+    ];
+    const hits = files.flatMap((file) =>
+      read(file)
+        .split('\n')
+        .map((line, i) => ({ at: `${file}:${i + 1}`, line }))
+        .filter(({ line }) => /\bprivate (repository|repo)\b/i.test(line))
+        .filter(({ line }) => !HISTORY_ALLOWED.some((ok) => line.includes(ok))),
+    );
+    expect(hits).toEqual([]);
+  });
+
   it('data-governance does not call the repository private', () => {
     expect(read('docs/data-governance.md')).not.toContain('The repository is private');
   });

@@ -92,7 +92,7 @@ what a push or a merge starts is a spending decision and is written down here.
   just passed. The price: **nothing mechanical verifies a direct push to
   `develop`**, so "never commit or push directly to `develop`" is discipline
   alone, with no check behind it either way. It was already unenforced on a
-  free-plan private repository (no rulesets), but a bad direct push used to
+  free-plan repository (public since 2026-11-15; rulesets are tracked in #340), but a bad direct push used to
   turn the next `verify` red and now does not. A person who suspects one runs
   `verify` by hand from the Actions tab against `develop`.
 - **`pr checks`** (`pr-checks.yml`) is the census and contention in one job,

@@ -293,13 +293,31 @@ private-repository Actions minutes are billed ([company-os#48](https://github.co
 Public means a stranger can read the source, the issues, the pull requests and
 the Actions logs ([visibility](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility);
 unverified: the page was not reachable from the session that wrote this). It
-also means a stranger can comment `@claude` on an issue or pull request. The
-`author_association` guard in `.github/workflows/claude.yml` is the control
-between that comment and a job holding `CLAUDE_CODE_OAUTH_TOKEN` and the
-Grafana credentials. Nothing else stands there.
+also means a stranger can comment `@claude` on an issue or pull request. On
+that path three things stand between the comment and a job holding
+`CLAUDE_CODE_OAUTH_TOKEN` and the Grafana credentials: the `author_association`
+guard in `.github/workflows/claude.yml` (only `OWNER`, `MEMBER` or
+`COLLABORATOR`), the job's read-only `permissions`, and `claude-code-action`'s
+own actor check. `claude-code-review.yml` holds the same credentials on a
+different path, `pull_request`, which the guard does not cover. It is bounded
+by GitHub itself: a `pull_request` run from a fork gets no secrets (unverified:
+[GitHub's description of secrets in workflows](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)),
+and a branch in this repository needs write access; a Dependabot run gets
+Dependabot's secrets, not these. Its sandbox and `--allowedTools` narrow what
+the session reads (SOP 10).
 
-Telemetry shipped to Grafana is not readable through GitHub; what the
-workflow logs print is, so a log line is public the moment it is written.
+What voids that bound: a `COLLABORATOR` with read-only access can pass the
+guard, since the association says only that the person was invited. Keep
+collaborators to people trusted with the credential, or tighten the guard.
+
+The Grafana credential is never printed by this repository's own code:
+`scripts/write-ci-telemetry-settings.mjs` writes it, base64 header included,
+only to a JSON file under `runner.temp` and prints just that file's path, and
+no workflow `cat`s the file or echoes the secret. Secret masking in the logs
+covers the exact secret value only, so this absence of any print is the
+control, not the mask. Telemetry in Grafana is not readable through GitHub
+(unverified); what a workflow prints is readable by anyone, so a log line is
+public the moment it is written.
 
 Two side effects look like breakage and are not:
 
