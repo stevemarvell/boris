@@ -350,6 +350,10 @@ arrive at it.
 Asking is not the cautious choice. It reads as deference, so it never draws the
 scrutiny a risky action draws, and that is what makes it expensive.
 
+No turn ends with a question or an offer of further work. What is on this side
+of the line is done and reported; what is on the other side becomes a human
+issue (SOP 2), and that thread stops there.
+
 ### The test is recoverability, not scope
 
 What still stops and asks is narrow, and it is not "is this big" or "was this
