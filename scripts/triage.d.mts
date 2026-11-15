@@ -18,6 +18,7 @@ export interface Planned {
 export interface Plan {
   work: Planned[];
   deferred: Planned[];
+  notReady: { number: number; title: string; reason: string }[];
   skip: { number: number; title: string; reason: string; author?: string; association?: string }[];
 }
 export declare const MAX_ISSUES_PER_RUN: number;
@@ -33,6 +34,7 @@ export declare function claimedIssues(pullRequests: PullRequest[]): Map<number, 
 export declare function openDependencies(issue: Issue, openNumbers: Set<number>): number[];
 export declare function trusted(issue: Issue, permissionOf?: (login: string) => string): boolean;
 export declare function permissionLookup(run?: (args: string[]) => string): (login: string) => string;
+export declare function readiness(issue: Issue): string | null;
 export declare function triage(
   issues: Issue[],
   pullRequests: PullRequest[],
