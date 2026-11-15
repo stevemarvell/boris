@@ -7,7 +7,6 @@ import {
   PAGE_SIZE,
   claimedIssues,
   fetchOpen,
-  fetchOwner,
   openDependencies,
   render,
   triage,
@@ -15,17 +14,18 @@ import {
 } from '../triage.mjs';
 
 const OWNER = 'owner';
-const issue = (number: number, labels: string[], body = '', login = OWNER) => ({
+const issue = (number: number, labels: string[], body = '', login = OWNER, association = 'OWNER') => ({
   number,
   title: `issue ${number}`,
   labels,
   body,
   user: { login },
+  authorAssociation: association,
 });
 
 // Every older case below is the owner's own issues.
 const plan = (issues: Issue[], prs: { number: number; body?: string }[], max?: number) =>
-  triage(issues, prs, max, OWNER);
+  triage(issues, prs, max);
 
 describe('triage', () => {
   it('orders by rank, security first within a rank, then oldest first', () => {
@@ -160,6 +160,7 @@ describe('fetchOpen', () => {
     body: `body ${number}`,
     labels: [{ name: 'high' }],
     user: { login: 'someone' },
+    author_association: 'OWNER',
     ...extra,
   });
 
@@ -173,7 +174,7 @@ describe('fetchOpen', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe('api');
     expect(calls[0]![1]).toMatch(/^repos\/\{owner\}\/\{repo\}\/issues\?state=open&per_page=100&page=1$/);
-    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', user: { login: 'someone' }, labels: ['high'] }]);
+    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', user: { login: 'someone' }, authorAssociation: 'OWNER', labels: ['high'] }]);
     expect(pullRequests).toEqual([{ number: 2, body: 'Closes #1' }]);
     expect(truncated).toBe(false);
   });
@@ -237,86 +238,56 @@ describe('fetchOpen', () => {
   });
 });
 
-describe('trusted: only issues the owner wrote or ranked', () => {
-  it("picks the owner's unranked issue", () => {
-    const { work } = plan([issue(1, [])], []);
-    expect(work.map((w) => w.number)).toEqual([1]);
-  });
-
-  it("picks a stranger's issue that carries a rank label, since only a collaborator can add one", () => {
-    for (const label of ['critical', 'high', 'medium']) {
-      const { work } = plan([issue(1, [label], '', 'stranger')], []);
-      expect(work.map((w) => w.number)).toEqual([1]);
+describe('trusted: only text written by the owner or a collaborator', () => {
+  it('picks an issue written by OWNER, MEMBER or COLLABORATOR, ranked or not', () => {
+    for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+      for (const labels of [[], ['high']]) {
+        const { work } = plan([issue(1, labels, '', 'someone', association)], []);
+        expect(work.map((w) => w.number)).toEqual([1]);
+      }
     }
   });
 
-  it("holds a stranger's unranked issue, with the reason and the author", () => {
-    const result = plan([issue(1, ['security'], '', 'stranger'), issue(2, [])], []);
-    expect(result.work.map((w) => w.number)).toEqual([2]);
-    expect(result.skip).toEqual([
-      { number: 1, title: 'issue 1', reason: "unranked, not the owner's", author: 'stranger' },
-    ]);
-    expect(render(result)).toContain('#1 opened by stranger; not ranked by the owner: issue 1');
+  it('holds a CONTRIBUTOR or NONE issue even when it carries a rank label', () => {
+    for (const association of ['CONTRIBUTOR', 'NONE', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR']) {
+      for (const labels of [[], ['critical']]) {
+        const result = plan([issue(1, labels, '', 'stranger', association), issue(2, [])], []);
+        expect(result.work.map((w) => w.number)).toEqual([2]);
+        expect(result.skip).toEqual([
+          {
+            number: 1,
+            title: 'issue 1',
+            reason: 'not written by the owner or a collaborator',
+            author: 'stranger',
+            association,
+          },
+        ]);
+      }
+    }
   });
 
-  it('is not fooled by a label that only looks like a rank', () => {
-    expect(trusted(issue(1, ['constructor', 'toString'], '', 'stranger'), OWNER)).toBe(false);
+  it('renders the held issue with its author, association and the way to work it', () => {
+    const text = render(plan([issue(1, ['high'], '', 'stranger', 'NONE')], []));
+    expect(text).toContain('#1 opened by stranger (NONE); copy it into an owner issue to work it: issue 1');
   });
 
-  it('compares logins case-insensitively', () => {
-    expect(trusted(issue(1, [], '', 'OWNER'), 'owner')).toBe(true);
-  });
-
-  it('trusts only ranked issues when the owner is unknown', () => {
-    expect(trusted(issue(1, []), undefined)).toBe(false);
-    expect(trusted(issue(1, ['high']), undefined)).toBe(true);
-  });
-
-  it('holds an issue with no author recorded and no rank', () => {
-    expect(trusted({ number: 1, title: 't', labels: [] }, OWNER)).toBe(false);
-  });
-});
-
-describe('fetchOwner', () => {
-  it('takes owner.login from the injected repository response, over REST', () => {
-    const calls: string[][] = [];
-    const run = (args: string[]) => {
-      calls.push(args);
-      return JSON.stringify({ name: 'widgets', owner: { login: 'acme-co' } });
-    };
-    expect(fetchOwner(run)).toBe('acme-co');
-    expect(calls).toEqual([['api', 'repos/{owner}/{repo}']]);
-  });
-
-  it('drives the decision: a derived product uses its own owner', () => {
-    const run = () => JSON.stringify({ owner: { login: 'acme-co' } });
-    const issues = [issue(1, [], '', 'acme-co'), issue(2, [], '', 'stevemarvell')];
-    expect(triage(issues, [], undefined, fetchOwner(run)).work.map((w) => w.number)).toEqual([1]);
-  });
-
-  it('fails rather than guessing when the response has no owner', () => {
-    expect(() => fetchOwner(() => '{}')).toThrow(/owner\.login/);
-  });
-
-  it('lets a failure from gh through', () => {
-    expect(() =>
-      fetchOwner(() => {
-        throw new Error('HTTP 403');
-      }),
-    ).toThrow(/403/);
+  it('holds an issue with no association recorded', () => {
+    expect(trusted({ number: 1, title: 't', labels: ['high'], user: { login: OWNER } })).toBe(false);
+    expect(plan([{ number: 1, title: 't', labels: [] }], []).skip[0]).toMatchObject({ author: 'unknown', association: 'unknown' });
   });
 });
 
-describe('fetchOpen carries the author', () => {
-  it("feeds triage: a stranger's unranked issue read from REST is held", () => {
+describe('fetchOpen carries the author association', () => {
+  it("feeds triage: a stranger's ranked issue read from REST is held", () => {
     const run = () =>
       JSON.stringify([
-        { number: 1, title: 'a', body: '', labels: [], user: { login: 'stranger' } },
-        { number: 2, title: 'b', body: '', labels: [], user: { login: OWNER } },
+        { number: 1, title: 'a', body: '', labels: [{ name: 'high' }], user: { login: 'stranger' }, author_association: 'NONE' },
+        { number: 2, title: 'b', body: '', labels: [], user: { login: OWNER }, author_association: 'OWNER' },
       ]);
     const { issues, pullRequests } = fetchOpen(run);
-    const result = triage(issues, pullRequests, undefined, OWNER);
+    expect(issues.map((i) => i.authorAssociation)).toEqual(['NONE', 'OWNER']);
+    const result = triage(issues, pullRequests);
     expect(result.work.map((w) => w.number)).toEqual([2]);
-    expect(result.skip[0]).toMatchObject({ number: 1, reason: "unranked, not the owner's", author: 'stranger' });
+    expect(result.skip[0]).toMatchObject({ number: 1, author: 'stranger', association: 'NONE' });
   });
 });

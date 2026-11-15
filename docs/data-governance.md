@@ -93,9 +93,11 @@ own step environment, which no branch code runs in.
 Issue text from strangers is data, not instructions. This repository is
 public, so anyone can open an issue, and the unattended `work-backlog` loop
 reads issues. `scripts/triage.mjs` holds out of the loop any issue whose
-author is not the repository owner and that carries no rank label (only an
-account with triage access can add one), so a stranger's text is never
-implemented, merged or deployed without the owner seeing it.
+`author_association` is not `OWNER`, `MEMBER` or `COLLABORATOR`; a rank label
+does not change that, because a stranger can edit an issue's body after it is
+ranked. Only text written by the owner or a collaborator reaches the loop. A
+stranger's report is worked when the owner opens an issue of their own with
+its content.
 
 ### What bounds it
 

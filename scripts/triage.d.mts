@@ -4,6 +4,7 @@ export interface Issue {
   labels: string[];
   body?: string;
   user?: { login?: string };
+  authorAssociation?: string;
 }
 export interface PullRequest {
   number: number;
@@ -17,7 +18,7 @@ export interface Planned {
 export interface Plan {
   work: Planned[];
   deferred: Planned[];
-  skip: { number: number; title: string; reason: string; author?: string }[];
+  skip: { number: number; title: string; reason: string; author?: string; association?: string }[];
 }
 export declare const MAX_ISSUES_PER_RUN: number;
 export declare const FETCH_LIMIT: number;
@@ -30,12 +31,10 @@ export declare function fetchOpen(
 ): { issues: Issue[]; pullRequests: PullRequest[]; truncated: boolean };
 export declare function claimedIssues(pullRequests: PullRequest[]): Map<number, number>;
 export declare function openDependencies(issue: Issue, openNumbers: Set<number>): number[];
-export declare function trusted(issue: Issue, ownerLogin?: string): boolean;
-export declare function fetchOwner(run?: (args: string[]) => string): string;
+export declare function trusted(issue: Issue): boolean;
 export declare function triage(
   issues: Issue[],
   pullRequests: PullRequest[],
   max?: number,
-  ownerLogin?: string,
 ): Plan;
 export declare function render(plan: Plan, options?: { truncated?: boolean }): string;
