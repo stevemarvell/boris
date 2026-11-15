@@ -71,7 +71,12 @@ Three jobs run branch code with something live in the step. Two are in
 review and the security review. The third is the `pr checks` job in
 `.github/workflows/pr-checks.yml`, which carries a write-scoped token instead
 and is described after them. Each one checks out the pull request and runs a
-script from that checkout before its main work starts.
+script from that checkout before its main work starts. Every checkout sets
+`persist-credentials: false`, so none leaves a token in `.git/config` for that
+script to read; a test (`scripts/test/checkout-credentials.test.ts`) fails on
+any that does not. That closes the `.git/config` route only: `pr checks` still
+passes its token in the environment of two steps that run branch code (see
+below, follow-up #359).
 
 ```yaml
 - name: Checkout repository
@@ -167,8 +172,11 @@ the step that hands it the credential.
 credential, and it is in this list anyway, because the structure is identical:
 it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
 and `scripts/test-census.mjs` from *that* checkout, with `GITHUB_TOKEN` scoped
-`pull-requests: write` live in the job. (The census used to run in its own
-workflow with a read-only token; folding it in widened it to this scope.)
+`pull-requests: write` available to the job. The fetch and "Say what collides"
+steps hold that token in their environment and run `scripts/pr-contention.mjs`
+from the checkout. The census step holds no token, but it runs earlier in the
+same job, so it can still reach the later token-holding steps by writing
+`$GITHUB_ENV`, `$GITHUB_PATH` or `.git/config`.
 
 What that scope permits is wider than what the job does with it. GitHub has no
 comment-only permission, so the scope that lets it post and edit its own
@@ -182,7 +190,7 @@ The same two things bound it — `pull_request` rather than `pull_request_target
 and one account with write access — and the same trigger voids it. So on that
 day this job needs the same treatment as the other two: run
 `scripts/pr-contention.mjs` and `scripts/test-census.mjs` from the default
-branch rather than the branch under review. It is listed here because
+branch rather than the branch under review (#359). It is listed here because
 the remediation plan below has to be a complete list on the day it is used, and
 a job missing from the inventory is a job nobody remembers to fix.
 
@@ -284,24 +292,49 @@ owner's own agents' pull requests: it excludes any that touch
 and own-agent pull requests only. A second writer, or a third-party pull
 request taking this path, voids it: close the path before either happens.
 
-## What going private did, and did not do
+## What being public does, and does not do
 
-The repository is private. That makes the source, the issue tracker and the
-Actions logs unreadable to strangers, and it retires one real risk: a
-`@claude` workflow that any stranger's comment could trigger. The
-`author_association` guard in `.github/workflows/claude.yml` is what actually
-carries that.
+The repository is public as of 2026-11-15. It was private from 2026-09-14
+(commit `c72b490`, the first to record it) until then; it went public because
+private-repository Actions minutes are billed ([company-os#48](https://github.com/stevemarvell/company-os/issues/48)).
 
-It removes no published URL. Every row in the table above was checked from
-outside the repository. Being private changes who can read the source; it
-changes nothing about who can read the data.
+Public means a stranger can read the source, the issues, the pull requests and
+the Actions logs ([visibility](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility);
+unverified: the page was not reachable from the session that wrote this). It
+also means a stranger can comment `@claude` on an issue or pull request. On
+that path three things stand between the comment and a job holding
+`CLAUDE_CODE_OAUTH_TOKEN` and the Grafana credentials: the `author_association`
+guard in `.github/workflows/claude.yml` (only `OWNER`, `MEMBER` or
+`COLLABORATOR`), the job's read-only `permissions`, and `claude-code-action`'s
+own actor check. `claude-code-review.yml` holds the same credentials on a
+different path, `pull_request`, which the guard does not cover. It is bounded
+by GitHub itself: a `pull_request` run from a fork gets no secrets (unverified:
+[GitHub's description of secrets in workflows](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)),
+and a branch in this repository needs write access; a Dependabot run gets
+Dependabot's secrets, not these. Its sandbox and `--allowedTools` narrow what
+the session reads (SOP 10).
 
-Two side effects are worth knowing, because both look like breakage:
+What voids that bound: a `COLLABORATOR` with read-only access can pass the
+guard, since the association says only that the person was invited. Keep
+collaborators to people trusted with the credential, or tighten the guard.
 
-- GitHub Actions minutes are billed rather than free.
-- GitHub Pages needs a paid plan on a private repository, which is why
-  `stevemarvell.github.io/boris/` returns `404` and why everything it would
-  publish is served from Vercel instead.
+The Grafana credential is never printed by this repository's own code:
+`scripts/write-ci-telemetry-settings.mjs` writes it, base64 header included,
+only to a JSON file under `runner.temp` and prints just that file's path, and
+no workflow `cat`s the file or echoes the secret. Secret masking in the logs
+covers the exact secret value only, so this absence of any print is the
+control, not the mask. Telemetry in Grafana is not readable through GitHub
+(unverified); what a workflow prints is readable by anyone, so a log line is
+public the moment it is written.
+
+Two side effects look like breakage and are not:
+
+- GitHub Actions minutes for standard runners are free on a public repository
+  ([billing](https://docs.github.com/en/billing/managing-billing-for-your-products/about-billing-for-github-actions); unverified).
+- GitHub Pages is available to a public repository on the free plan
+  ([Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits); unverified).
+  The docs are still served from Vercel, which is why
+  `stevemarvell.github.io/boris/` still returns `404`.
 
 Visibility was never the control. If it had been, the table above would be
 shorter.
