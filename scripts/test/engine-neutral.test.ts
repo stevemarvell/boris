@@ -25,8 +25,9 @@ describe("engine files make no claim about what is served", () => {
     expect(ENGINE).toContain(".github/workflows/claude-code-review.yml");
   });
 
-  it.each(ENGINE)("%s does not say 'serve no data'", (p) => {
-    expect(flat(p)).not.toMatch(/serve no data/i);
+  it("no file under .claude/agents or .github/workflows says 'serve no data'", () => {
+    const offenders = ENGINE.filter((p) => /serve no data/i.test(flat(p)));
+    expect(offenders).toEqual([]);
   });
 
   it("the security rubric holds neither stale phrase", () => {
