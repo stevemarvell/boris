@@ -321,6 +321,7 @@ export const OWNER_ISSUES = [
   {
     title: 'Add CLAUDE_CODE_OAUTH_TOKEN',
     rank: 'critical',
+    secret: 'CLAUDE_CODE_OAUTH_TOKEN', // not filed while this repository secret is set
     body: (repo) =>
       ownerBody({
         story:
@@ -421,10 +422,11 @@ export const OWNER_ISSUES = [
 ];
 
 /** Which of OWNER_ISSUES don't already exist — open or closed, so a person
- * closing one by hand doesn't get it recreated — by exact title. */
-export function missingOwnerIssues(existingTitles) {
+ * closing one by hand doesn't get it recreated — by exact title. An issue
+ * that asks for a secret is also skipped while that secret is set. */
+export function missingOwnerIssues(existingTitles, { secretNames = new Set() } = {}) {
   const have = new Set(existingTitles);
-  return OWNER_ISSUES.filter((issue) => !have.has(issue.title));
+  return OWNER_ISSUES.filter((issue) => !have.has(issue.title) && !(issue.secret && secretNames.has(issue.secret)));
 }
 
 export const TEMPLATE_ISSUE_TITLE = 'Template: User story';
@@ -689,7 +691,10 @@ export async function runCheck({
 
   // Owner issues, deduplicated by title
   const allIssues = await listIssues(run, repo, 'all');
-  const missing = missingOwnerIssues(allIssues.map((i) => i.title));
+  const missing = missingOwnerIssues(
+    allIssues.map((i) => i.title),
+    { secretNames },
+  );
   let assignee; // the authenticated login, looked up once and only if an issue is actually filed
   for (const issue of missing) {
     const label = [issue.rank, 'human', 'do not automate'];
