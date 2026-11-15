@@ -284,24 +284,31 @@ owner's own agents' pull requests: it excludes any that touch
 and own-agent pull requests only. A second writer, or a third-party pull
 request taking this path, voids it: close the path before either happens.
 
-## What going private did, and did not do
+## What being public does, and does not do
 
-The repository is private. That makes the source, the issue tracker and the
-Actions logs unreadable to strangers, and it retires one real risk: a
-`@claude` workflow that any stranger's comment could trigger. The
-`author_association` guard in `.github/workflows/claude.yml` is what actually
-carries that.
+The repository is public as of 2026-11-15. It was private from 2026-09-14
+(commit `c72b490`, the first to record it) until then; it went public because
+private-repository Actions minutes are billed ([company-os#48](https://github.com/stevemarvell/company-os/issues/48)).
 
-It removes no published URL. Every row in the table above was checked from
-outside the repository. Being private changes who can read the source; it
-changes nothing about who can read the data.
+Public means a stranger can read the source, the issues, the pull requests and
+the Actions logs ([visibility](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility);
+unverified: the page was not reachable from the session that wrote this). It
+also means a stranger can comment `@claude` on an issue or pull request. The
+`author_association` guard in `.github/workflows/claude.yml` is the control
+between that comment and a job holding `CLAUDE_CODE_OAUTH_TOKEN` and the
+Grafana credentials. Nothing else stands there.
 
-Two side effects are worth knowing, because both look like breakage:
+Telemetry shipped to Grafana is not readable through GitHub; what the
+workflow logs print is, so a log line is public the moment it is written.
 
-- GitHub Actions minutes are billed rather than free.
-- GitHub Pages needs a paid plan on a private repository, which is why
-  `stevemarvell.github.io/boris/` returns `404` and why everything it would
-  publish is served from Vercel instead.
+Two side effects look like breakage and are not:
+
+- GitHub Actions minutes for standard runners are free on a public repository
+  ([billing](https://docs.github.com/en/billing/managing-billing-for-your-products/about-billing-for-github-actions); unverified).
+- GitHub Pages is available to a public repository on the free plan
+  ([Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits); unverified).
+  The docs are still served from Vercel, which is why
+  `stevemarvell.github.io/boris/` still returns `404`.
 
 Visibility was never the control. If it had been, the table above would be
 shorter.
