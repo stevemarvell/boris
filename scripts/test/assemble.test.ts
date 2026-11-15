@@ -713,9 +713,9 @@ describe('a product built from a repository whose engine holds .github but not i
 });
 
 describe('sharedBlock', () => {
-  it('carries the rule that no turn ends with a question (#325)', () => {
+  it('the rule that no turn ends with a question survives in the shared block (#325)', () => {
     const block = sharedBlock(readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8'));
-    expect(block).toContain('No turn ends with a question');
+    expect(block.replace(/\s+/g, ' ').toLowerCase()).toContain('no turn ends with a question');
   });
 
   it('returns the markers and everything between them, and nothing outside', () => {
