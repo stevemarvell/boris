@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest';
 // such as another app's deploy.url. This fails the day one does: widen
 // relevantManifest first, then this test.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SKIP = new Set(['node_modules', 'dist', 'build', '.venv', '.vercel', '__pycache__', 'coverage', 'test-results', 'playwright-report']);
-const SOURCE = /\.(m?[jt]sx?|py)$/;
+const SKIP = new Set(['node_modules', 'dist', 'build', '.venv', '.vercel', '__pycache__', 'coverage', 'test-results', 'playwright-report', 'public']);
+const SOURCE = /\.(m?[jt]sx?|cjs|py|sh|json|ya?ml)$/;
 
 function* files(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {
@@ -22,33 +22,40 @@ function* files(dir: string): Generator<string> {
   }
 }
 
+// Every mention of project.json under apps/ must be one of these exact lines,
+// each of which reads only the top-level `name`. Anything else, however it is
+// spelled (a split read, a helper, an import), fails until it is reviewed
+// against relevantManifest and added here. Comment lines are not reads.
+const KNOWN_READS: Record<string, string> = {
+  'apps/web/vite.config.ts': "const { name: APP_NAME } = JSON.parse(readFileSync(join(REPO_ROOT, 'project.json'), 'utf8'));",
+  'apps/web/scripts/build-docs.mjs': "return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).name;",
+};
+const isComment = (line: string) => /^(\/\/|\*|\/\*|#|<!--)/.test(line);
+
 describe('apps read nothing but `name` from project.json', () => {
-  // An engine-only product has no apps/ yet: nothing to read the manifest.
-  const sources = (existsSync(join(ROOT, 'apps')) ? readdirSync(join(ROOT, 'apps')) : [])
+  const hasApps = existsSync(join(ROOT, 'apps'));
+  const mentions = (hasApps ? readdirSync(join(ROOT, 'apps')) : [])
     .map((app) => join(ROOT, 'apps', app))
     .filter((dir) => statSync(dir).isDirectory())
     .flatMap((dir) => [...files(dir)])
     .filter((path) => !/\.(test|spec)\.[jt]sx?$/.test(path))
-    .map((path) => ({ path, text: readFileSync(path, 'utf8') }))
-    .filter(({ text }) => /project\.json|project\.mjs/.test(text));
+    .flatMap((path) =>
+      readFileSync(path, 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => /project\.(json|mjs)/.test(line) && !isComment(line))
+        .map((line) => ({ file: relative(ROOT, path).split(sep).join('/'), line })),
+    );
 
-  it('finds the readers it is meant to police', () => {
-    if (!existsSync(join(ROOT, 'apps'))) return;
-    expect(sources.some(({ path }) => path.endsWith('vite.config.ts'))).toBe(true);
+  it('finds both known readers', () => {
+    if (!hasApps) return; // an engine-only product has no apps/ yet
+    for (const [file, line] of Object.entries(KNOWN_READS)) {
+      expect(mentions, file).toContainEqual({ file, line });
+    }
   });
 
-  it('never reads another field, or loads the manifest through scripts/project.mjs', () => {
-    for (const { path, text } of sources) {
-      expect(text, `${path} imports project.mjs`).not.toMatch(/project\.mjs/);
-      // A destructuring of the parsed manifest may take `name` and nothing else.
-      for (const m of text.matchAll(/const\s*\{([^}]*)\}\s*=\s*JSON\.parse\(readFileSync\([^)]*project\.json/g)) {
-        const keys = m[1]!.split(',').map((k) => k.trim().split(':')[0]!.trim()).filter(Boolean);
-        expect(keys, `${path} destructures ${keys}`).toEqual(['name']);
-      }
-      // A direct property read must be `.name`.
-      for (const m of text.matchAll(/JSON\.parse\(readFileSync\([^)]*project\.json[^)]*\)[^)]*\)\s*\.(\w+)/g)) {
-        expect(m[1], `${path} reads .${m[1]}`).toBe('name');
-      }
-    }
+  it('allows no other mention of project.json or project.mjs', () => {
+    const unknown = mentions.filter(({ file, line }) => KNOWN_READS[file] !== line);
+    expect(unknown).toEqual([]);
   });
 });
