@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../.claude/hooks/format-edited.mjs';
+import { upToDate } from '../../.claude/hooks/cloud-bootstrap.mjs';
 import { ROOT as VERIFY_ROOT } from '../../.claude/hooks/verify-on-stop.mjs';
 import { decide, filterCommand } from '../../.claude/hooks/filter-verbose.mjs';
 import { apps, loadProject, type Project } from '../project.mjs';
@@ -327,5 +328,38 @@ describe('statusline render', () => {
       expect(() => render(bad)).not.toThrow();
     }
     expect(render({})).toBe('claude');
+  });
+});
+
+describe('cloud-bootstrap upToDate', () => {
+  const root = '/r';
+  const marker = '/r/node_modules/.package-lock.json';
+  const lock = '/r/package-lock.json';
+  // Injected filesystem: `files` maps a path to its mtime; no real install needed.
+  const fsOf = (files: Record<string, number>) => ({
+    exists: (p: string) => p in files,
+    mtimeMs: (p: string) => files[p] as number,
+  });
+  const python: Project = { name: 'p', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
+  const engineOnly: Project = { name: 'e', apps: {} };
+
+  it('is true with fresh markers and a .venv for each Python app', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100, '/r/apps/svc/.venv': 1 }))).toBe(true);
+  });
+
+  it('is false with no node_modules', () => {
+    expect(upToDate(root, python, fsOf({ [lock]: 100, '/r/apps/svc/.venv': 1 }))).toBe(false);
+  });
+
+  it('is false when package-lock.json is newer than the marker', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 100, [lock]: 200, '/r/apps/svc/.venv': 1 }))).toBe(false);
+  });
+
+  it('is false when a Python app lacks its .venv', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(false);
+  });
+
+  it('is true for an engine-only project with fresh node_modules', () => {
+    expect(upToDate(root, engineOnly, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(true);
   });
 });
