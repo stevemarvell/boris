@@ -120,13 +120,11 @@ it. An empty one is accepted, but one with any branch is refused.
 3. **Run `check` until nothing is left for you.** From the new repository:
 
    ```bash
-   GH_REPO=<owner>/<project> node scripts/setup.mjs check   # --dry-run to change nothing, --skip-verify to skip the tests
+   node scripts/setup.mjs check   # --dry-run to change nothing, --skip-verify to skip the tests
    ```
 
-   `GH_REPO` is needed until #284 is fixed: with two remotes, `gh secret
-   list` fails with "multiple remotes detected", even after
-   `gh repo set-default`. `check` also files "Add CLAUDE_CODE_OAUTH_TOKEN"
-   when the secret is already set (#285); close that issue by hand.
+   `check` also files "Add CLAUDE_CODE_OAUTH_TOKEN" when the secret is
+   already set (#285); close that issue by hand.
 
    Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
    exact command or click-path). It exits 0 only when no ✋ remains. It can be
