@@ -69,9 +69,10 @@ jobs:
     # thereafter, but GitHub has no comment-only permission: `pull-requests:
     # write` also permits merging, closing, retitling and labelling any open
     # pull request, and it is live while this job runs scripts from the pull
-    # request's own checkout. The census step puts no token in its env; the
-    # fetch and "Say what collides" steps do, and run `pr-contention.mjs`
-    # from the branch (follow-up #359).
+    # request's own checkout. The fetch and "Say what collides" steps hold it
+    # in their env and run `pr-contention.mjs` from the branch; the census
+    # step holds none but runs first, so it can reach them via $GITHUB_ENV or
+    # $GITHUB_PATH. Both scripts move to the default branch in #359.
     # `docs/data-governance.md` records the bound and what voids it. No secrets
     # other than the token are in scope.
     permissions:
