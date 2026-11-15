@@ -2,6 +2,13 @@
 // Stop hook: refuse to finish while the verification loop is red — up to a
 // ceiling.
 //
+// It runs the checks for what changed, not all of `verify`: `plan()` maps the
+// changed files to the harness checks and to each affected app's checks, so a
+// single-app edit ends its turn without the other apps' suites. That is a
+// quick gate for the turn only. `npm run verify` in full remains the contract
+// before a pull request: `/ship` step 1 and the implementer's "Finishing"
+// still run all of it.
+//
 // Exit 0 lets the turn end. Exit 2 blocks it and feeds stderr back to the
 // model, so a failing gate becomes work to do rather than a claim to make.
 //
@@ -28,7 +35,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadProject, verifiedPaths } from '../../scripts/project.mjs';
+import { HARNESS_CODE, apps, loadProject, verifiedPaths } from '../../scripts/project.mjs';
 
 export const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -50,6 +57,28 @@ export function changedFiles(paths = verifiedPaths(loadProject())) {
     .split('\n')
     .map((line) => line.slice(3).trim())
     .filter(Boolean);
+}
+
+const under = (file, dir) => file === dir || file.startsWith(`${dir.replace(/\/+$/, '')}/`);
+
+/**
+ * The ordered commands that cover `changed`: the harness checks when engine
+ * code changed, then `verify-apps.mjs <app>` for every app whose `path` or any
+ * of `reads` contains a changed file. `ignores` is deliberately not honoured:
+ * run more, not less. Pure, so each scenario is testable.
+ */
+export function plan(changed, project) {
+  const commands = [];
+  if (changed.some((file) => HARNESS_CODE.some((dir) => under(file, dir)))) {
+    commands.push('npm run verify:harness');
+  }
+  for (const [name, app] of apps(project)) {
+    const inputs = [app.path, ...app.reads];
+    if (changed.some((file) => inputs.some((dir) => under(file, dir)))) {
+      commands.push(`node scripts/verify-apps.mjs ${name}`);
+    }
+  }
+  return commands;
 }
 
 /**
@@ -116,22 +145,27 @@ function readStdin() {
 }
 
 function main() {
-  let changed;
+  let commands;
   try {
-    changed = changedFiles();
+    commands = plan(changedFiles(), loadProject());
   } catch {
     return 0; // not a git repo, or git unavailable — do not block
   }
-  if (changed.length === 0) return 0;
+  if (commands.length === 0) return 0;
 
   const { sessionId, continuing } = parseStopInput(readStdin());
   const path = statePath(sessionId);
 
   let failure = null;
-  try {
-    run('npm run verify');
-  } catch (err) {
-    failure = `${err.stdout ?? ''}${err.stderr ?? ''}`.trim().split('\n').slice(-40).join('\n');
+  let failed = null;
+  for (const command of commands) {
+    try {
+      run(command);
+    } catch (err) {
+      failed = command;
+      failure = `${err.stdout ?? ''}${err.stderr ?? ''}`.trim().split('\n').slice(-40).join('\n');
+      break; // stop at the first failure
+    }
   }
 
   const { action, count } = decide({
@@ -152,7 +186,7 @@ function main() {
     process.stdout.write(
       JSON.stringify({
         systemMessage:
-          `npm run verify is still red after ${MAX_CONSECUTIVE_BLOCKS} consecutive attempts, so the stop hook ` +
+          `${failed} is still red after ${MAX_CONSECUTIVE_BLOCKS} consecutive attempts, so the stop hook ` +
           `has stopped blocking (SOP 1). The work is NOT done. Last failure:\n\n${failure}`,
       }),
     );
@@ -160,9 +194,9 @@ function main() {
   }
 
   process.stderr.write(
-    `npm run verify failed, so this work is not done (attempt ${count} of ${MAX_CONSECUTIVE_BLOCKS}).\n\n` +
+    `${failed} failed, so this work is not done (attempt ${count} of ${MAX_CONSECUTIVE_BLOCKS}).\n\n` +
       `${failure}\n\n` +
-      `Fix it and run "npm run verify" again. Do not report the work as complete until it passes.\n`,
+      `Fix it and run "${failed}" again. Do not report the work as complete until it passes.\n`,
   );
   return 2;
 }
