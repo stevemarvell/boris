@@ -97,6 +97,8 @@ export declare function create(
   options: CreateArgs,
   deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
 ): Promise<number>;
+export declare function mergePackageJson(current: string, wanted: string): string | undefined;
+export declare function alignPins(text: string, rootText: string | undefined): string;
 export declare function add(
   options: { starters: string[] },
   deps?: { run?: Run; spawn?: Spawn; root?: string; log?: (line: string) => void },
