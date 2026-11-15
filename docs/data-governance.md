@@ -195,7 +195,10 @@ This closes script edits, not workflow edits. On `pull_request` GitHub runs
 workflow can run its own steps with the token, and the test reads that same
 edited file. That is bounded by one account with write access and
 `pull_request` rather than `pull_request_target`, and voided by a second writer
-with push access (branch protection, #340, would let a review gate it).
+with push access (branch protection, #340, would let a review gate it). The
+same writer can also open a pull request against a branch other than `develop`
+whose scripts they edited, since the `pull_request` trigger has no `branches:`
+filter and `base.sha` is then that branch's tip.
 
 What remains: the scripts are as trustworthy as the base branch, so a merge to
 `develop` that has not been reviewed still reaches this token on the next run.
