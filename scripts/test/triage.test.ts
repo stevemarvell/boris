@@ -9,12 +9,14 @@ import {
   openDependencies,
   permissionLookup,
   render,
+  readiness,
   triage,
   trusted,
 } from '../triage.mjs';
 
 const OWNER = 'owner';
-const issue = (number: number, labels: string[], body = '', login = OWNER, association = 'OWNER') => ({
+const READY = '## Acceptance criteria\n\n- **Given** a\n- **Then** b\n\n## Details to complete\n\nNone\n';
+const issue = (number: number, labels: string[], body = READY, login = OWNER, association = 'OWNER') => ({
   number,
   title: `issue ${number}`,
   labels,
@@ -72,7 +74,7 @@ describe('triage', () => {
 
   it('skips an issue that depends on one still open, and not on one that is closed', () => {
     const { work, skip } = triage(
-      [issue(10, ['medium'], 'Depends on #11.'), issue(11, ['medium']), issue(12, ['medium'], 'Depends on #3.')],
+      [issue(10, ['medium'], `${READY}Depends on #11.`), issue(11, ['medium']), issue(12, ['medium'], `${READY}Depends on #3.`)],
       [],
     );
     expect(work.map((w) => w.number)).toEqual([11, 12]);
@@ -248,7 +250,7 @@ describe('trusted: only text written by the owner or someone with write access',
       throw new Error('must not be called');
     };
     for (const labels of [[], ['high']]) {
-      const { work } = triage([issue(1, labels, '', 'someone', 'OWNER')], [], undefined, permissionOf);
+      const { work } = triage([issue(1, labels, READY, 'someone', 'OWNER')], [], undefined, permissionOf);
       expect(work.map((w) => w.number)).toEqual([1]);
     }
   });
@@ -258,7 +260,7 @@ describe('trusted: only text written by the owner or someone with write access',
       for (const permission of ['admin', 'maintain', 'write']) {
         const asked: string[] = [];
         const permissionOf = (login: string) => (asked.push(login), permission);
-        const { work } = triage([issue(1, [], '', 'someone', association)], [], undefined, permissionOf);
+        const { work } = triage([issue(1, [], READY, 'someone', association)], [], undefined, permissionOf);
         expect(work.map((w) => w.number)).toEqual([1]);
         expect(asked).toEqual(['someone']);
       }
@@ -282,8 +284,8 @@ describe('trusted: only text written by the owner or someone with write access',
       throw new Error('HTTP 404');
     };
     for (const association of ['MEMBER', 'COLLABORATOR']) {
-      expect(triage([issue(1, [], '', 'someone', association)], [], undefined, boom).work).toEqual([]);
-      expect(triage([issue(1, [], '', 'someone', association)], []).work).toEqual([]);
+      expect(triage([issue(1, [], READY, 'someone', association)], [], undefined, boom).work).toEqual([]);
+      expect(triage([issue(1, [], READY, 'someone', association)], []).work).toEqual([]);
     }
   });
 
@@ -305,14 +307,14 @@ describe('trusted: only text written by the owner or someone with write access',
   });
 
   it('renders the held issue with its author, association and the way to work it', () => {
-    const text = render(triage([issue(1, ['high'], '', 'stranger', 'NONE')], []));
+    const text = render(triage([issue(1, ['high'], READY, 'stranger', 'NONE')], []));
     expect(text).toContain('#1 opened by stranger (NONE); copy it into an owner issue to work it\n');
     expect(text).not.toContain('issue 1');
-    expect(JSON.stringify(triage([issue(1, ['high'], '', 'stranger', 'NONE')], []))).not.toContain('issue 1');
+    expect(JSON.stringify(triage([issue(1, ['high'], READY, 'stranger', 'NONE')], []))).not.toContain('issue 1');
   });
 
   const strangerLabelled = (label: string) => {
-    const plan = triage([issue(1, [label], '', 'stranger', 'NONE')], []);
+    const plan = triage([issue(1, [label], READY, 'stranger', 'NONE')], []);
     expect(render(plan)).toContain('#1 opened by stranger (NONE); copy it into an owner issue to work it\n');
     expect(render(plan)).not.toContain('issue 1');
     expect(JSON.stringify(plan)).not.toContain('issue 1');
@@ -361,13 +363,96 @@ describe('fetchOpen carries the author association', () => {
   it("feeds triage: a stranger's ranked issue read from REST is held", () => {
     const run = () =>
       JSON.stringify([
-        { number: 1, title: 'a', body: '', labels: [{ name: 'high' }], user: { login: 'stranger' }, author_association: 'NONE' },
-        { number: 2, title: 'b', body: '', labels: [], user: { login: OWNER }, author_association: 'OWNER' },
+        { number: 1, title: 'a', body: READY, labels: [{ name: 'high' }], user: { login: 'stranger' }, author_association: 'NONE' },
+        { number: 2, title: 'b', body: READY, labels: [], user: { login: OWNER }, author_association: 'OWNER' },
       ]);
     const { issues, pullRequests } = fetchOpen(run);
     expect(issues.map((i) => i.authorAssociation)).toEqual(['NONE', 'OWNER']);
     const result = triage(issues, pullRequests);
     expect(result.work.map((w) => w.number)).toEqual([2]);
     expect(result.skip[0]).toMatchObject({ number: 1, author: 'stranger', association: 'NONE' });
+  });
+});
+
+const body = (criteria: string, details: string) => `## Acceptance criteria\n${criteria}\n## Details to complete\n${details}\n## Tech notes\nx\n`;
+const THEN = '\n**Scenario: a**\n- **Given** g\n- **When** w\n- **Then** t\n';
+
+describe('readiness', () => {
+  const ready = (b: string) => readiness({ number: 1, title: 't', labels: [], body: b });
+
+  it('is null for criteria with a Then line and details with text', () => {
+    expect(ready(body(THEN, '1. Use X.'))).toBeNull();
+  });
+
+  it('names missing acceptance criteria', () => {
+    expect(ready(body('\n_placeholder_\n- **Given** only\n', 'text'))).toBe('no acceptance criteria');
+    expect(ready('')).toBe('no acceptance criteria');
+    expect(readiness({ number: 1, title: 't', labels: [] })).toBe('no acceptance criteria');
+  });
+
+  it('names missing details: absent, empty, only 1., only placeholders', () => {
+    expect(ready(`## Acceptance criteria\n${THEN}`)).toBe('no details to complete');
+    expect(ready(body(THEN, ''))).toBe('no details to complete');
+    expect(ready(body(THEN, '1. '))).toBe('no details to complete');
+    expect(ready(body(THEN, '_Everything the assignee needs._\n\n1.\n'))).toBe('no details to complete');
+  });
+
+  it('treats None as ready', () => {
+    expect(ready(body(THEN, 'None'))).toBeNull();
+  });
+
+  it('reads CRLF bodies', () => {
+    expect(ready(body(THEN, 'None').replace(/\n/g, '\r\n'))).toBeNull();
+    expect(ready(body('\n', 'None').replace(/\n/g, '\r\n'))).toBe('no acceptance criteria');
+  });
+
+  it('does not count a Then inside a fenced code block', () => {
+    expect(ready(body('\n```\n- **Then** t\n```\n', 'None'))).toBe('no acceptance criteria');
+  });
+
+  it('matches headings exactly', () => {
+    expect(ready(`### Acceptance criteria\n${THEN}\n## Details to complete\nNone`)).toBe('no acceptance criteria');
+  });
+});
+
+describe('triage not ready', () => {
+  it('lists a not-ready issue under notReady and keeps it out of work', () => {
+    const plan = triage([issue(1, ['high'], 'no sections'), issue(2, ['medium'], body(THEN, '')), issue(3, ['medium'])], []);
+    expect(plan.work.map((w) => w.number)).toEqual([3]);
+    expect(plan.notReady).toEqual([
+      { number: 1, title: 'issue 1', reason: 'no acceptance criteria' },
+      { number: 2, title: 'issue 2', reason: 'no details to complete' },
+    ]);
+    const text = render(plan);
+    expect(text).toContain('Not ready');
+    expect(text).toContain('#1 no acceptance criteria: issue 1');
+  });
+
+  it('reports a skipped issue as skipped only, never also not ready', () => {
+    const plan = triage(
+      [issue(1, ['human'], ''), issue(2, ['template'], ''), issue(3, [], 'Depends on #4.'), issue(4, []), issue(5, [], '')],
+      [{ number: 9, body: 'Closes #5' }],
+    );
+    expect(plan.skip.map((s) => s.number)).toEqual([1, 2, 3, 5]);
+    expect(plan.notReady.map((n) => n.number)).toEqual([]);
+  });
+
+  it('does not count not-ready issues against the ceiling', () => {
+    const issues = [1, 2, 3, 4, 5].map((n) => issue(n, ['medium'], ''));
+    issues.push(issue(6, []), issue(7, []));
+    const plan = triage(issues, [], 2);
+    expect(plan.notReady).toHaveLength(5);
+    expect(plan.work.map((w) => w.number)).toEqual([6, 7]);
+    expect(plan.deferred).toEqual([]);
+  });
+
+  it('ranks an unranked ready issue last, as before', () => {
+    const plan = triage([issue(1, []), issue(2, ['high'])], []);
+    expect(plan.work.map((w) => w.number)).toEqual([2, 1]);
+  });
+
+  it('JSON output carries a notReady array', () => {
+    const plan = JSON.parse(JSON.stringify(triage([issue(1, [], '')], [])));
+    expect(plan.notReady).toEqual([{ number: 1, title: 'issue 1', reason: 'no acceptance criteria' }]);
   });
 });
