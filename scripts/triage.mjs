@@ -8,6 +8,9 @@
 //    `blocked…` label (CLAUDE.md: work that needs a person is labelled, not
 //    attempted). Skip a `template` too: it is a blank scaffold a person
 //    copies, and filling it in is never an agent's job (CLAUDE.md).
+//    Skip an issue a stranger opened and the owner has not ranked: the
+//    repository is public, so anyone can open one, and only an account with
+//    triage access can add a rank label (`trusted`).
 // 2. Skip anything already in flight: an open pull request whose body names
 //    the issue with Closes/Fixes/Resolves/Refs.
 // 3. Skip anything whose body says "Depends on #<n>" for an issue still open.
@@ -46,6 +49,18 @@ const UNRANKED = 3;
 
 const PERSON = (label) => label === 'human' || label === 'do not automate' || label.startsWith('blocked');
 
+/**
+ * Whether an agent may act on this issue: its author is the repository owner,
+ * or it carries a rank label (critical/high/medium). Adding a label needs
+ * triage permission, which a stranger does not have, so a label is the
+ * owner's act. With no owner login known, only a ranked issue is trusted.
+ */
+export function trusted(issue, ownerLogin) {
+  const author = issue.user?.login;
+  if (author && ownerLogin && author.toLowerCase() === ownerLogin.toLowerCase()) return true;
+  return issue.labels.some((l) => Object.hasOwn(RANK, l));
+}
+
 /** Issue numbers an open pull request already claims. */
 export function claimedIssues(pullRequests) {
   const claimed = new Map();
@@ -71,11 +86,13 @@ function rankOf(labels) {
 }
 
 /**
- * @param issues        [{ number, title, labels: string[], body }]
+ * @param issues        [{ number, title, labels: string[], body, user: { login } }]
  * @param pullRequests  open PRs: [{ number, body }]
+ * @param max           most issues to work this run
+ * @param ownerLogin   the repository owner's login; see `trusted`
  * @returns {{ work, deferred, skip }} work is at most MAX_ISSUES_PER_RUN long
  */
-export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
+export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, ownerLogin = undefined) {
   const openNumbers = new Set(issues.map((i) => i.number));
   const claimed = claimedIssues(pullRequests);
   const eligible = [];
@@ -89,6 +106,15 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
     const person = issue.labels.filter(PERSON);
     if (person.length) {
       skip.push({ number: issue.number, title: issue.title, reason: `needs a person (${person.join(', ')})` });
+      continue;
+    }
+    if (!trusted(issue, ownerLogin)) {
+      skip.push({
+        number: issue.number,
+        title: issue.title,
+        reason: "unranked, not the owner's",
+        author: issue.user?.login ?? 'unknown',
+      });
       continue;
     }
     if (claimed.has(issue.number)) {
@@ -131,7 +157,10 @@ export function render({ work, deferred, skip }, { truncated = false } = {}) {
     for (const d of deferred) lines.push(`  #${d.number} [${d.rank}] ${d.title}`);
   }
   lines.push('Skip:');
-  for (const s of skip) lines.push(`  #${s.number} ${s.reason}: ${s.title}`);
+  for (const s of skip) {
+    const reason = s.author ? `opened by ${s.author}; not ranked by the owner` : s.reason;
+    lines.push(`  #${s.number} ${reason}: ${s.title}`);
+  }
   if (truncated) lines.push(`WARNING: a listing hit ${FETCH_LIMIT} results; the plan may be incomplete.`);
   return lines.join('\n') + '\n';
 }
@@ -143,6 +172,13 @@ export function gh(args) {
   } catch (error) {
     throw new Error(`gh ${args.join(' ')} failed: ${String(error.stderr ?? '').trim() || error.message}`);
   }
+}
+
+/** The repository owner's login, from REST (`gh api repos/{owner}/{repo}`). */
+export function fetchOwner(run = gh) {
+  const login = JSON.parse(run(['api', 'repos/{owner}/{repo}'])).owner?.login;
+  if (!login) throw new Error('could not read owner.login from the repository');
+  return login;
 }
 
 /**
@@ -166,6 +202,7 @@ export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
           number: item.number,
           title: item.title,
           body: item.body,
+          user: { login: item.user?.login },
           labels: (item.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)),
         });
       }
@@ -180,8 +217,9 @@ export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
+    const ownerLogin = fetchOwner();
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests);
+    const plan = triage(issues, pullRequests, MAX_ISSUES_PER_RUN, ownerLogin);
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );

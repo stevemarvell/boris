@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Issue } from '../triage.mjs';
 import {
   FETCH_LIMIT,
   MAX_ISSUES_PER_RUN,
@@ -6,21 +7,29 @@ import {
   PAGE_SIZE,
   claimedIssues,
   fetchOpen,
+  fetchOwner,
   openDependencies,
   render,
   triage,
+  trusted,
 } from '../triage.mjs';
 
-const issue = (number: number, labels: string[], body = '') => ({
+const OWNER = 'owner';
+const issue = (number: number, labels: string[], body = '', login = OWNER) => ({
   number,
   title: `issue ${number}`,
   labels,
   body,
+  user: { login },
 });
+
+// Every older case below is the owner's own issues.
+const plan = (issues: Issue[], prs: { number: number; body?: string }[], max?: number) =>
+  triage(issues, prs, max, OWNER);
 
 describe('triage', () => {
   it('orders by rank, security first within a rank, then oldest first', () => {
-    const { work } = triage(
+    const { work } = plan(
       [
         issue(5, ['medium']),
         issue(4, ['high']),
@@ -37,7 +46,7 @@ describe('triage', () => {
   });
 
   it('skips anything a person owns, whichever label says so', () => {
-    const { work, skip } = triage(
+    const { work, skip } = plan(
       [
         issue(1, ['medium', 'human']),
         issue(2, ['do not automate']),
@@ -52,13 +61,13 @@ describe('triage', () => {
   });
 
   it('skips a template, which is a scaffold for a person to copy, never work to do', () => {
-    const { work, skip } = triage([issue(1, ['template']), issue(2, [])], []);
+    const { work, skip } = plan([issue(1, ['template']), issue(2, [])], []);
     expect(work.map((w) => w.number)).toEqual([2]);
     expect(skip).toEqual([{ number: 1, title: 'issue 1', reason: 'a template, copied by a person' }]);
   });
 
   it('skips an issue an open pull request already claims', () => {
-    const { work, skip } = triage([issue(7, ['high']), issue(8, ['medium'])], [
+    const { work, skip } = plan([issue(7, ['high']), issue(8, ['medium'])], [
       { number: 99, body: 'Some text.\n\nCloses #7' },
     ]);
     expect(work.map((w) => w.number)).toEqual([8]);
@@ -66,7 +75,7 @@ describe('triage', () => {
   });
 
   it('skips an issue that depends on one still open, and not on one that is closed', () => {
-    const { work, skip } = triage(
+    const { work, skip } = plan(
       [issue(10, ['medium'], 'Depends on #11.'), issue(11, ['medium']), issue(12, ['medium'], 'Depends on #3.')],
       [],
     );
@@ -75,7 +84,7 @@ describe('triage', () => {
   });
 
   it('ranks a label named like an Object.prototype property as unranked, not NaN', () => {
-    const { work } = triage(
+    const { work } = plan(
       [issue(1, ['constructor']), issue(2, ['medium']), issue(3, ['toString', 'high'])],
       [],
     );
@@ -84,8 +93,8 @@ describe('triage', () => {
   });
 
   it('works nothing when everything is skipped, rather than failing', () => {
-    expect(triage([issue(1, ['human'])], []).work).toEqual([]);
-    expect(triage([], []).work).toEqual([]);
+    expect(plan([issue(1, ['human'])], []).work).toEqual([]);
+    expect(plan([], []).work).toEqual([]);
   });
 });
 
@@ -93,13 +102,13 @@ describe('the per-run ceiling', () => {
   const many = [1, 2, 3, 4, 5].map((n) => issue(n, ['medium']));
 
   it('takes at most MAX_ISSUES_PER_RUN, the highest ranked first', () => {
-    const { work } = triage([...many, issue(9, ['critical'])], []);
+    const { work } = plan([...many, issue(9, ['critical'])], []);
     expect(work).toHaveLength(MAX_ISSUES_PER_RUN);
     expect(work[0]!.number).toBe(9);
   });
 
   it('defers the rest in order rather than dropping them', () => {
-    const { work, deferred } = triage(many, []);
+    const { work, deferred } = plan(many, []);
     expect([...work, ...deferred].map((w) => w.number)).toEqual([1, 2, 3, 4, 5]);
     expect(deferred.map((d) => d.number)).toEqual([4, 5]);
   });
@@ -111,11 +120,11 @@ describe('the per-run ceiling', () => {
 
 describe('render', () => {
   it('says when there is nothing to work, rather than printing an empty list', () => {
-    expect(render(triage([issue(1, ['human'])], []))).toContain('nothing an agent may take on');
+    expect(render(plan([issue(1, ['human'])], []))).toContain('nothing an agent may take on');
   });
 
   it('lists deferred work and warns when a listing was truncated', () => {
-    const text = render(triage([1, 2, 3, 4].map((n) => issue(n, ['medium'])), []), { truncated: true });
+    const text = render(plan([1, 2, 3, 4].map((n) => issue(n, ['medium'])), []), { truncated: true });
     expect(text).toContain('Deferred to the next run');
     expect(text).toContain('#4 [medium]');
     expect(text).toContain('WARNING');
@@ -150,6 +159,7 @@ describe('fetchOpen', () => {
     title: `item ${number}`,
     body: `body ${number}`,
     labels: [{ name: 'high' }],
+    user: { login: 'someone' },
     ...extra,
   });
 
@@ -163,7 +173,7 @@ describe('fetchOpen', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe('api');
     expect(calls[0]![1]).toMatch(/^repos\/\{owner\}\/\{repo\}\/issues\?state=open&per_page=100&page=1$/);
-    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', labels: ['high'] }]);
+    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', user: { login: 'someone' }, labels: ['high'] }]);
     expect(pullRequests).toEqual([{ number: 2, body: 'Closes #1' }]);
     expect(truncated).toBe(false);
   });
@@ -171,7 +181,7 @@ describe('fetchOpen', () => {
   it('feeds triage: an issue a listed pull request closes is in flight', () => {
     const run = () => JSON.stringify([rest(1), rest(2, { pull_request: {}, body: 'Closes #1' })]);
     const { issues, pullRequests } = fetchOpen(run);
-    expect(triage(issues, pullRequests).skip).toEqual([{ number: 1, title: 'item 1', reason: 'in flight in #2' }]);
+    expect(plan(issues, pullRequests).skip).toEqual([{ number: 1, title: 'item 1', reason: 'in flight in #2' }]);
   });
 
   it('follows pages until a short one', () => {
@@ -204,7 +214,7 @@ describe('fetchOpen', () => {
     expect(routes.at(-1)).toBe(`repos/{owner}/{repo}/issues?state=open&per_page=1&page=${FETCH_LIMIT + 1}`);
     expect(issues).toHaveLength(FETCH_LIMIT);
     expect(truncated).toBe(true);
-    expect(render(triage(issues, []), { truncated })).toContain('WARNING');
+    expect(render(plan(issues, []), { truncated })).toContain('WARNING');
   });
 
   it('is not truncated when the ceiling page is full but nothing lies beyond it', () => {
@@ -224,5 +234,89 @@ describe('fetchOpen', () => {
       throw new Error('gh api failed: HTTP 403');
     };
     expect(() => fetchOpen(run)).toThrow(/HTTP 403/);
+  });
+});
+
+describe('trusted: only issues the owner wrote or ranked', () => {
+  it("picks the owner's unranked issue", () => {
+    const { work } = plan([issue(1, [])], []);
+    expect(work.map((w) => w.number)).toEqual([1]);
+  });
+
+  it("picks a stranger's issue that carries a rank label, since only a collaborator can add one", () => {
+    for (const label of ['critical', 'high', 'medium']) {
+      const { work } = plan([issue(1, [label], '', 'stranger')], []);
+      expect(work.map((w) => w.number)).toEqual([1]);
+    }
+  });
+
+  it("holds a stranger's unranked issue, with the reason and the author", () => {
+    const result = plan([issue(1, ['security'], '', 'stranger'), issue(2, [])], []);
+    expect(result.work.map((w) => w.number)).toEqual([2]);
+    expect(result.skip).toEqual([
+      { number: 1, title: 'issue 1', reason: "unranked, not the owner's", author: 'stranger' },
+    ]);
+    expect(render(result)).toContain('#1 opened by stranger; not ranked by the owner: issue 1');
+  });
+
+  it('is not fooled by a label that only looks like a rank', () => {
+    expect(trusted(issue(1, ['constructor', 'toString'], '', 'stranger'), OWNER)).toBe(false);
+  });
+
+  it('compares logins case-insensitively', () => {
+    expect(trusted(issue(1, [], '', 'OWNER'), 'owner')).toBe(true);
+  });
+
+  it('trusts only ranked issues when the owner is unknown', () => {
+    expect(trusted(issue(1, []), undefined)).toBe(false);
+    expect(trusted(issue(1, ['high']), undefined)).toBe(true);
+  });
+
+  it('holds an issue with no author recorded and no rank', () => {
+    expect(trusted({ number: 1, title: 't', labels: [] }, OWNER)).toBe(false);
+  });
+});
+
+describe('fetchOwner', () => {
+  it('takes owner.login from the injected repository response, over REST', () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => {
+      calls.push(args);
+      return JSON.stringify({ name: 'widgets', owner: { login: 'acme-co' } });
+    };
+    expect(fetchOwner(run)).toBe('acme-co');
+    expect(calls).toEqual([['api', 'repos/{owner}/{repo}']]);
+  });
+
+  it('drives the decision: a derived product uses its own owner', () => {
+    const run = () => JSON.stringify({ owner: { login: 'acme-co' } });
+    const issues = [issue(1, [], '', 'acme-co'), issue(2, [], '', 'stevemarvell')];
+    expect(triage(issues, [], undefined, fetchOwner(run)).work.map((w) => w.number)).toEqual([1]);
+  });
+
+  it('fails rather than guessing when the response has no owner', () => {
+    expect(() => fetchOwner(() => '{}')).toThrow(/owner\.login/);
+  });
+
+  it('lets a failure from gh through', () => {
+    expect(() =>
+      fetchOwner(() => {
+        throw new Error('HTTP 403');
+      }),
+    ).toThrow(/403/);
+  });
+});
+
+describe('fetchOpen carries the author', () => {
+  it("feeds triage: a stranger's unranked issue read from REST is held", () => {
+    const run = () =>
+      JSON.stringify([
+        { number: 1, title: 'a', body: '', labels: [], user: { login: 'stranger' } },
+        { number: 2, title: 'b', body: '', labels: [], user: { login: OWNER } },
+      ]);
+    const { issues, pullRequests } = fetchOpen(run);
+    const result = triage(issues, pullRequests, undefined, OWNER);
+    expect(result.work.map((w) => w.number)).toEqual([2]);
+    expect(result.skip[0]).toMatchObject({ number: 1, reason: "unranked, not the owner's", author: 'stranger' });
   });
 });

@@ -90,6 +90,13 @@ which the session `claude-code-action` starts will load from the branch.
 the action rather than a job-level variable, so it lives only in the action's
 own step environment, which no branch code runs in.
 
+Issue text from strangers is data, not instructions. This repository is
+public, so anyone can open an issue, and the unattended `work-backlog` loop
+reads issues. `scripts/triage.mjs` holds out of the loop any issue whose
+author is not the repository owner and that carries no rank label (only an
+account with triage access can add one), so a stranger's text is never
+implemented, merged or deployed without the owner seeing it.
+
 ### What bounds it
 
 Two things, and only one of them is written in the configuration:
