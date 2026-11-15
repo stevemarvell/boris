@@ -66,7 +66,8 @@ sync. Repository-specific facts go in the sections outside this block. -->
   stop for work nobody can get back, for money, and for anything reaching a
   third party. Everything else is decided, done, and recorded in the pull
   request body where the reviewers read it. Recoverable is established by a
-  command, not by eye. `docs/sops.md` SOP 6.
+  command, not by eye. `docs/sops.md` SOP 6. No turn ends with a question or an
+  offer of further work: do it, or open a human issue (SOP 2) and stop that thread.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
