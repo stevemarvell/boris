@@ -133,15 +133,17 @@ REST (`gh pr view` is GraphQL, which cloud sessions refuse):
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/<n> -q '.user.login, .head.repo.full_name'
-gh api repos/{owner}/{repo}/pulls/<n>/files --paginate -q '.[].filename'
+gh api repos/{owner}/{repo}/pulls/<n>/files --paginate -q '.[] | .filename, (.previous_filename // empty)'
 ```
 
 - the first line (`user.login`) is the repository owner's login;
 - the second (`head.repo.full_name`) is this repository, not a fork;
-- no filename starts with `.github/workflows/`.
+- no path printed (a file's name, or the old name of a renamed one) starts
+  with `.github/workflows/`.
 
-If the file list cannot be read completely (an error, or a page missing), the
-pull request waits for CI. The allowlist checks who opened the pull request,
+If the file list cannot be read completely (an error, a page missing, or
+3,000 or more files, where the endpoint stops without an error), the pull
+request waits for CI. The allowlist checks who opened the pull request,
 not who wrote its commits, so it assumes one writer, the owner's own agents; a
 second writer with push access voids it (`docs/data-governance.md`).
 
