@@ -180,10 +180,10 @@ Merging on a local `verify` is allowed only when CI did not run (`drive-pr` step
 
 Checked with `gh api repos/stevemarvell/boris`, not assumed:
 
-- **Private, on GitHub's free plan.** Rulesets and branch protection return
-  403 ("Upgrade to GitHub Pro"), so nothing mechanical stops a push to
-  `develop` or a merge with `verify` red. Both rules above are discipline
-  here, the category SOP 1 gives the model-driven loops.
+- **Public, on GitHub's free plan since 2026-11-15.** Branch protection is
+  now available and is tracked in #340; until then nothing mechanical stops a
+  push to `develop` or a merge with `verify` red. Both rules above are
+  discipline, the category SOP 1 gives the model-driven loops.
 - **`delete_branch_on_merge` is on**, so GitHub deletes a merged branch.
 
 ## Deployments and documentation

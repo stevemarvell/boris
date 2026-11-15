@@ -142,9 +142,9 @@ it. An empty one is accepted, but one with any branch is refused.
    re-run as often as you like and never duplicates anything. It:
    - creates the labels from [`labels.json`](labels.json);
    - turns on delete-branch-on-merge;
-   - protects `develop` if the repository is public. A private repository on
-     GitHub's free plan can't protect a branch, so "PRs only" is a rule
-     people follow there;
+   - protects `develop` if the repository is public. A free-plan repository
+     that is not public can't protect a branch (unverified), so "PRs only" is
+     a rule people follow there;
    - files your own work as issues labelled `human` + `do not automate`:
      the token above, Dependabot's first PR, rewriting the README and
      `CLAUDE.md` around the product, and Telegram and Grafana, each optional
@@ -317,7 +317,7 @@ flowchart LR
    open dependencies, and takes at most three per run.
 3. **A pull request**, written by an `implementer` agent in its own worktree.
    `verify` is the one check the coordinator waits for before merging;
-   nothing mechanical requires it on a free-plan private repository. The code review, security review and `pr checks` (test census and cross-PR
+   nothing mechanical requires it on a free-plan repository until branch protection lands (#340). The code review, security review and `pr checks` (test census and cross-PR
    conflict check) comment on it but don't block it.
 4. **Merge deploys whatever has a `deploy` block.** By default nothing does
    — `npm run deploy:add` is what adds one — but a deployed app builds from
