@@ -25,7 +25,8 @@ product, under a heading such as "the controls everything else leans on"; in
 the base, the statement that nothing is served). Read that list. A change that
 weakens a listed control, or adds exposure with no matching update to that
 document, is a finding. If the document names no controls and the repository
-serves or stores data, that is itself a finding, ranked high.
+serves or stores data, that is itself a finding, ranked high. A document
+that states nothing is served or stored satisfies this rule.
 
 ## What to look for
 
