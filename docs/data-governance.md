@@ -71,7 +71,10 @@ Three jobs run branch code with something live in the step. Two are in
 review and the security review. The third is the `pr checks` job in
 `.github/workflows/pr-checks.yml`, which carries a write-scoped token instead
 and is described after them. Each one checks out the pull request and runs a
-script from that checkout before its main work starts.
+script from that checkout before its main work starts. Every checkout sets
+`persist-credentials: false`, so none leaves a token in `.git/config` for that
+script to read; a test (`scripts/test/checkout-credentials.test.ts`) fails on
+any that does not.
 
 ```yaml
 - name: Checkout repository

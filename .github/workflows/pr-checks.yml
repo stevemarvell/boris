@@ -85,6 +85,8 @@ jobs:
           # histories, which parseMergeTree reads as "could not run" rather
           # than "clean" on purpose.
           fetch-depth: 0
+          # Branch code runs in this job; leave no token in .git/config (#336).
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -137,6 +139,7 @@ jobs:
         if: ${{ !cancelled() && github.event.action != 'edited' }}
         env:
           OPEN_PRS: ${{ steps.open.outputs.json }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           # The script decides which heads, because MAX_PULL_REQUESTS is its
@@ -144,7 +147,9 @@ jobs:
           # it is reported on whether or not the ceiling would have kept it.
           node scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
           if [ -s refs.txt ]; then
-            xargs -r git fetch --no-tags origin < refs.txt
+            # The checkout keeps no token (#336), so authenticate this one
+            # fetch with a header that exists only for the command.
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" fetch --no-tags origin $(cat refs.txt)
           fi
 
       - name: Say what collides with what
