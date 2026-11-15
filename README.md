@@ -125,8 +125,7 @@ it. An empty one is accepted, but one with any branch is refused.
 
    `GH_REPO` is needed until #284 is fixed: with two remotes, `gh secret
    list` fails with "multiple remotes detected", even after
-   `gh repo set-default`. `check` also files "Add CLAUDE_CODE_OAUTH_TOKEN"
-   when the secret is already set (#285); close that issue by hand.
+   `gh repo set-default`.
 
    Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
    exact command or click-path). It exits 0 only when no ✋ remains. It can be
