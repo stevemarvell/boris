@@ -72,9 +72,11 @@ jobs:
     # request's own checkout may run in it (#359): both scripts are executed
     # from `base-scripts/`, a separate checkout of the base commit. The census
     # and contention steps compare the pull request's tree (the main checkout,
-    # which is only read through git) against that base; branch code is never
-    # executed here. A pull request that edits either script is therefore
-    # judged by the unedited one, and its edit takes effect once merged.
+    # which is only read through git) against that base. A pull request that
+    # edits either script is therefore judged by the unedited one, and its edit
+    # takes effect once merged. This closes script edits, not workflow edits:
+    # on pull_request this file is read from the pull request's ref, so an edit
+    # to it runs with the token (bounded by one writer; see the doc).
     # `docs/data-governance.md` records the bound and what voids it. No secrets
     # other than the token are in scope.
     permissions:
