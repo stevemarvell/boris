@@ -4,12 +4,13 @@
 // state rather than written in advance. The choice is still made by fixed
 // rules, not by judgement, so that it can be tested and read back:
 //
-// 1. Skip anything a person owns: `human`, `do not automate`, or any
+// 1. First skip an issue not written by the owner or someone with write access:
+//    the repository is public, so anyone can open one (`trusted`). This runs
+//    before every other skip, so a stranger's title is never printed, whatever
+//    labels the issue carries. Then skip anything a person owns: `human`, `do not automate`, or any
 //    `blocked…` label (CLAUDE.md: work that needs a person is labelled, not
 //    attempted). Skip a `template` too: it is a blank scaffold a person
 //    copies, and filling it in is never an agent's job (CLAUDE.md).
-//    Skip an issue not written by the owner or someone with write access: the
-//    repository is public, so anyone can open one (`trusted`).
 // 2. Skip anything already in flight: an open pull request whose body names
 //    the issue with Closes/Fixes/Resolves/Refs.
 // 3. Skip anything whose body says "Depends on #<n>" for an issue still open.
@@ -113,15 +114,6 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissio
   const skip = [];
 
   for (const issue of issues) {
-    if (issue.labels.includes('template')) {
-      skip.push({ number: issue.number, title: issue.title, reason: 'a template, copied by a person' });
-      continue;
-    }
-    const person = issue.labels.filter(PERSON);
-    if (person.length) {
-      skip.push({ number: issue.number, title: issue.title, reason: `needs a person (${person.join(', ')})` });
-      continue;
-    }
     if (!trusted(issue, permissionOf)) {
       // A stranger's title is text the loop would otherwise print: leave it out.
       skip.push({
@@ -130,6 +122,15 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissio
         author: issue.user?.login ?? 'unknown',
         association: issue.authorAssociation ?? 'unknown',
       });
+      continue;
+    }
+    if (issue.labels.includes('template')) {
+      skip.push({ number: issue.number, title: issue.title, reason: 'a template, copied by a person' });
+      continue;
+    }
+    const person = issue.labels.filter(PERSON);
+    if (person.length) {
+      skip.push({ number: issue.number, title: issue.title, reason: `needs a person (${person.join(', ')})` });
       continue;
     }
     if (claimed.has(issue.number)) {

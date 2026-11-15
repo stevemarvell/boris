@@ -96,6 +96,20 @@ it. An empty one is accepted, but one with any branch is refused.
    starter's eslint and vitest pins with the root's (`tooling.test.ts`
    fails until they match), then run `npx npm@11 install`.
 
+   **Cloud setup script.** To install the toolchains once when a Claude Code
+   cloud environment is built, rather than on every session start, save this as
+   the environment's setup script (it runs after the repositories are cloned
+   and before Claude starts). The directory is the repository's name; a
+   product's generated `README.md` carries the line with its own name filled
+   in. An agent saves it with
+   the cloud environment tools (`update_environment`). The `SessionStart` hook
+   stays as the fallback for an environment with no setup script, and skips
+   the install when `node_modules` and each Python `.venv` are current.
+
+   ```bash
+   if [ -d boris ]; then (cd boris && npm run bootstrap); fi
+   ```
+
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
    Run `claude setup-token`, then set it on the new repository by name:
    the project has two remotes (`origin` and the fetch-only base), so `gh`
