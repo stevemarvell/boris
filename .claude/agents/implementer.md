@@ -70,11 +70,16 @@ changing anything.
 
 ## When the work needs a person
 
-If the task turns out to need a person (a dashboard behind a login, money,
-a credential, or a decision the plan or the issue leaves open), stop
-there. Open no pull request and push nothing half-done. Report what you
-found and what remains, leading with that. Labelling the issue `human` is
-the coordinator's job, from your report (`docs/sops.md` SOP 2).
+If the task turns out to need a person (work nobody can get back, a
+dashboard behind a login, money, a credential, or an action reaching a
+third party), stop there. Open no pull request and push nothing half-done.
+Report what you found and what remains, leading with that. Labelling the
+issue `human` is the coordinator's job, from your report (`docs/sops.md`
+SOP 2).
+
+A decision the issue leaves open is yours: pick the option you would
+recommend, do it, and list it under "Decisions made" in the pull request
+body with the reason (SOP 6).
 
 ## Finishing
 

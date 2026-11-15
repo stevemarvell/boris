@@ -7,15 +7,20 @@ import {
   claimedIssues,
   fetchOpen,
   openDependencies,
+  permissionLookup,
   render,
   triage,
+  trusted,
 } from '../triage.mjs';
 
-const issue = (number: number, labels: string[], body = '') => ({
+const OWNER = 'owner';
+const issue = (number: number, labels: string[], body = '', login = OWNER, association = 'OWNER') => ({
   number,
   title: `issue ${number}`,
   labels,
   body,
+  user: { login },
+  authorAssociation: association,
 });
 
 describe('triage', () => {
@@ -150,6 +155,8 @@ describe('fetchOpen', () => {
     title: `item ${number}`,
     body: `body ${number}`,
     labels: [{ name: 'high' }],
+    user: { login: 'someone' },
+    author_association: 'OWNER',
     ...extra,
   });
 
@@ -163,7 +170,7 @@ describe('fetchOpen', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe('api');
     expect(calls[0]![1]).toMatch(/^repos\/\{owner\}\/\{repo\}\/issues\?state=open&per_page=100&page=1$/);
-    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', labels: ['high'] }]);
+    expect(issues).toEqual([{ number: 1, title: 'item 1', body: 'body 1', user: { login: 'someone' }, authorAssociation: 'OWNER', labels: ['high'] }]);
     expect(pullRequests).toEqual([{ number: 2, body: 'Closes #1' }]);
     expect(truncated).toBe(false);
   });
@@ -224,5 +231,125 @@ describe('fetchOpen', () => {
       throw new Error('gh api failed: HTTP 403');
     };
     expect(() => fetchOpen(run)).toThrow(/HTTP 403/);
+  });
+});
+
+describe('trusted: only text written by the owner or someone with write access', () => {
+  const held = (association: string, labels: string[] = []) => ({
+    number: 1,
+    reason: 'not written by the owner or someone with write access',
+    author: 'someone',
+    association,
+    labels,
+  });
+
+  it('picks an OWNER issue without any permission lookup, ranked or not', () => {
+    const permissionOf = () => {
+      throw new Error('must not be called');
+    };
+    for (const labels of [[], ['high']]) {
+      const { work } = triage([issue(1, labels, '', 'someone', 'OWNER')], [], undefined, permissionOf);
+      expect(work.map((w) => w.number)).toEqual([1]);
+    }
+  });
+
+  it('picks a MEMBER or COLLABORATOR whose permission is admin, maintain or write', () => {
+    for (const association of ['MEMBER', 'COLLABORATOR']) {
+      for (const permission of ['admin', 'maintain', 'write']) {
+        const asked: string[] = [];
+        const permissionOf = (login: string) => (asked.push(login), permission);
+        const { work } = triage([issue(1, [], '', 'someone', association)], [], undefined, permissionOf);
+        expect(work.map((w) => w.number)).toEqual([1]);
+        expect(asked).toEqual(['someone']);
+      }
+    }
+  });
+
+  it('holds a MEMBER or COLLABORATOR whose permission is read, triage or none, even with a rank label', () => {
+    for (const association of ['MEMBER', 'COLLABORATOR']) {
+      for (const permission of ['read', 'triage', 'none']) {
+        for (const labels of [[], ['critical']]) {
+          const result = triage([issue(1, labels, '', 'someone', association)], [], undefined, () => permission);
+          expect(result.work).toEqual([]);
+          expect(result.skip[0]).toMatchObject({ reason: held(association).reason, author: 'someone', association });
+        }
+      }
+    }
+  });
+
+  it('holds a MEMBER or COLLABORATOR when the lookup throws, and with no lookup at all', () => {
+    const boom = () => {
+      throw new Error('HTTP 404');
+    };
+    for (const association of ['MEMBER', 'COLLABORATOR']) {
+      expect(triage([issue(1, [], '', 'someone', association)], [], undefined, boom).work).toEqual([]);
+      expect(triage([issue(1, [], '', 'someone', association)], []).work).toEqual([]);
+    }
+  });
+
+  it('holds a MEMBER with no login recorded', () => {
+    const noLogin = { number: 1, title: 't', labels: [], authorAssociation: 'MEMBER' };
+    expect(trusted(noLogin, () => 'admin')).toBe(false);
+  });
+
+  it('holds a CONTRIBUTOR or NONE issue even with a rank label and a permissive lookup', () => {
+    for (const association of ['CONTRIBUTOR', 'NONE', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR']) {
+      for (const labels of [[], ['critical']]) {
+        const result = triage([issue(1, labels, '', 'stranger', association), issue(2, [])], [], undefined, () => 'admin');
+        expect(result.work.map((w) => w.number)).toEqual([2]);
+        expect(result.skip).toEqual([
+          { number: 1, reason: held(association).reason, author: 'stranger', association },
+        ]);
+      }
+    }
+  });
+
+  it('renders the held issue with its author, association and the way to work it', () => {
+    const text = render(triage([issue(1, ['high'], '', 'stranger', 'NONE')], []));
+    expect(text).toContain('#1 opened by stranger (NONE); copy it into an owner issue to work it\n');
+    expect(text).not.toContain('issue 1');
+    expect(JSON.stringify(triage([issue(1, ['high'], '', 'stranger', 'NONE')], []))).not.toContain('issue 1');
+  });
+
+  it('holds an issue with no association recorded', () => {
+    expect(trusted({ number: 1, title: 't', labels: ['high'], user: { login: OWNER } }, () => 'admin')).toBe(false);
+    expect(triage([{ number: 1, title: 't', labels: [] }], []).skip[0]).toMatchObject({ author: 'unknown', association: 'unknown' });
+  });
+});
+
+describe('permissionLookup', () => {
+  it('reads the permission over REST and caches it per login', () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => {
+      calls.push(args);
+      return JSON.stringify({ permission: 'write', user: { login: 'someone' } });
+    };
+    const permissionOf = permissionLookup(run);
+    expect(permissionOf('someone')).toBe('write');
+    expect(permissionOf('someone')).toBe('write');
+    expect(calls).toEqual([['api', 'repos/{owner}/{repo}/collaborators/someone/permission']]);
+  });
+
+  it('lets a failed lookup throw, so trusted holds the issue', () => {
+    const permissionOf = permissionLookup(() => {
+      throw new Error('HTTP 404');
+    });
+    expect(() => permissionOf('stranger')).toThrow(/404/);
+    expect(trusted({ number: 1, title: 't', labels: [], user: { login: 'stranger' }, authorAssociation: 'COLLABORATOR' }, permissionOf)).toBe(false);
+  });
+});
+
+describe('fetchOpen carries the author association', () => {
+  it("feeds triage: a stranger's ranked issue read from REST is held", () => {
+    const run = () =>
+      JSON.stringify([
+        { number: 1, title: 'a', body: '', labels: [{ name: 'high' }], user: { login: 'stranger' }, author_association: 'NONE' },
+        { number: 2, title: 'b', body: '', labels: [], user: { login: OWNER }, author_association: 'OWNER' },
+      ]);
+    const { issues, pullRequests } = fetchOpen(run);
+    expect(issues.map((i) => i.authorAssociation)).toEqual(['NONE', 'OWNER']);
+    const result = triage(issues, pullRequests);
+    expect(result.work.map((w) => w.number)).toEqual([2]);
+    expect(result.skip[0]).toMatchObject({ number: 1, author: 'stranger', association: 'NONE' });
   });
 });
