@@ -18,7 +18,8 @@ Ship the current working-tree changes:
    sessions refuse (#225).
 5. Report the PR URL. Merge once CI is green (`merge_pull_request`, or `gh
    api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=squash`);
-   stop and ask for anything destructive, outward-facing, or beyond what was
-   asked.
+   stop only for work nobody can get back, money, or anything reaching a
+   third party (`docs/sops.md` SOP 6); decide everything else and say what was
+   decided in the pull request body.
 
 $ARGUMENTS
