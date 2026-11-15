@@ -417,18 +417,41 @@ describe('runCheck', () => {
     expect(calls.some((c) => c.includes('delete_branch_on_merge=true'))).toBe(false);
   });
 
+  // The token issue is skipped while the secret is set (#285), so the filing
+  // tests that exercise it run with the secret missing.
+  const tokenMissing = { ...baseResponses, 'gh secret list': { status: 0, stdout: '[]', stderr: '' } };
+  const tokenIssueCalls = (calls: string[][]) =>
+    calls.filter((c) => c.includes('POST') && c.includes(`title=${OWNER_ISSUES[0]!.title}`));
+  const filingRun = (calls: string[][], responses: typeof baseResponses, existing: string[]) => async (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args]);
+    if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
+      return { status: 0, stdout: JSON.stringify(existing.map((t) => restIssue(t))), stderr: '' };
+    }
+    if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
+    return run(responses)(cmd, args);
+  };
+  const others = OWNER_ISSUES.slice(1).map((i) => i.title);
+
+  it('with the token secret set and no such issue, reports it set and files no token issue (#285)', async () => {
+    const calls: string[][] = [];
+    const result = await runCheck({ root: neutral, run: filingRun(calls, baseResponses, others), skipVerify: true, runIdentityTest: identityOk });
+    expect(result.lines.some((l) => l.includes('CLAUDE_CODE_OAUTH_TOKEN is set'))).toBe(true);
+    expect(tokenIssueCalls(calls)).toHaveLength(0);
+    expect(result.lines.some((l) => l.includes(OWNER_ISSUES[0]!.title))).toBe(false);
+  });
+
+  it('with the token secret set and its issue already open, files nothing and leaves it alone (#285)', async () => {
+    const calls: string[][] = [];
+    await runCheck({ root: neutral, run: filingRun(calls, baseResponses, OWNER_ISSUES.map((i) => i.title)), skipVerify: true, runIdentityTest: identityOk });
+    expect(calls.some((c) => c.includes('POST') && c[1] === 'api' && c[2]!.endsWith('/issues'))).toBe(false);
+    expect(calls.some((c) => c.includes('PATCH') || c.includes('close'))).toBe(false);
+  });
+
   it('files a missing owner issue, labelled human and do not automate, and reports it fixed', async () => {
     const calls: string[][] = [];
     const result = await runCheck({
       root: neutral,
-      run: async (cmd, args) => {
-        calls.push([cmd, ...args]);
-        if (cmd === 'gh' && args[0] === 'api' && args[1]!.includes('/issues?state=all')) {
-          return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
-        }
-        if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
-        return run(baseResponses)(cmd, args);
-      },
+      run: filingRun(calls, tokenMissing, others),
       skipVerify: true,
       runIdentityTest: identityOk,
     });
@@ -461,7 +484,7 @@ describe('runCheck', () => {
           return { status: 0, stdout: JSON.stringify([]), stderr: '' };
         }
         if (cmd === 'gh' && args.includes('POST') && args[1]!.endsWith('/issues')) return { status: 0, stdout: '', stderr: '' };
-        return run(baseResponses)(cmd, args);
+        return run(tokenMissing)(cmd, args);
       },
       skipVerify: true,
       runIdentityTest: identityOk,
@@ -620,7 +643,7 @@ describe('runCheck', () => {
             return { status: 0, stdout: JSON.stringify(OWNER_ISSUES.slice(1).map((i) => restIssue(i.title))), stderr: '' };
           }
           if (cmd === 'gh' && args[1] === 'user') return { status: 1, stdout: '', stderr: 'HTTP 403' };
-          return run(baseResponses)(cmd, args);
+          return run(tokenMissing)(cmd, args);
         },
         skipVerify: true,
         runIdentityTest: identityOk,
