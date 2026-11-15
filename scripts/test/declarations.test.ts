@@ -20,6 +20,11 @@ function compare(dmts: string, root: string): string[] {
   ];
 }
 
+/** Problems across a list of .d.mts files. */
+function comparePairs(dmtsFiles: string[], root: string): string[] {
+  return dmtsFiles.filter((f) => f.endsWith('.d.mts')).flatMap((p) => compare(p, root));
+}
+
 function withDir(files: Record<string, string>, body: (dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), 'dmts-'));
   try {
@@ -57,6 +62,22 @@ export default function () {}
     expect(runtimeExports(src)).toEqual(['kept']);
   });
 
+  it('keeps a // or glob inside a string from acting as a comment', () => {
+    const src = "const G = ['.claude/**', 'a // b'];\nexport const one = 1;\nconst T = `\nexport const fake = 1;\n`;\nexport const two = 2; // tail */\n";
+    expect(runtimeExports(src)).toEqual(['one', 'two']);
+  });
+
+  it('keeps a quote or backtick inside a regex literal from opening a string', () => {
+    const src = "const Q = text.replace(/\"/g, '&quot;').replace(/(`+)x/g, 'y');\nexport const kept = 1;\n";
+    expect(runtimeExports(src)).toEqual(['kept']);
+  });
+
+  it('refuses export forms it cannot read rather than missing names', () => {
+    expect(() => runtimeExports("export * from './x.mjs';\n")).toThrow(/unsupported export form/);
+    expect(() => runtimeExports('export const { a, b } = obj;\n')).toThrow(/unsupported export form/);
+    expect(() => declaredExports('export declare const [a]: number[];\n')).toThrow(/unsupported export form/);
+  });
+
   it('reads declared value exports and skips types', () => {
     const src = `
 export function a(): void;
@@ -76,12 +97,14 @@ export default x;
 describe('declarations match exports', () => {
   // Timeout: one file-listing spawn (about 30 ms quiet); 15 s.
   it('every tracked .d.mts declares the same names its .mjs exports', { timeout: 15_000 }, () => {
-    const pairs = worktreeFiles(ROOT).filter((f) => f.endsWith('.d.mts'));
-    expect(pairs.flatMap((p) => compare(p, ROOT))).toEqual([]);
+    const files = worktreeFiles(ROOT);
+    // Guard against comparing nothing (listing failed): this repo has dozens.
+    expect(files.filter((f) => f.endsWith('.d.mts')).length).toBeGreaterThan(0);
+    expect(comparePairs(files, ROOT)).toEqual([]);
   });
 
-  it('passes with no pairs at all', () => {
-    expect([].flatMap((p: string) => compare(p, ROOT))).toEqual([]);
+  it('finds nothing to report for a file list with no .d.mts in it', () => {
+    expect(comparePairs(['a.mjs', 'README.md'], ROOT)).toEqual([]);
   });
 
   it('fails naming the file and an undeclared export', () => {
