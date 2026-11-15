@@ -9,6 +9,7 @@ import {
   STATE_DIR,
   ROOT,
   decide,
+  parseStatus,
   plan,
   parseStopInput,
   readCount,
@@ -98,6 +99,25 @@ describe('plan', () => {
   });
 });
 
+describe('parseStatus', () => {
+  it('keeps both paths of a staged rename, so a move between apps plans both', () => {
+    const raw = 'R  apps/web/a.py\0apps/api/a.py\0 M scripts/x.mjs\0';
+    const files = parseStatus(raw);
+    expect(files).toEqual(['apps/web/a.py', 'apps/api/a.py', 'scripts/x.mjs']);
+    expect(plan(files, fixture)).toEqual([HARNESS, API, WEB]);
+  });
+
+  it('returns a path with a space unquoted, and it matches', () => {
+    const files = parseStatus('?? apps/api/my file.py\0');
+    expect(files).toEqual(['apps/api/my file.py']);
+    expect(plan(files, fixture)).toEqual([API]);
+  });
+
+  it('reads an empty status as nothing changed', () => {
+    expect(parseStatus('')).toEqual([]);
+  });
+});
+
 describe('main', () => {
   // Runs the real hook in a throwaway repository whose two checks are fakes:
   // the harness script and scripts/verify-apps.mjs each append to a log, so
@@ -119,6 +139,10 @@ describe('main', () => {
       join(repo, 'project.json'),
       JSON.stringify({ name: 'fixture', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'], verify: ['true'] } } }),
     );
+    // Commit the scaffolding so only the files below show as changed.
+    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, timeout: 10_000 });
+    git('add', '-A');
+    git('commit', '-q', '-m', 'scaffold');
     // One engine file and one app file changed: the plan is harness, then api.
     writeFileSync(join(repo, 'scripts/x.mjs'), 'x');
     writeFileSync(join(repo, 'apps/api/y.py'), 'y');

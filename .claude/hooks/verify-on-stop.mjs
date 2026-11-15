@@ -54,11 +54,31 @@ const run = (command) =>
 // triggers this hook. git does the matching.
 export function changedFiles(paths = [...verifiedPaths(loadProject()), ...APP_CHECK_DRIVERS]) {
   // -uall lists each untracked file, not the directory holding them, so a new
-  // directory cannot hide which path inside it changed.
-  return execFileSync('git', ['status', '--porcelain', '-uall', '--', ...paths], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
-    .map((line) => line.slice(3).trim())
-    .filter(Boolean);
+  // directory cannot hide which path inside it changed. -z leaves paths
+  // unquoted and unescaped.
+  return parseStatus(
+    execFileSync('git', ['status', '--porcelain=v1', '-z', '-uall', '--', ...paths], { cwd: ROOT, encoding: 'utf8' }),
+  );
+}
+
+/**
+ * The paths in `git status --porcelain=v1 -z` output. An entry is
+ * `XY <path>\0`; a rename or copy is followed by `<original>\0`, and both
+ * paths count as changed. Pure, so it is testable.
+ */
+export function parseStatus(raw) {
+  const fields = raw.split('\0');
+  const files = [];
+  for (let i = 0; i < fields.length; i++) {
+    const entry = fields[i];
+    if (entry.length < 4) continue;
+    files.push(entry.slice(3));
+    if (/[RC]/.test(entry.slice(0, 2))) {
+      i++;
+      if (fields[i]) files.push(fields[i]);
+    }
+  }
+  return files;
 }
 
 /**
