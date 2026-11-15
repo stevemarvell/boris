@@ -1,6 +1,7 @@
 // Build the documentation site that Vercel serves alongside the web app.
 //
-// GitHub Pages needs a paid plan on a private repository, so the step-0
+// The docs are served from Vercel, not GitHub Pages (this repository is
+// public as of 2026-11-15), so the step-0
 // page and the Markdown under docs/ are rendered into apps/web/public/docs
 // instead, which Vite copies verbatim into the bundle, so it lands at /docs
 // on the Vercel deployment.
@@ -132,7 +133,7 @@ export function indexPage(rendered = [], name, { stepZero = true } = {}) {
 
   const body = `<h1>${escapeHtml(name)} docs</h1>
 <p>Everything this project publishes about itself, built from the repository
-into this deployment so a private repository can still publish it.</p>
+into this deployment, independent of GitHub Pages.</p>
 <ul class="cards">
 ${cards
   .map(
