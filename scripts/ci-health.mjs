@@ -5,14 +5,17 @@
 // runner ever assigned: `runner_id: 0`, `runner_name: ""`. A job that ran had
 // a runner, however fast it failed, so duration is not used: a real failure
 // can be quick too, and a pull request cannot fake a missing runner by failing
-// its own verify early. Input is the job objects from
+// its own verify early. Observed: the 2026-11-14 refused job had
+// `runner_id: 0`, `runner_name: ""` (scripts/test/fixtures/refused-job-2026-11-14.json).
+// Only `runner_id: 0` counts. A never-assigned job reporting `null` or no
+// `runner_id` has not been observed; it is treated as an ordinary red check,
+// which fails toward waiting for CI rather than toward the local path. Input is the job objects from
 // `gh api repos/{owner}/{repo}/actions/jobs/<check_run_id>` (a check run's id
 // is its job id), one per failed check run.
 import { pathToFileURL } from 'node:url';
 
 /** True when no runner was ever assigned to the job. */
-const neverGotARunner = (job) =>
-  job?.runner_id === 0 || (job?.runner_id == null && !job?.runner_name);
+const neverGotARunner = (job) => job?.runner_id === 0;
 
 /**
  * True when there is at least one job and every one is `completed` with
