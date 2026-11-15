@@ -125,19 +125,34 @@ runner. One success, one failure that had a runner, or one unfinished job makes
 it false, and the red check is an ordinary red check (step 2 onward, as before).
 Duration is not used, and logs are not fetched.
 
-When it is true, classify it as **CI did not run**. A pull request that touches
-`.github/workflows/`, or is authored by `dependabot[bot]`, is never eligible for
-the local path below: it waits for CI. The path is only for the owner's own
-agents' pull requests, because the branch's code runs as the coordinator's user
-and can read files outside the empty `HOME` below
-(`docs/data-governance.md`, "What CI holds"). Otherwise:
+When it is true, classify it as **CI did not run**. The local path is an
+allowlist, because the branch's code runs as the coordinator's user and can
+read files outside the empty `HOME` below (`docs/data-governance.md`, "What CI
+holds"). A pull request is eligible only if all of these hold, read from
+`gh pr view <n> --json author,headRepository,files`:
+
+- `author.login` is the repository owner's login;
+- `headRepository` is this repository (not a fork);
+- it touches nothing under `.github/workflows/`.
+
+Anything else (a stranger, a fork, `dependabot[bot]`, a workflow change)
+waits for CI; say so on the pull request and stop. Otherwise:
 
 1. **Verify locally.** In a clean worktree on the pull request's head, run
    `npm run verify`, with `TEST_DATABASE_URL` set when
    `node scripts/project.mjs toolchains` prints `postgres=true`. The run
    executes the branch's code, so give it an allowlisted environment, not the
-   coordinator's: `env -i PATH="$PATH" HOME="$(mktemp -d)" npm run verify`
-   (plus `TEST_DATABASE_URL=...` when needed).
+   coordinator's: `env -i PATH="$PATH" HOME="$(mktemp -d)"
+   PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" npm run verify`
+   (plus `TEST_DATABASE_URL=...` when needed; `$HOME` there is the
+   coordinator's, expanded before `env` clears it). It passes exactly three
+   variables: `PATH` to find node, npm and git; a fresh empty `HOME`, so no
+   credential files, npm or git config are readable; and
+   `PLAYWRIGHT_BROWSERS_PATH`, because the web e2e suite's Chromium lives
+   under the real home and an empty one makes it fail with "Looks like
+   Playwright was just installed" (run without it, develop at f044425 failed
+   6 e2e tests; with it, all of `verify` exited 0). It covers every suite
+   `npm run verify` covers. No token or secret is passed.
    Start the `postgres` service the machine has, or the image pinned in
    `.github/workflows/verify.yml`. If neither is available, say so in the
    comment below and **merge is refused**.
@@ -153,8 +168,12 @@ and can read files outside the empty `HOME` below
 4. **Red local `verify`**: the pull request stays open and the findings go to
    an implementer under step 3's two-round ceiling. **Green**: step 4's merge
    condition "verify is green" is met by that local run, and only under this
-   rule. Just before merging, re-read the pull request's head sha and merge
-   only if it equals the sha in the comment; a push since means verify again.
+   rule. "Verify is green" here is self-attested by the coordinator, not
+   mechanically observed: this is discipline, as SOP 1 describes, and nothing
+   stops a false claim. Just before merging, re-read the pull request's head
+   sha from the API and merge only if it equals the sha you verified (the sha
+   you ran `git rev-parse HEAD` on, not the one in your own comment); a push
+   since means verify again.
 
 ### 2. Read both automated reviews
 

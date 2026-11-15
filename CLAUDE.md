@@ -138,11 +138,10 @@ sync. Repository-specific facts go in the sections outside this block. -->
 ## Running it
 
 **Editing dependencies needs npm 11.** npm 10 cannot resolve `vitest` 4's
-optional peer set — its arborist crashes with *"Cannot read properties of
+optional peer set: its arborist crashes with *"Cannot read properties of
 null (reading 'edgesOut')"* on `npm install`, `npm install --workspace` and
-`npm ci` alike. The committed lockfile is lockfileVersion 3 and `npm ci`
-reads it fine under npm 10, which is what CI runs; but if you change a
-dependency, do the lock step with `npx npm@11 install`.
+`npm ci`. The lockfile is version 3 and `npm ci` reads it fine under npm 10
+(what CI runs); to change a dependency, lock with `npx npm@11 install`.
 
 ```bash
 npm run verify                     # everything, about a minute

@@ -17,8 +17,11 @@ describe('ciDidNotRun', () => {
   it('is true for a refused job', () => {
     expect(ciDidNotRun([refused, { ...refused }])).toBe(true);
   });
-  it('is true when runner_id is absent and runner_name is empty', () => {
-    expect(ciDidNotRun([{ status: 'completed', conclusion: 'failure', runner_name: '' }])).toBe(true);
+  it('is false when runner_id is absent, even with an empty runner_name', () => {
+    expect(ciDidNotRun([{ status: 'completed', conclusion: 'failure', runner_name: '' }])).toBe(false);
+  });
+  it('is false when runner_id is null', () => {
+    expect(ciDidNotRun([{ ...refused, runner_id: null }])).toBe(false);
   });
   it('is false for a fast real failure that had a runner', () => {
     expect(ciDidNotRun([realFast])).toBe(false);
