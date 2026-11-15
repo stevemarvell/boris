@@ -128,12 +128,22 @@ Duration is not used, and logs are not fetched.
 When it is true, classify it as **CI did not run**. The local path is an
 allowlist, because the branch's code runs as the coordinator's user and can
 read files outside the empty `HOME` below (`docs/data-governance.md`, "What CI
-holds"). A pull request is eligible only if all of these hold, read from
-`gh pr view <n> --json author,headRepository,files`:
+holds"). A pull request is eligible only if all of these hold, read over
+REST (`gh pr view` is GraphQL, which cloud sessions refuse):
 
-- `author.login` is the repository owner's login;
-- `headRepository` is this repository (not a fork);
-- it touches nothing under `.github/workflows/`.
+```bash
+gh api repos/{owner}/{repo}/pulls/<n> -q '.user.login, .head.repo.full_name'
+gh api repos/{owner}/{repo}/pulls/<n>/files --paginate -q '.[].filename'
+```
+
+- the first line (`user.login`) is the repository owner's login;
+- the second (`head.repo.full_name`) is this repository, not a fork;
+- no filename starts with `.github/workflows/`.
+
+If the file list cannot be read completely (an error, or a page missing), the
+pull request waits for CI. The allowlist checks who opened the pull request,
+not who wrote its commits, so it assumes one writer, the owner's own agents; a
+second writer with push access voids it (`docs/data-governance.md`).
 
 Anything else (a stranger, a fork, `dependabot[bot]`, a workflow change)
 waits for CI; say so on the pull request and stop. Otherwise:
@@ -143,9 +153,11 @@ waits for CI; say so on the pull request and stop. Otherwise:
    `node scripts/project.mjs toolchains` prints `postgres=true`. The run
    executes the branch's code, so give it an allowlisted environment, not the
    coordinator's: `env -i PATH="$PATH" HOME="$(mktemp -d)"
-   PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" npm run verify`
-   (plus `TEST_DATABASE_URL=...` when needed; `$HOME` there is the
-   coordinator's, expanded before `env` clears it). It passes exactly three
+   PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}" npm run verify`
+   (plus `TEST_DATABASE_URL=...` when needed; both expand in the
+   coordinator's shell before `env` clears it). The coordinator's own
+   `PLAYWRIGHT_BROWSERS_PATH` is used when set; `$HOME/.cache/ms-playwright` is
+   only the Linux default (on macOS it is `~/Library/Caches/ms-playwright`). It passes exactly three
    variables: `PATH` to find node, npm and git; a fresh empty `HOME`, so no
    credential files, npm or git config are readable; and
    `PLAYWRIGHT_BROWSERS_PATH`, because the web e2e suite's Chromium lives
