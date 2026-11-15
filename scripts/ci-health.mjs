@@ -1,35 +1,45 @@
-// Tell "CI did not run" from "CI ran and failed", from the check runs alone.
+// Tell "CI did not run" from "CI ran and failed", from the jobs alone.
 //
 // When a repository's Actions allowance is spent, GitHub refuses every job
-// before a runner starts: each check run completes `failure` within seconds
-// and has no log. Reading it as an ordinary red `verify` sends the driver
-// hunting for a code defect that is not there. A real failure runs the
-// toolchain, which takes longer than this. Only the check-run fields are
-// used; fetching logs is not needed (drive-pr, "When CI does not run").
+// before a runner starts. The job completes `failure` with no steps and no
+// runner ever assigned: `runner_id: 0`, `runner_name: ""`. A job that ran had
+// a runner, however fast it failed, so duration is not used: a real failure
+// can be quick too, and a pull request cannot fake a missing runner by failing
+// its own verify early. Input is the job objects from
+// `gh api repos/{owner}/{repo}/actions/jobs/<check_run_id>` (a check run's id
+// is its job id), one per failed check run.
+import { pathToFileURL } from 'node:url';
 
-export const FAST_FAILURE_MS = 30_000;
+/** True when no runner was ever assigned to the job. */
+const neverGotARunner = (job) =>
+  job?.runner_id === 0 || (job?.runner_id == null && !job?.runner_name);
 
 /**
- * True when there is at least one check run, every one is completed with
- * conclusion `failure`, and each finished less than 30 seconds after it
- * started. A single success, a slow failure, an unfinished run or an
- * unreadable timestamp makes it false: that is an ordinary check result.
- * @param {Array<{status?: string, conclusion?: string | null, started_at?: string | null, completed_at?: string | null}> | null | undefined} checkRuns
+ * True when there is at least one job and every one is `completed` with
+ * conclusion `failure` and never got a runner. A success, a failure that had
+ * a runner, or an unfinished job makes it false: an ordinary check result.
+ * @param {Array<{status?: string, conclusion?: string | null, runner_id?: number | null, runner_name?: string | null}> | null | undefined} jobs
  */
-export function ciDidNotRun(checkRuns) {
-  if (!Array.isArray(checkRuns) || checkRuns.length === 0) return false;
-  return checkRuns.every((run) => {
-    if (!run || run.status !== 'completed' || run.conclusion !== 'failure') return false;
-    const ms = Date.parse(run.completed_at ?? '') - Date.parse(run.started_at ?? '');
-    return Number.isFinite(ms) && ms >= 0 && ms < FAST_FAILURE_MS;
-  });
+export function ciDidNotRun(jobs) {
+  if (!Array.isArray(jobs) || jobs.length === 0) return false;
+  return jobs.every(
+    (job) =>
+      job?.status === 'completed' && job.conclusion === 'failure' && neverGotARunner(job),
+  );
 }
 
-// CLI: `gh api repos/{owner}/{repo}/commits/<sha>/check-runs --jq .check_runs \
-//        | node scripts/ci-health.mjs` prints `true` or `false`.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// CLI: a JSON array of jobs on stdin; prints `true` or `false`; exit 2 on
+// unreadable input.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   let input = '';
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;
-  console.log(String(ciDidNotRun(JSON.parse(input))));
+  let jobs;
+  try {
+    jobs = JSON.parse(input);
+  } catch (err) {
+    console.error(`ci-health: stdin is not JSON: ${err.message}`);
+    process.exit(2);
+  }
+  console.log(String(ciDidNotRun(jobs)));
 }

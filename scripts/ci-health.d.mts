@@ -1,8 +1,7 @@
-export declare const FAST_FAILURE_MS: number;
-export interface CheckRun {
+export interface Job {
   status?: string;
   conclusion?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
+  runner_id?: number | null;
+  runner_name?: string | null;
 }
-export declare function ciDidNotRun(checkRuns: CheckRun[] | null | undefined): boolean;
+export declare function ciDidNotRun(jobs: Job[] | null | undefined): boolean;
