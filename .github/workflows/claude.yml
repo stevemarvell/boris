@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   claude:
-    # The `contains(..., '@claude')` checks alone would let anyone on the
-    # internet trigger this job — this is a public repository. The job's own
+    # On a public repository, the `contains(..., '@claude')` checks alone
+    # would let anyone on the internet trigger this job. The job's own
     # permissions are read-only and claude-code-action does its own actor
     # check, but this guard means we are not relying solely on those: only a
     # comment or review from an OWNER, MEMBER, or COLLABORATOR is allowed to
