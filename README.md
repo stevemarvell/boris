@@ -123,9 +123,6 @@ it. An empty one is accepted, but one with any branch is refused.
    node scripts/setup.mjs check   # --dry-run to change nothing, --skip-verify to skip the tests
    ```
 
-   `check` also files "Add CLAUDE_CODE_OAUTH_TOKEN" when the secret is
-   already set (#285); close that issue by hand.
-
    Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
    exact command or click-path). It exits 0 only when no ✋ remains. It can be
    re-run as often as you like and never duplicates anything. It:

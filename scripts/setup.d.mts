@@ -33,6 +33,8 @@ export interface CheckResult {
 export interface OwnerIssue {
   title: string;
   rank: 'critical' | 'high' | 'medium';
+  /** A repository secret this issue asks for; the issue is not filed while that secret is set. */
+  secret?: string;
   /** The issue text for `repo` (`owner/name`), so printed commands carry `-R owner/name`. */
   body: (repo: string) => string;
 }
@@ -72,7 +74,7 @@ export declare function missingPreflight(results: PreflightResult[]): PreflightR
 
 export declare function renderCheck(results: CheckLine[]): CheckResult;
 export declare function branchProtectionDecision(options: { isPrivate: boolean }): CheckLine;
-export declare function missingOwnerIssues(existingTitles: string[]): OwnerIssue[];
+export declare function missingOwnerIssues(existingTitles: string[], options?: { secretNames?: Set<string> }): OwnerIssue[];
 export declare function needsTemplateIssue(openIssues: { labels?: string[] }[]): boolean;
 
 export declare function runCheck(options?: {
