@@ -71,7 +71,12 @@ Three jobs run branch code with something live in the step. Two are in
 review and the security review. The third is the `pr checks` job in
 `.github/workflows/pr-checks.yml`, which carries a write-scoped token instead
 and is described after them. Each one checks out the pull request and runs a
-script from that checkout before its main work starts.
+script from that checkout before its main work starts. Every checkout sets
+`persist-credentials: false`, so none leaves a token in `.git/config` for that
+script to read; a test (`scripts/test/checkout-credentials.test.ts`) fails on
+any that does not. That closes the `.git/config` route only: `pr checks` still
+passes its token in the environment of two steps that run branch code (see
+below, follow-up #359).
 
 ```yaml
 - name: Checkout repository
@@ -167,8 +172,11 @@ the step that hands it the credential.
 credential, and it is in this list anyway, because the structure is identical:
 it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
 and `scripts/test-census.mjs` from *that* checkout, with `GITHUB_TOKEN` scoped
-`pull-requests: write` live in the job. (The census used to run in its own
-workflow with a read-only token; folding it in widened it to this scope.)
+`pull-requests: write` available to the job. The fetch and "Say what collides"
+steps hold that token in their environment and run `scripts/pr-contention.mjs`
+from the checkout. The census step holds no token, but it runs earlier in the
+same job, so it can still reach the later token-holding steps by writing
+`$GITHUB_ENV`, `$GITHUB_PATH` or `.git/config`.
 
 What that scope permits is wider than what the job does with it. GitHub has no
 comment-only permission, so the scope that lets it post and edit its own
@@ -182,7 +190,7 @@ The same two things bound it — `pull_request` rather than `pull_request_target
 and one account with write access — and the same trigger voids it. So on that
 day this job needs the same treatment as the other two: run
 `scripts/pr-contention.mjs` and `scripts/test-census.mjs` from the default
-branch rather than the branch under review. It is listed here because
+branch rather than the branch under review (#359). It is listed here because
 the remediation plan below has to be a complete list on the day it is used, and
 a job missing from the inventory is a job nobody remembers to fix.
 
