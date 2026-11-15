@@ -344,16 +344,15 @@ describe('the manifest', () => {
 
 // The same decisions with git stubbed, as the other tests here do.
 describe('untrusted previous sha', () => {
-  it.each(['--upload-pack=x', '--output=x', 'abc', 'A'.repeat(40), 'a'.repeat(39), 'a'.repeat(41), ' ' + 'a'.repeat(39)])(
-    'builds, running no git command, for %j',
-    (value) => {
+  it('builds, running no git command, for a value that is not a commit id', () => {
+    for (const value of ['--upload-pack=x', '--output=x', 'abc', 'A'.repeat(40), 'a'.repeat(39), 'a'.repeat(41), ' ' + 'a'.repeat(39)]) {
       const { git, calls } = fakeGit({ diff: { status: 0 } });
       const result = decide('api', { VERCEL_GIT_PREVIOUS_SHA: value }, git, FIXTURE);
-      expect(result.build).toBe(true);
-      expect(result.reason).toBe('previous deployment sha is not a commit id');
-      expect(calls).toEqual([]);
-    },
-  );
+      expect(result.build, value).toBe(true);
+      expect(result.reason, value).toBe('previous deployment sha is not a commit id');
+      expect(calls, value).toEqual([]);
+    }
+  });
 
   it('puts --end-of-options before the revision in cat-file, fetch and diff', () => {
     const { git, calls } = fakeGit({ 'cat-file': { status: 1 }, fetch: { status: 0 }, diff: { status: 1 } });

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -23,7 +23,8 @@ function* files(dir: string): Generator<string> {
 }
 
 describe('apps read nothing but `name` from project.json', () => {
-  const sources = readdirSync(join(ROOT, 'apps'))
+  // An engine-only product has no apps/ yet: nothing to read the manifest.
+  const sources = (existsSync(join(ROOT, 'apps')) ? readdirSync(join(ROOT, 'apps')) : [])
     .map((app) => join(ROOT, 'apps', app))
     .filter((dir) => statSync(dir).isDirectory())
     .flatMap((dir) => [...files(dir)])
@@ -32,6 +33,7 @@ describe('apps read nothing but `name` from project.json', () => {
     .filter(({ text }) => /project\.json|project\.mjs/.test(text));
 
   it('finds the readers it is meant to police', () => {
+    if (!existsSync(join(ROOT, 'apps'))) return;
     expect(sources.some(({ path }) => path.endsWith('vite.config.ts'))).toBe(true);
   });
 
