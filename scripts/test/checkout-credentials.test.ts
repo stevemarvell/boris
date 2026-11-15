@@ -17,12 +17,19 @@ interface Checkout {
   persist: unknown;
 }
 
+function workflowFiles(): string[] {
+  return readdirSync(WORKFLOWS).filter((f) => /\.ya?ml$/.test(f));
+}
+
 function checkouts(): Checkout[] {
   const found: Checkout[] = [];
-  for (const file of readdirSync(WORKFLOWS).filter((f) => f.endsWith('.yml'))) {
+  for (const file of workflowFiles()) {
     const doc = parse(readFileSync(join(WORKFLOWS, file), 'utf8')) as {
-      jobs: Record<string, { steps?: { uses?: string; with?: Record<string, unknown> }[] }>;
-    };
+      jobs?: Record<string, { steps?: { uses?: string; with?: Record<string, unknown> }[] }>;
+    } | null;
+    if (!doc?.jobs || typeof doc.jobs !== 'object') {
+      throw new Error(`${file} has no jobs: cannot check its checkouts`);
+    }
     for (const [job, { steps = [] }] of Object.entries(doc.jobs)) {
       steps.forEach((step, i) => {
         if (step.uses?.startsWith('actions/checkout@')) {
@@ -35,6 +42,10 @@ function checkouts(): Checkout[] {
 }
 
 describe('actions/checkout in workflows', () => {
+  it('reads at least one workflow file', () => {
+    expect(workflowFiles().length).toBeGreaterThan(0);
+  });
+
   it('finds the nine checkouts, so the scan cannot pass by seeing none', () => {
     expect(checkouts()).toHaveLength(9);
   });

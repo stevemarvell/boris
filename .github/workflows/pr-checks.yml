@@ -69,7 +69,9 @@ jobs:
     # thereafter, but GitHub has no comment-only permission: `pull-requests:
     # write` also permits merging, closing, retitling and labelling any open
     # pull request, and it is live while this job runs scripts from the pull
-    # request's own checkout. The census step runs under that token too now.
+    # request's own checkout. The census step puts no token in its env; the
+    # fetch and "Say what collides" steps do, and run `pr-contention.mjs`
+    # from the branch (follow-up #359).
     # `docs/data-governance.md` records the bound and what voids it. No secrets
     # other than the token are in scope.
     permissions:
@@ -147,9 +149,15 @@ jobs:
           # it is reported on whether or not the ceiling would have kept it.
           node scripts/pr-contention.mjs --refs ${{ github.event.pull_request.number || '' }} > refs.txt
           if [ -s refs.txt ]; then
-            # The checkout keeps no token (#336), so authenticate this one
-            # fetch with a header that exists only for the command.
-            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" fetch --no-tags origin $(cat refs.txt)
+            # The checkout keeps no token in .git/config (#336), so authenticate
+            # this one fetch with a header set through git's environment, which
+            # unlike `-c` stays out of git's argv. This closes the
+            # `.git/config` route only: GH_TOKEN is still in this step's env
+            # while `pr-contention.mjs` runs from the branch (#359).
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+              git fetch --no-tags origin $(cat refs.txt)
           fi
 
       - name: Say what collides with what
