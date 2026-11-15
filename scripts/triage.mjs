@@ -8,7 +8,7 @@
 //    `blocked…` label (CLAUDE.md: work that needs a person is labelled, not
 //    attempted). Skip a `template` too: it is a blank scaffold a person
 //    copies, and filling it in is never an agent's job (CLAUDE.md).
-//    Skip an issue not written by the owner or a collaborator: the
+//    Skip an issue not written by the owner or someone with write access: the
 //    repository is public, so anyone can open one (`trusted`).
 // 2. Skip anything already in flight: an open pull request whose body names
 //    the issue with Closes/Fixes/Resolves/Refs.
@@ -48,18 +48,31 @@ const UNRANKED = 3;
 
 const PERSON = (label) => label === 'human' || label === 'do not automate' || label.startsWith('blocked');
 
-/** `author_association` values that mean the author has write access. */
-const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+/** Repository permissions that let an author steer the loop. */
+const WRITE_PERMISSIONS = new Set(['admin', 'maintain', 'write']);
 
 /**
- * Whether an agent may act on this issue: it was written by the repository
- * owner, an organisation member or a collaborator, per GitHub's own
- * `author_association`. A rank label does not count: a stranger can edit the
- * body of an issue after it is ranked. A stranger's report is worked when the
- * owner opens an issue of their own with its content.
+ * Whether an agent may act on this issue. `author_association` OWNER is
+ * trusted outright. MEMBER and COLLABORATOR do not imply write access (a
+ * collaborator can hold read or triage), so for those the author's permission
+ * on the repository must be admin, maintain or write, read through
+ * `permissionOf(login)`. Anything else, a missing login, a missing
+ * `permissionOf` or a lookup that throws, is held: fail closed. A rank label
+ * does not count, because a stranger can edit an issue's body after it is
+ * ranked. A stranger's report is worked when the owner opens an issue of
+ * their own with its content.
  */
-export function trusted(issue) {
-  return TRUSTED_ASSOCIATIONS.has(issue.authorAssociation);
+export function trusted(issue, permissionOf) {
+  const association = issue.authorAssociation;
+  if (association === 'OWNER') return true;
+  if (association !== 'MEMBER' && association !== 'COLLABORATOR') return false;
+  const login = issue.user?.login;
+  if (!login || typeof permissionOf !== 'function') return false;
+  try {
+    return WRITE_PERMISSIONS.has(permissionOf(login));
+  } catch {
+    return false;
+  }
 }
 
 /** Issue numbers an open pull request already claims. */
@@ -90,9 +103,10 @@ function rankOf(labels) {
  * @param issues        [{ number, title, labels: string[], body, user: { login }, authorAssociation }]
  * @param pullRequests  open PRs: [{ number, body }]
  * @param max           most issues to work this run
+ * @param permissionOf (login) => the author's repository permission; see `trusted`
  * @returns {{ work, deferred, skip }} work is at most MAX_ISSUES_PER_RUN long
  */
-export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
+export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissionOf = undefined) {
   const openNumbers = new Set(issues.map((i) => i.number));
   const claimed = claimedIssues(pullRequests);
   const eligible = [];
@@ -108,11 +122,11 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN) {
       skip.push({ number: issue.number, title: issue.title, reason: `needs a person (${person.join(', ')})` });
       continue;
     }
-    if (!trusted(issue)) {
+    if (!trusted(issue, permissionOf)) {
+      // A stranger's title is text the loop would otherwise print: leave it out.
       skip.push({
         number: issue.number,
-        title: issue.title,
-        reason: 'not written by the owner or a collaborator',
+        reason: 'not written by the owner or someone with write access',
         author: issue.user?.login ?? 'unknown',
         association: issue.authorAssociation ?? 'unknown',
       });
@@ -160,7 +174,7 @@ export function render({ work, deferred, skip }, { truncated = false } = {}) {
   lines.push('Skip:');
   for (const s of skip) {
     const reason = s.author ? `opened by ${s.author} (${s.association}); copy it into an owner issue to work it` : s.reason;
-    lines.push(`  #${s.number} ${reason}: ${s.title}`);
+    lines.push(s.author ? `  #${s.number} ${reason}` : `  #${s.number} ${reason}: ${s.title}`);
   }
   if (truncated) lines.push(`WARNING: a listing hit ${FETCH_LIMIT} results; the plan may be incomplete.`);
   return lines.join('\n') + '\n';
@@ -210,10 +224,26 @@ export function fetchOpen(run = gh, maxPages = MAX_PAGES) {
   return { issues, pullRequests, truncated: beyond.length > 0 };
 }
 
+/**
+ * `permissionOf` for the CLI: the author's permission on this repository from
+ * REST (`collaborators/<login>/permission`), cached per login. A failed lookup
+ * throws, and `trusted` holds the issue.
+ */
+export function permissionLookup(run = gh) {
+  const cache = new Map();
+  return (login) => {
+    if (!cache.has(login)) {
+      const permission = JSON.parse(run(['api', `repos/{owner}/{repo}/collaborators/${encodeURIComponent(login)}/permission`])).permission;
+      cache.set(login, permission);
+    }
+    return cache.get(login);
+  };
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests, MAX_ISSUES_PER_RUN);
+    const plan = triage(issues, pullRequests, undefined, permissionLookup());
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );

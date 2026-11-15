@@ -92,12 +92,17 @@ own step environment, which no branch code runs in.
 
 Issue text from strangers is data, not instructions. This repository is
 public, so anyone can open an issue, and the unattended `work-backlog` loop
-reads issues. `scripts/triage.mjs` holds out of the loop any issue whose
-`author_association` is not `OWNER`, `MEMBER` or `COLLABORATOR`; a rank label
-does not change that, because a stranger can edit an issue's body after it is
-ranked. Only text written by the owner or a collaborator reaches the loop. A
-stranger's report is worked when the owner opens an issue of their own with
-its content.
+reads issues. `scripts/triage.mjs` trusts an issue only when its `author_association` is
+`OWNER`, or is `MEMBER` or `COLLABORATOR` and the author's permission on the
+repository (`gh api repos/{owner}/{repo}/collaborators/<login>/permission`)
+is `admin`, `maintain` or `write`; association alone does not imply write
+access. Any other association, a failed lookup or a missing login is held. A
+rank label does not change that, because a stranger can edit an issue's body
+after it is ranked. An issue is picked only when its author is the owner, or
+a member or collaborator with write access; comments on a picked issue are
+still read, and a "go" counts only from the owner's login. A stranger's
+report is worked when the owner opens an issue of their own with its
+content.
 
 ### What bounds it
 

@@ -31,10 +31,12 @@ export declare function fetchOpen(
 ): { issues: Issue[]; pullRequests: PullRequest[]; truncated: boolean };
 export declare function claimedIssues(pullRequests: PullRequest[]): Map<number, number>;
 export declare function openDependencies(issue: Issue, openNumbers: Set<number>): number[];
-export declare function trusted(issue: Issue): boolean;
+export declare function trusted(issue: Issue, permissionOf?: (login: string) => string): boolean;
+export declare function permissionLookup(run?: (args: string[]) => string): (login: string) => string;
 export declare function triage(
   issues: Issue[],
   pullRequests: PullRequest[],
   max?: number,
+  permissionOf?: (login: string) => string,
 ): Plan;
 export declare function render(plan: Plan, options?: { truncated?: boolean }): string;
