@@ -18,11 +18,15 @@ import { apps, loadProject } from '../../scripts/project.mjs';
 
 export const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
+// What `uv sync --frozen` reads for a Python app (scripts/bootstrap.mjs).
+const PYTHON_MANIFESTS = ['pyproject.toml', 'uv.lock'];
+
 const realFs = { exists: existsSync, mtimeMs: (path) => statSync(path).mtimeMs };
 
 /**
  * True when the installs are already done: node_modules/.package-lock.json is
- * at least as new as package-lock.json, and every Python app has a .venv.
+ * at least as new as package-lock.json, and every Python app has a .venv at
+ * least as new as its pyproject.toml and uv.lock.
  * `fs` is injected ({ exists(path), mtimeMs(path) }) so tests need no install.
  */
 export function upToDate(root, project, fs = realFs) {
@@ -31,7 +35,13 @@ export function upToDate(root, project, fs = realFs) {
   const lock = join(root, 'package-lock.json');
   if (fs.exists(lock) && fs.mtimeMs(lock) > fs.mtimeMs(marker)) return false;
   for (const [, app] of apps(project, 'python')) {
-    if (!fs.exists(join(root, app.path, '.venv'))) return false;
+    const venv = join(root, app.path, '.venv');
+    if (!fs.exists(venv)) return false;
+    // A dependency manifest changed after the environment was built.
+    for (const manifest of PYTHON_MANIFESTS) {
+      const path = join(root, app.path, manifest);
+      if (fs.exists(path) && fs.mtimeMs(path) > fs.mtimeMs(venv)) return false;
+    }
   }
   return true;
 }

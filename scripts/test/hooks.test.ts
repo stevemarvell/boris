@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -361,5 +361,47 @@ describe('cloud-bootstrap upToDate', () => {
 
   it('is true for an engine-only project with fresh node_modules', () => {
     expect(upToDate(root, engineOnly, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(true);
+  });
+
+  it('is false when a Python dependency manifest is newer than the .venv', () => {
+    const venv = '/r/apps/svc/.venv';
+    for (const manifest of ['pyproject.toml', 'uv.lock']) {
+      const files = { [marker]: 200, [lock]: 100, [venv]: 100, [`/r/apps/svc/${manifest}`]: 150 };
+      expect(upToDate(root, python, fsOf(files)), manifest).toBe(false);
+    }
+  });
+
+  it('is true when the Python manifests are older than the .venv', () => {
+    const files = { [marker]: 200, [lock]: 100, '/r/apps/svc/.venv': 150, '/r/apps/svc/pyproject.toml': 100, '/r/apps/svc/uv.lock': 100 };
+    expect(upToDate(root, python, fsOf(files))).toBe(true);
+  });
+
+  it('reads the real filesystem by default, with mtimes set by utimesSync', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'upToDate-'));
+    try {
+      mkdirSync(join(dir, 'node_modules'));
+      const realMarker = join(dir, 'node_modules', '.package-lock.json');
+      const realLock = join(dir, 'package-lock.json');
+      writeFileSync(realMarker, '{}');
+      writeFileSync(realLock, '{}');
+      utimesSync(realLock, 1000, 1000);
+      utimesSync(realMarker, 2000, 2000);
+      expect(upToDate(dir, engineOnly)).toBe(true);
+      utimesSync(realLock, 3000, 3000);
+      expect(upToDate(dir, engineOnly)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does nothing and exits 0 when CLAUDE_CODE_REMOTE is unset', { timeout: 15_000 }, () => {
+    const env = { ...process.env };
+    delete env['CLAUDE_CODE_REMOTE'];
+    const out = execFileSync(process.execPath, [join(REPO_ROOT, '.claude', 'hooks', 'cloud-bootstrap.mjs')], {
+      cwd: tmpdir(),
+      env,
+      encoding: 'utf8',
+    });
+    expect(out).toBe('');
   });
 });

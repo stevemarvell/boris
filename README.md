@@ -107,7 +107,7 @@ it. An empty one is accepted, but one with any branch is refused.
    the install when `node_modules` and each Python `.venv` are current.
 
    ```bash
-   if [ -d <repository> ]; then (cd <repository> && npm run bootstrap); fi
+   if [ -d boris ]; then (cd boris && npm run bootstrap); fi
    ```
 
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
