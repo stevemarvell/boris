@@ -15,9 +15,8 @@ concurrency:
 jobs:
   claude:
     # The `contains(..., '@claude')` checks alone would let anyone on the
-    # internet trigger this job: this repository is public, so the guard below
-    # limits who can trigger it. The job's own
-    # permissions are read-only and claude-code-action does its own actor
+    # internet trigger this job, because this repository is public. The job's
+    # own permissions are read-only and claude-code-action does its own actor
     # check, but this guard means we are not relying solely on those: only a
     # comment or review from an OWNER, MEMBER, or COLLABORATOR is allowed to
     # trigger a run. The three trigger events carry author_association in
