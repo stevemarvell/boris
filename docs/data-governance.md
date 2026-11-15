@@ -169,30 +169,28 @@ the step that hands it the credential.
 ### A third job of the same shape, holding a different thing
 
 `pr checks` in `.github/workflows/pr-checks.yml` carries no Grafana
-credential, and it is in this list anyway, because the structure is identical:
-it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
-and `scripts/test-census.mjs` from *that* checkout, with `GITHUB_TOKEN` scoped
-`pull-requests: write` available to the job. The fetch and "Say what collides"
-steps hold that token in their environment and run `scripts/pr-contention.mjs`
-from the checkout. The census step holds no token, but it runs earlier in the
-same job, so it can still reach the later token-holding steps by writing
-`$GITHUB_ENV`, `$GITHUB_PATH` or `.git/config`.
+credential, and it is in this list anyway, because it holds a token while it
+works on pull-request content: `GITHUB_TOKEN` scoped `pull-requests: write`,
+with the pull request's merge ref checked out.
 
 What that scope permits is wider than what the job does with it. GitHub has no
 comment-only permission, so the scope that lets it post and edit its own
 comment also permits **merging, closing, retitling and labelling any open pull
-request**. A pull request that edits `scripts/pr-contention.mjs` or
-`scripts/test-census.mjs` runs its own code with that scope, the same way one editing
-`scripts/write-ci-telemetry-settings.mjs` runs its own code with the Grafana
-credential.
+request**. So no branch code runs in this job (#359). `scripts/pr-contention.mjs`
+and `scripts/test-census.mjs` execute from `base-scripts/`, a second checkout
+of the base commit (`persist-credentials: false`, sparse to `scripts/`), and
+the job log's "Say which commit the scripts came from" step prints that sha. The
+census and contention steps compare the pull request's tree, the main checkout,
+against the base, reading it only through `git`. A pull request that edits
+either script is judged by the unedited copy; its edit takes effect once
+merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
+fails if any step runs a `node scripts/...` path from the pull request's
+checkout.
 
-The same two things bound it — `pull_request` rather than `pull_request_target`,
-and one account with write access — and the same trigger voids it. So on that
-day this job needs the same treatment as the other two: run
-`scripts/pr-contention.mjs` and `scripts/test-census.mjs` from the default
-branch rather than the branch under review (#359). It is listed here because
-the remediation plan below has to be a complete list on the day it is used, and
-a job missing from the inventory is a job nobody remembers to fix.
+What remains: the scripts are as trustworthy as the base branch, so a merge to
+`develop` that has not been reviewed still reaches this token on the next run.
+That is the same one-writer bound as the other jobs, voided the same way by a
+second writer with merge rights.
 
 ### Reviews run once, and are advisory
 
