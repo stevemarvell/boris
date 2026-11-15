@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../.claude/hooks/format-edited.mjs';
+import { upToDate } from '../../.claude/hooks/cloud-bootstrap.mjs';
 import { ROOT as VERIFY_ROOT } from '../../.claude/hooks/verify-on-stop.mjs';
 import { decide, filterCommand } from '../../.claude/hooks/filter-verbose.mjs';
 import { apps, loadProject, type Project } from '../project.mjs';
@@ -327,5 +328,80 @@ describe('statusline render', () => {
       expect(() => render(bad)).not.toThrow();
     }
     expect(render({})).toBe('claude');
+  });
+});
+
+describe('cloud-bootstrap upToDate', () => {
+  const root = '/r';
+  const marker = '/r/node_modules/.package-lock.json';
+  const lock = '/r/package-lock.json';
+  // Injected filesystem: `files` maps a path to its mtime; no real install needed.
+  const fsOf = (files: Record<string, number>) => ({
+    exists: (p: string) => p in files,
+    mtimeMs: (p: string) => files[p] as number,
+  });
+  const python: Project = { name: 'p', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
+  const engineOnly: Project = { name: 'e', apps: {} };
+
+  it('is true with fresh markers and a .venv for each Python app', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100, '/r/apps/svc/.venv': 1 }))).toBe(true);
+  });
+
+  it('is false with no node_modules', () => {
+    expect(upToDate(root, python, fsOf({ [lock]: 100, '/r/apps/svc/.venv': 1 }))).toBe(false);
+  });
+
+  it('is false when package-lock.json is newer than the marker', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 100, [lock]: 200, '/r/apps/svc/.venv': 1 }))).toBe(false);
+  });
+
+  it('is false when a Python app lacks its .venv', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(false);
+  });
+
+  it('is true for an engine-only project with fresh node_modules', () => {
+    expect(upToDate(root, engineOnly, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(true);
+  });
+
+  it('is false when a Python dependency manifest is newer than the .venv', () => {
+    const venv = '/r/apps/svc/.venv';
+    for (const manifest of ['pyproject.toml', 'uv.lock']) {
+      const files = { [marker]: 200, [lock]: 100, [venv]: 100, [`/r/apps/svc/${manifest}`]: 150 };
+      expect(upToDate(root, python, fsOf(files)), manifest).toBe(false);
+    }
+  });
+
+  it('is true when the Python manifests are older than the .venv', () => {
+    const files = { [marker]: 200, [lock]: 100, '/r/apps/svc/.venv': 150, '/r/apps/svc/pyproject.toml': 100, '/r/apps/svc/uv.lock': 100 };
+    expect(upToDate(root, python, fsOf(files))).toBe(true);
+  });
+
+  it('reads the real filesystem by default, with mtimes set by utimesSync', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'upToDate-'));
+    try {
+      mkdirSync(join(dir, 'node_modules'));
+      const realMarker = join(dir, 'node_modules', '.package-lock.json');
+      const realLock = join(dir, 'package-lock.json');
+      writeFileSync(realMarker, '{}');
+      writeFileSync(realLock, '{}');
+      utimesSync(realLock, 1000, 1000);
+      utimesSync(realMarker, 2000, 2000);
+      expect(upToDate(dir, engineOnly)).toBe(true);
+      utimesSync(realLock, 3000, 3000);
+      expect(upToDate(dir, engineOnly)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does nothing and exits 0 when CLAUDE_CODE_REMOTE is unset', { timeout: 15_000 }, () => {
+    const env = { ...process.env };
+    delete env['CLAUDE_CODE_REMOTE'];
+    const out = execFileSync(process.execPath, [join(REPO_ROOT, '.claude', 'hooks', 'cloud-bootstrap.mjs')], {
+      cwd: tmpdir(),
+      env,
+      encoding: 'utf8',
+    });
+    expect(out).toBe('');
   });
 });
