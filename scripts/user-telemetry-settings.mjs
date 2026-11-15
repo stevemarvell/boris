@@ -7,8 +7,9 @@
 // environment's setup script runs this once, as root, after the repositories
 // are cloned and before Claude starts (telemetry/README.md).
 //
-// Only the explicit TELEMETRY_KEYS are copied, never a headers key: the committed settings hold the endpoint and protocol only, and
-// the credential is the cloud environment's network secret. Every other key
+// Only the explicit TELEMETRY_KEYS are copied, never a headers key: the
+// committed settings hold the endpoint and protocol only, and the credential is
+// the cloud environment's network secret. Every other key
 // already in the user file is kept. The file is replaced by a rename, so a
 // failure part-way leaves the old one; invalid JSON in either file stops the
 // script before anything is written.

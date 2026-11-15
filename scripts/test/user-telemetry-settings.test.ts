@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { isTelemetryKey } from '../user-telemetry-settings.mjs';
+import { TELEMETRY_KEYS, isTelemetryKey } from '../user-telemetry-settings.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SCRIPT = join(ROOT, 'scripts', 'user-telemetry-settings.mjs');
@@ -179,6 +179,31 @@ describe('user-telemetry-settings hardening', () => {
     writeRepo(JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' } }));
     expect(run(['--repo', repo, '--user-settings', user]).status).toBe(0);
     expect(statSync(user).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('TELEMETRY_KEYS', () => {
+  const wanted = (key: string) =>
+    (/^OTEL_/.test(key) || key === 'CLAUDE_CODE_ENABLE_TELEMETRY') && !/(^|_)HEADERS$/.test(key);
+  const committed = (path: string) =>
+    Object.keys(JSON.parse(readFileSync(path, 'utf8')).env).filter((key) => wanted(key));
+  // The OTEL_LOG_* content switches are deliberately absent from the committed file too.
+  const missing = (path: string) => committed(path).filter((key) => !TELEMETRY_KEYS.includes(key));
+
+  it('lists every telemetry key the committed .claude/settings.json sets', () => {
+    expect(missing(join(ROOT, '.claude', 'settings.json'))).toEqual([]);
+  });
+
+  it('notices a telemetry key added to the settings but not to the list', () => {
+    const copy = JSON.parse(readFileSync(join(ROOT, '.claude', 'settings.json'), 'utf8'));
+    copy.env.OTEL_FAKE_NEW_KEY = '1';
+    const path = join(dir, 'settings-copy.json');
+    writeFileSync(path, JSON.stringify(copy));
+    expect(missing(path)).toEqual(['OTEL_FAKE_NEW_KEY']);
+  });
+
+  it('never lists a headers key', () => {
+    expect(TELEMETRY_KEYS.filter((key) => /HEADERS/.test(key))).toEqual([]);
   });
 });
 
