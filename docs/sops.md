@@ -68,9 +68,15 @@ Three loops *are* mechanically bounded:
 - Smoke's waits, by `GATE_ATTEMPTS` and the `seq` bounds above.
 - The rate limiter, at 120 requests per minute — see `docs/data-governance.md`.
 - The fix-and-retry loop the stop hook drives.
-  `.claude/hooks/verify-on-stop.mjs` blocks the end of a turn while `verify`
-  is red, which is what creates that loop. It now counts consecutive blocks,
-  per session, in a file outside the checkout. At the third red in a row it
+  `.claude/hooks/verify-on-stop.mjs` runs the checks for what changed: the
+  harness's for engine code, and each affected app's for that app's paths. A
+  change to a file that drives the app checks (`project.json`,
+  `scripts/project.mjs`, `scripts/verify-apps.mjs`, `package.json`,
+  `package-lock.json`) runs every app's checks as well as the harness's. Full
+  `verify` stays the pre-PR contract. The hook blocks the end of a turn while
+  one of its checks is red, which is what creates that loop. It now counts
+  consecutive blocks, per session, in a file outside the checkout. At the third
+  red in a row it
   stops blocking, ends the turn, and reports the failure to the person. A green
   run, or a new turn from the person, resets the count. The ceiling is
   `MAX_CONSECUTIVE_BLOCKS`, and a test holds it to the three attempts
