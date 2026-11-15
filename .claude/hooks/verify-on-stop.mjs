@@ -52,12 +52,26 @@ const run = (command) =>
 // silently drift from that as apps come and go; reading it from project.json
 // means an app's data directory moving is a data-only edit that still
 // triggers this hook. git does the matching.
-export function changedFiles(paths = verifiedPaths(loadProject())) {
-  return execFileSync('git', ['status', '--porcelain', '--', ...paths], { cwd: ROOT, encoding: 'utf8' })
+export function changedFiles(paths = [...verifiedPaths(loadProject()), ...APP_CHECK_DRIVERS]) {
+  // -uall lists each untracked file, not the directory holding them, so a new
+  // directory cannot hide which path inside it changed.
+  return execFileSync('git', ['status', '--porcelain', '-uall', '--', ...paths], { cwd: ROOT, encoding: 'utf8' })
     .split('\n')
     .map((line) => line.slice(3).trim())
     .filter(Boolean);
 }
+
+/**
+ * Files that drive the app checks themselves. A change to one runs every
+ * app's checks, as well as the harness's.
+ */
+export const APP_CHECK_DRIVERS = [
+  'project.json',
+  'scripts/project.mjs',
+  'scripts/verify-apps.mjs',
+  'package.json',
+  'package-lock.json',
+];
 
 const under = (file, dir) => file === dir || file.startsWith(`${dir.replace(/\/+$/, '')}/`);
 
@@ -69,12 +83,13 @@ const under = (file, dir) => file === dir || file.startsWith(`${dir.replace(/\/+
  */
 export function plan(changed, project) {
   const commands = [];
-  if (changed.some((file) => HARNESS_CODE.some((dir) => under(file, dir)))) {
+  const driven = changed.some((file) => APP_CHECK_DRIVERS.includes(file));
+  if (driven || changed.some((file) => HARNESS_CODE.some((dir) => under(file, dir)))) {
     commands.push('npm run verify:harness');
   }
   for (const [name, app] of apps(project)) {
     const inputs = [app.path, ...app.reads];
-    if (changed.some((file) => inputs.some((dir) => under(file, dir)))) {
+    if (driven || changed.some((file) => inputs.some((dir) => under(file, dir)))) {
       commands.push(`node scripts/verify-apps.mjs ${name}`);
     }
   }

@@ -11,3 +11,4 @@ export declare function statePath(sessionId: unknown, dir?: string): string;
 export declare function readCount(path: string): number;
 export declare function writeCount(path: string, count: number | null): void;
 export declare function plan(changed: string[], project: import('../../scripts/project.mjs').Project): string[];
+export declare const APP_CHECK_DRIVERS: string[];

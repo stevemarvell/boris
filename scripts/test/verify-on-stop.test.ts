@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,7 +74,8 @@ describe('plan', () => {
   });
 
   it('runs every app whose path or reads holds a shared build input', () => {
-    expect(plan(['package-lock.json'], fixture)).toEqual([API, WEB]);
+    expect(plan(['docs/a.md', 'apps/api/x'], fixture)).toEqual([API, WEB]);
+    expect(plan(['package-lock.json'], fixture)).toEqual([HARNESS, API, WEB]);
   });
 
   it('runs the harness first, then the app, when several areas changed', () => {
@@ -86,46 +87,78 @@ describe('plan', () => {
     expect(plan([], fixture)).toEqual([]);
   });
 
+  it('runs the harness and every app when a file that drives the app checks changed', () => {
+    for (const file of ['project.json', 'scripts/project.mjs', 'scripts/verify-apps.mjs', 'package.json', 'package-lock.json']) {
+      expect(plan([file], fixture)).toEqual([HARNESS, API, WEB]);
+    }
+  });
+
   it('does not honour ignores: run more, not less', () => {
     expect(plan(['apps/api/README.md'], fixture)).toEqual([API]);
   });
 });
 
 describe('main', () => {
-  // The failure path: a red check blocks with its output and counts the
-  // attempt, run as the real hook in a throwaway repository.
-  it('blocks with the failing check and counts the attempt', { timeout: 60_000 }, () => {
+  // Runs the real hook in a throwaway repository whose two checks are fakes:
+  // the harness script and scripts/verify-apps.mjs each append to a log, so
+  // what ran, and in what order, is observed rather than assumed.
+  const setup = (harnessExit: number) => {
     const repo = mkdtempSync(join(tmpdir(), 'vos-repo-'));
     const state = mkdtempSync(join(tmpdir(), 'vos-state-'));
+    spawnSync('git', ['init', '-q'], { cwd: repo, timeout: 10_000 });
+    mkdirSync(join(repo, '.claude/hooks'), { recursive: true });
+    mkdirSync(join(repo, 'scripts'), { recursive: true });
+    mkdirSync(join(repo, 'apps/api'), { recursive: true });
+    cpSync(join(REPO_ROOT, '.claude/hooks/verify-on-stop.mjs'), join(repo, '.claude/hooks/verify-on-stop.mjs'));
+    cpSync(join(REPO_ROOT, 'scripts/project.mjs'), join(repo, 'scripts/project.mjs'));
+    const harness = `require('fs').appendFileSync('ran.log','harness\\n');console.log('boom');process.exit(${harnessExit})`;
+    writeFileSync(join(repo, 'harness.cjs'), harness);
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { 'verify:harness': 'node harness.cjs' } }));
+    writeFileSync(join(repo, 'scripts/verify-apps.mjs'), "import { appendFileSync } from 'node:fs';\nappendFileSync('ran.log', `app ${process.argv[2]}\\n`);\n");
+    writeFileSync(
+      join(repo, 'project.json'),
+      JSON.stringify({ name: 'fixture', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'], verify: ['true'] } } }),
+    );
+    // One engine file and one app file changed: the plan is harness, then api.
+    writeFileSync(join(repo, 'scripts/x.mjs'), 'x');
+    writeFileSync(join(repo, 'apps/api/y.py'), 'y');
+    const res = spawnSync('node', ['.claude/hooks/verify-on-stop.mjs'], {
+      cwd: repo,
+      input: JSON.stringify({ session_id: 's', stop_hook_active: false }),
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: { ...process.env, TMPDIR: state },
+    });
+    const logPath = join(repo, 'ran.log');
+    const log = existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
+    const cleanup = () => {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(state, { recursive: true, force: true });
+    };
+    return { res, log, cleanup };
+  };
+
+  it('blocks on a red check, counts the attempt, and runs nothing after it', { timeout: 60_000 }, () => {
+    const { res, log, cleanup } = setup(1);
     try {
-      
-      spawnSync('git', ['init', '-q'], { cwd: repo, timeout: 10_000 });
-      mkdirSync(join(repo, '.claude/hooks'), { recursive: true });
-      mkdirSync(join(repo, 'scripts'), { recursive: true });
-      mkdirSync(join(repo, 'apps/api'), { recursive: true });
-      const copy = (rel: string) => cpSync(join(REPO_ROOT, rel), join(repo, rel));
-      copy('.claude/hooks/verify-on-stop.mjs');
-      copy('scripts/project.mjs');
-      writeFileSync(join(repo, 'package.json'), JSON.stringify({ scripts: { 'verify:harness': 'node -e "console.log(\'boom\');process.exit(1)"' } }));
-      writeFileSync(
-        join(repo, 'project.json'),
-        JSON.stringify({ name: 'fixture', apps: { api: { path: 'apps/api', toolchain: 'python', reads: ['apps/api'], verify: ['true'] } } }),
-      );
-      writeFileSync(join(repo, 'scripts/x.mjs'), 'x');
-      const res = spawnSync('node', ['.claude/hooks/verify-on-stop.mjs'], {
-        cwd: repo,
-        input: JSON.stringify({ session_id: 's', stop_hook_active: false }),
-        encoding: 'utf8',
-        timeout: 30_000,
-        env: { ...process.env, TMPDIR: state },
-      });
       expect(res.status).toBe(2);
       expect(res.stderr).toContain('npm run verify:harness failed');
       expect(res.stderr).toContain('boom');
       expect(res.stderr).toContain('attempt 1 of 3');
+      // The app check is planned but must not have run: a missing break fails here.
+      expect(log).toBe('harness\n');
     } finally {
-      rmSync(repo, { recursive: true, force: true });
-      rmSync(state, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  it('runs the harness check before the app check, and exits 0 when both are green', { timeout: 60_000 }, () => {
+    const { res, log, cleanup } = setup(0);
+    try {
+      expect(res.status).toBe(0);
+      expect(log).toBe('harness\napp api\n');
+    } finally {
+      cleanup();
     }
   });
 });
