@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assemble, loadCatalogue } from '../assemble.mjs';
 import { ROOT } from '../project.mjs';
-import { BASE_REMOTE, add, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
+import { BASE_REMOTE, add, alignPins, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
 
 describe('checkChoices', () => {
   const catalogue = loadCatalogue();
@@ -713,5 +713,77 @@ describe('add, inside a product', () => {
     expect(lines.join('\n')).toMatch(/Left as they are.*CLAUDE\.md/);
     expect(existsSync(join(dir, 'apps/web'))).toBe(true);
     expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).workspaces).toBeDefined();
+  });
+
+  // Dependabot-style bump of the product's root package.json, committed.
+  const bumpRoot = (dir: string) => {
+    const file = join(dir, 'package.json');
+    const manifest = JSON.parse(readFileSync(file, 'utf8'));
+    manifest.devDependencies.eslint = '10.14.0';
+    manifest.devDependencies.vitest = '5.1.0';
+    writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'dependabot');
+    return manifest;
+  };
+
+  it('merges workspaces and scripts into a root package.json Dependabot has bumped', { timeout: 120_000 }, async () => {
+    const base = fakeBase();
+    const dir = product(base);
+    const bumped = bumpRoot(dir);
+    expect(bumped.workspaces).toBeUndefined();
+    const result = await add({ starters: ['node-react', 'python-fastapi'] }, { root: dir, ...quiet });
+    expect(result.kept).toEqual([]);
+    const expected = join(scratch(), 'expected');
+    assemble({ root: base.dir, target: expected, name: 'widgets', starters: ['node-react', 'python-fastapi'], engineCommit: base.sha });
+    const want = JSON.parse(readFileSync(join(expected, 'package.json'), 'utf8'));
+    const got = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    expect(got.workspaces).toEqual(want.workspaces);
+    expect(got.scripts).toEqual(want.scripts);
+    // Differs from the bumped file only by those two keys: the bumped versions stay.
+    const without = (m: Record<string, unknown>) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== 'workspaces' && k !== 'scripts'));
+    expect(without(got)).toEqual(without(bumped));
+    expect(got.devDependencies.eslint).toBe('10.14.0');
+  });
+
+  it("aligns a new starter's shared tooling pins with the bumped root", { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    bumpRoot(dir);
+    await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    const web = JSON.parse(readFileSync(join(dir, 'apps/web/package.json'), 'utf8'));
+    const pins = { ...web.dependencies, ...web.devDependencies };
+    expect(pins.eslint).toBe('10.14.0');
+    expect(pins.vitest).toBe('5.1.0');
+  });
+
+  it('leaves a root package.json that is not JSON as it is, and says so', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    writeFileSync(join(dir, 'package.json'), 'not json {\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'broken');
+    const lines: string[] = [];
+    const result = await add({ starters: ['node-react'] }, { root: dir, log: (l: string) => lines.push(l), spawn: () => ({ status: 0 }) });
+    expect(result.kept).toEqual(['package.json']);
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe('not json {\n');
+    expect(lines.join('\n')).toMatch(/package\.json was left as it is.*"workspaces".*apps\/web.*scripts.*dev, build/s);
+  });
+
+  it('leaves a root package.json whose scripts is not an object, instead of throwing', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    manifest.scripts = 'nope';
+    const text = `${JSON.stringify(manifest, null, 2)}\n`;
+    writeFileSync(join(dir, 'package.json'), text);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'odd scripts');
+    const result = await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    expect(result.kept).toEqual(['package.json']);
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(text);
+  });
+
+  it('aligns nothing, and does not throw, when the root manifest parses to a non-object', () => {
+    const starter = '{"devDependencies":{"eslint":"10.13.0"}}\n';
+    for (const root of ['null', '"x"', '[]']) expect(alignPins(starter, root)).toBe(starter);
+    expect(alignPins('null', '{}')).toBe('null');
   });
 });
