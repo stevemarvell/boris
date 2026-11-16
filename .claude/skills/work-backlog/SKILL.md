@@ -20,8 +20,14 @@ counterpart to `drive-pr`, which runs a known recipe.
    its own. Handle every finding before picking new work: open the pull
    request a branch is missing, clean up a worktree finding per the
    `worktrees` skill, or drive a stuck pull request per `drive-pr`
-   (`mergeable_state` first, per its step 1). Only once `stuck.mjs` exits
-   `0` does step 1 below start.
+   (`mergeable_state` first, per its step 1). Then list the pull requests
+   an earlier run parked (step 3), which `stuck.mjs` does not report when
+   they are mergeable, current and checked: every open pull request whose
+   comments include a `drive-pr stopped` comment, read with
+   `gh api repos/{owner}/{repo}/issues/<n>/comments`. Report each with the
+   reason in that comment; its issue stays claimed, so triage will not pick
+   it, and a person or a fresh `drive-pr` decides what happens to it. Only
+   once `stuck.mjs` exits `0` does step 1 below start.
 1. **Triage.** Run `node scripts/triage.mjs` (it reads REST, so it works
    from a cloud session, where `gh issue list` and `gh pr list` are refused
    as GraphQL, #225). It prints what to work, in
@@ -104,13 +110,13 @@ counterpart to `drive-pr`, which runs a known recipe.
      '.[].filename'` (call this F).
    - After a park, the next pick is the first one in the new plan whose issue
      body names no file path in F and has no `Depends on` line pointing at
-     P's issue. An issue naming no files counts as independent. Skip every
-     other pick, with the reason "overlaps parked #P", and say so in the
-     report.
+     P's issue. An issue naming no files counts as independent; that is a
+     known blind spot (it may still touch P's files, and the conflict then
+     shows when P is driven again). Skip every other pick, with the reason
+     "overlaps parked #P", and say so in the report.
    - **Ceiling: 2 parked pull requests per run.** When the second is parked,
      end the run. The report lists both, with what is left on each. The next
-     run finds them first: `stuck.mjs` (step 0) lists an open pull request
-     that is stale or conflicting.
+     run lists them in step 0 from their `drive-pr stopped` comments.
 4. **Re-triage.** After the merge and the smoke check, go back to step 1. The
    merge has changed the state: the issue is closed, a smoke failure may have
    opened a new one, and a dependency may have cleared. The next pick comes
