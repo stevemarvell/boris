@@ -321,8 +321,9 @@ posture, what bounds it, and the trigger that voids the decision.
   The trigger is named: a second one gets it.
 - An exposed schema ranks where it does because it describes invented data.
   The trigger is the same one above.
-- `docs/data-governance.md` is defensible because the deployed apps serve no
-  real data. The trigger is real data landing.
+- `docs/data-governance.md` is defensible while it matches what the deployed
+  apps serve, which that document states. The trigger is real data landing
+  in an app (what is served changing) without that document being updated.
 
 A `medium` with no stated bound is a guess wearing a label. The bound is the
 argument; the label is only its conclusion.
@@ -711,7 +712,7 @@ effect of closing it.
 This is a legitimate outcome — a note records why this project deliberately
 runs without one — for the half of the gap CI cannot close. It is bounded
 the same way the rest of that gap is bounded: one person has write access,
-the deployed apps serve no data at all (`docs/data-governance.md`), and the
+what the deployed apps serve is in `docs/data-governance.md`, and the
 realistic risk on a laptop session is a prompt-injected agent rather than a
 malicious one. CI was the sharper case *because* it is the one place here
 that already reads content nobody here wrote — a laptop session reads

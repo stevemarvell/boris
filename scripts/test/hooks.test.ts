@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fixCommands, runFixes, ROOT as FORMAT_ROOT } from '../../.claude/hooks/format-edited.mjs';
 import { upToDate } from '../../.claude/hooks/cloud-bootstrap.mjs';
+import { STAMP, writeStamps } from '../bootstrap.mjs';
 import { ROOT as VERIFY_ROOT } from '../../.claude/hooks/verify-on-stop.mjs';
 import { decide, filterCommand } from '../../.claude/hooks/filter-verbose.mjs';
 import { apps, loadProject, type Project } from '../project.mjs';
@@ -335,6 +336,7 @@ describe('cloud-bootstrap upToDate', () => {
   const root = '/r';
   const marker = '/r/node_modules/.package-lock.json';
   const lock = '/r/package-lock.json';
+  const stamp = `/r/apps/svc/.venv/${STAMP}`;
   // Injected filesystem: `files` maps a path to its mtime; no real install needed.
   const fsOf = (files: Record<string, number>) => ({
     exists: (p: string) => p in files,
@@ -343,19 +345,19 @@ describe('cloud-bootstrap upToDate', () => {
   const python: Project = { name: 'p', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
   const engineOnly: Project = { name: 'e', apps: {} };
 
-  it('is true with fresh markers and a .venv for each Python app', () => {
-    expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100, '/r/apps/svc/.venv': 1 }))).toBe(true);
+  it('is true with fresh markers and a stamp for each Python app', () => {
+    expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100, [stamp]: 1 }))).toBe(true);
   });
 
   it('is false with no node_modules', () => {
-    expect(upToDate(root, python, fsOf({ [lock]: 100, '/r/apps/svc/.venv': 1 }))).toBe(false);
+    expect(upToDate(root, python, fsOf({ [lock]: 100, [stamp]: 1 }))).toBe(false);
   });
 
   it('is false when package-lock.json is newer than the marker', () => {
-    expect(upToDate(root, python, fsOf({ [marker]: 100, [lock]: 200, '/r/apps/svc/.venv': 1 }))).toBe(false);
+    expect(upToDate(root, python, fsOf({ [marker]: 100, [lock]: 200, [stamp]: 1 }))).toBe(false);
   });
 
-  it('is false when a Python app lacks its .venv', () => {
+  it('is false when a Python app lacks its stamp', () => {
     expect(upToDate(root, python, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(false);
   });
 
@@ -363,16 +365,15 @@ describe('cloud-bootstrap upToDate', () => {
     expect(upToDate(root, engineOnly, fsOf({ [marker]: 200, [lock]: 100 }))).toBe(true);
   });
 
-  it('is false when a Python dependency manifest is newer than the .venv', () => {
-    const venv = '/r/apps/svc/.venv';
+  it('is false when a Python dependency manifest is newer than the stamp', () => {
     for (const manifest of ['pyproject.toml', 'uv.lock']) {
-      const files = { [marker]: 200, [lock]: 100, [venv]: 100, [`/r/apps/svc/${manifest}`]: 150 };
+      const files = { [marker]: 200, [lock]: 100, [stamp]: 100, [`/r/apps/svc/${manifest}`]: 150 };
       expect(upToDate(root, python, fsOf(files)), manifest).toBe(false);
     }
   });
 
-  it('is true when the Python manifests are older than the .venv', () => {
-    const files = { [marker]: 200, [lock]: 100, '/r/apps/svc/.venv': 150, '/r/apps/svc/pyproject.toml': 100, '/r/apps/svc/uv.lock': 100 };
+  it('is true when the Python manifests are older than the stamp', () => {
+    const files = { [marker]: 200, [lock]: 100, [stamp]: 150, '/r/apps/svc/pyproject.toml': 100, '/r/apps/svc/uv.lock': 100 };
     expect(upToDate(root, python, fsOf(files))).toBe(true);
   });
 
@@ -389,6 +390,32 @@ describe('cloud-bootstrap upToDate', () => {
       expect(upToDate(dir, engineOnly)).toBe(true);
       utimesSync(realLock, 3000, 3000);
       expect(upToDate(dir, engineOnly)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is true after the stamp step, false once a manifest is newer, false with no stamp', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stamp-'));
+    try {
+      mkdirSync(join(dir, 'node_modules'));
+      writeFileSync(join(dir, 'node_modules', '.package-lock.json'), '{}');
+      const app = join(dir, 'apps', 'svc');
+      mkdirSync(join(app, '.venv'), { recursive: true });
+      writeFileSync(join(app, 'uv.lock'), '');
+      utimesSync(join(app, 'uv.lock'), 1000, 1000);
+      // A .venv with no stamp is not up to date, whatever its mtime.
+      expect(upToDate(dir, python)).toBe(false);
+      writeStamps(dir, python);
+      expect(existsSync(join(app, '.venv', STAMP))).toBe(true);
+      expect(upToDate(dir, python)).toBe(true);
+      // Manifest changed after the stamp (a pull).
+      const future = Date.now() / 1000 + 100;
+      utimesSync(join(app, 'uv.lock'), future, future);
+      expect(upToDate(dir, python)).toBe(false);
+      // Bootstrap ran again: stamped after the lock.
+      utimesSync(join(app, '.venv', STAMP), future + 10, future + 10);
+      expect(upToDate(dir, python)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

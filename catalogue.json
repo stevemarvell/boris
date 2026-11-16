@@ -49,6 +49,7 @@
       "index.html",
       "scripts/test/assemble.test.ts",
       "scripts/test/catalogue.test.ts",
+      "scripts/test/engine-neutral.test.ts",
       "scripts/test/setup-create.test.ts",
       "scripts/test/visibility-statements.test.ts"
     ]

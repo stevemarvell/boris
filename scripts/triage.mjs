@@ -14,9 +14,14 @@
 // 2. Skip anything already in flight: an open pull request whose body names
 //    the issue with Closes/Fixes/Resolves/Refs.
 // 3. Skip anything whose body says "Depends on #<n>" for an issue still open.
-// 4. Order the rest by the one scale (SOP 5): critical, high, medium, then
+// 4. Defer an issue that is not ready to brief: no `**Then**` line under
+//    `## Acceptance criteria`, or an empty `## Details to complete`
+//    (`readiness`). It is listed as `Not ready` for the coordinator to
+//    complete (work-backlog step 1), is never also skipped, and does not
+//    count against the ceiling.
+// 5. Order the rest by the one scale (SOP 5): critical, high, medium, then
 //    unranked. Within a rank, `security` first, then oldest first.
-// 5. Take at most MAX_ISSUES_PER_RUN of them (SOP 1). The rest are reported
+// 6. Take at most MAX_ISSUES_PER_RUN of them (SOP 1). The rest are reported
 //    as deferred, not dropped.
 //
 // The `work-backlog` skill runs this, works what it picks, and runs it again
@@ -100,18 +105,60 @@ function rankOf(labels) {
   return Math.min(UNRANKED, ...labels.map((l) => (Object.hasOwn(RANK, l) ? RANK[l] : UNRANKED)));
 }
 
+/** The body's `## ` sections by exact heading, with fenced code blocks and CRLF removed. */
+function sections(body) {
+  const text = String(body ?? '').replace(/\r\n?/g, '\n').replace(/^(```|~~~)[^\n]*\n[\s\S]*?(?:^\1[^\n]*$|(?![\s\S]))/gm, '');
+  const out = new Map();
+  let current = null;
+  for (const line of text.split('\n')) {
+    if (/^## /.test(line)) {
+      current = line.slice(3).trimEnd();
+      if (!out.has(current)) out.set(current, []);
+    } else if (current !== null) {
+      out.get(current).push(line);
+    }
+  }
+  return out;
+}
+
+/** A real `**Then**` line: not a `_` line, and not the template's bracketed placeholder or `...`. */
+function hasThen(line) {
+  if (line.startsWith('_')) return false;
+  const match = /\*\*Then\*\*(.*)$/.exec(line);
+  if (!match) return false;
+  const text = match[1].trim();
+  return text !== '' && text !== '...' && !/^\[[^\]]*\]$/.test(text);
+}
+
+/**
+ * Whether an issue can be briefed as it stands: null if so, else the reason it
+ * cannot. Reads structure only, never acts on the text. The sections are those
+ * of `.github/ISSUE_TEMPLATE/story.md`; the template's placeholder lines start
+ * with `_` and are ignored, as is a bare `1.`. A details section of `None` is
+ * ready.
+ */
+export function readiness(issue) {
+  const found = sections(issue.body);
+  const criteria = (found.get('Acceptance criteria') ?? []).filter((l) => hasThen(l));
+  if (criteria.length === 0) return 'no acceptance criteria';
+  const details = (found.get('Details to complete') ?? []).map((l) => l.trim()).filter((l) => l && !l.startsWith('_') && !/^1\.$/.test(l));
+  if (details.length === 0) return 'no details to complete';
+  return null;
+}
+
 /**
  * @param issues        [{ number, title, labels: string[], body, user: { login }, authorAssociation }]
  * @param pullRequests  open PRs: [{ number, body }]
  * @param max           most issues to work this run
  * @param permissionOf (login) => the author's repository permission; see `trusted`
- * @returns {{ work, deferred, skip }} work is at most MAX_ISSUES_PER_RUN long
+ * @returns {{ work, deferred, notReady, skip }} work is at most MAX_ISSUES_PER_RUN long
  */
 export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissionOf = undefined) {
   const openNumbers = new Set(issues.map((i) => i.number));
   const claimed = claimedIssues(pullRequests);
   const eligible = [];
   const skip = [];
+  const notReady = [];
 
   for (const issue of issues) {
     if (!trusted(issue, permissionOf)) {
@@ -142,6 +189,11 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissio
       skip.push({ number: issue.number, title: issue.title, reason: `depends on open ${deps.map((n) => `#${n}`).join(', ')}` });
       continue;
     }
+    const reason = readiness(issue);
+    if (reason) {
+      notReady.push({ number: issue.number, title: issue.title, reason });
+      continue;
+    }
     eligible.push({
       number: issue.number,
       title: issue.title,
@@ -159,18 +211,23 @@ export function triage(issues, pullRequests, max = MAX_ISSUES_PER_RUN, permissio
   return {
     work: ordered.slice(0, max),
     deferred: ordered.slice(max),
+    notReady: notReady.sort((a, b) => a.number - b.number),
     skip: skip.sort((a, b) => a.number - b.number),
   };
 }
 
 /** The plan as text, for a person or a pull request body to read. */
-export function render({ work, deferred, skip }, { truncated = false } = {}) {
+export function render({ work, deferred, notReady = [], skip }, { truncated = false } = {}) {
   const lines = [`Work, in order (at most ${MAX_ISSUES_PER_RUN} per run):`];
   if (work.length === 0) lines.push('  nothing an agent may take on');
   for (const w of work) lines.push(`  #${w.number} [${w.rank}] ${w.title}`);
   if (deferred.length) {
     lines.push('Deferred to the next run (over the ceiling):');
     for (const d of deferred) lines.push(`  #${d.number} [${d.rank}] ${d.title}`);
+  }
+  if (notReady.length) {
+    lines.push('Not ready (complete the issue before briefing; at most 3 per run):');
+    for (const n of notReady) lines.push(`  #${n.number} ${n.reason}: ${n.title}`);
   }
   lines.push('Skip:');
   for (const s of skip) {

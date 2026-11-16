@@ -46,8 +46,8 @@ describe('actions/checkout in workflows', () => {
     expect(workflowFiles().length).toBeGreaterThan(0);
   });
 
-  it('finds the nine checkouts, so the scan cannot pass by seeing none', () => {
-    expect(checkouts()).toHaveLength(9);
+  it('finds the ten checkouts, so the scan cannot pass by seeing none', () => {
+    expect(checkouts()).toHaveLength(10);
   });
 
   it('every one sets persist-credentials: false', () => {
