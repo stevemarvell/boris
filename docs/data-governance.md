@@ -187,8 +187,9 @@ census and contention steps compare the pull request's tree, the main checkout,
 against the base, reading it only through `git`. A pull request that edits
 either script is judged by the unedited copy; its edit takes effect once
 merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
-fails if any step runs a `node scripts/...` path from the pull request's
-checkout; it does not recognise other spellings (#371).
+allowlists what a step may run: `node` only on `base-scripts/scripts/`, `gh`,
+`git` and a few shell builtins, and no `npm`, `npx`, `bash` or local `uses: ./`
+(#371). Anything else fails naming the step.
 
 This closes script edits, not workflow edits. On `pull_request` GitHub runs
 `pr-checks.yml` as the pull request has it, so a pull request that edits the
