@@ -1083,6 +1083,59 @@ async function checkoutBase({ run, root, commit }) {
   return scratch;
 }
 
+const DEP_KEYS = ['dependencies', 'devDependencies'];
+
+/**
+ * `current` (a product's root package.json, which may have been bumped) with the
+ * `workspaces` and the scripts it lacks taken from `wanted`; nothing else changes.
+ * Undefined when `current` is not a JSON object, so the caller leaves it alone.
+ */
+export function mergePackageJson(current, wanted) {
+  let mine;
+  try {
+    mine = JSON.parse(current);
+  } catch {
+    return undefined;
+  }
+  if (mine === null || typeof mine !== 'object' || Array.isArray(mine)) return undefined;
+  const theirs = JSON.parse(wanted);
+  if (mine.workspaces === undefined && theirs.workspaces !== undefined) mine.workspaces = theirs.workspaces;
+  const wantsScripts = Object.entries(theirs.scripts ?? {});
+  // A scripts value that is not a plain object is the product's own business: leave the file.
+  if (mine.scripts !== undefined && (mine.scripts === null || typeof mine.scripts !== 'object' || Array.isArray(mine.scripts))) return undefined;
+  for (const [key, command] of wantsScripts) {
+    mine.scripts = mine.scripts ?? {};
+    if (!Object.hasOwn(mine.scripts, key)) mine.scripts[key] = command;
+  }
+  return `${JSON.stringify(mine, null, 2)}\n`;
+}
+
+/** A starter's package.json `text` with each dependency the root also declares set to the root's version. */
+export function alignPins(text, rootText) {
+  if (rootText === undefined) return text;
+  let root;
+  let manifest;
+  try {
+    root = JSON.parse(rootText);
+    manifest = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!isObject(root) || !isObject(manifest)) return text;
+  const pins = { ...root.dependencies, ...root.devDependencies };
+  let changed = false;
+  for (const key of DEP_KEYS) {
+    for (const name of Object.keys(manifest[key] ?? {})) {
+      if (Object.hasOwn(pins, name) && manifest[key][name] !== pins[name]) {
+        manifest[key][name] = pins[name];
+        changed = true;
+      }
+    }
+  }
+  return changed ? `${JSON.stringify(manifest, null, 2)}\n` : text;
+}
+
 /**
  * `add`, run inside a product: copies each starter's files from the base at
  * the product's `engine.commit` and adds its app to project.json, then
@@ -1149,7 +1202,23 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
       const was = before.entries.find((entry) => entry.to === path);
       if (next.content === was.content) continue; // the new app changes nothing in it
       const onDisk = existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : undefined;
-      (onDisk === was.content ? derived : kept).push(onDisk === was.content ? next : path);
+      if (onDisk === was.content) {
+        derived.push(next);
+        continue;
+      }
+      // A package.json the product (or Dependabot) has changed still needs the
+      // new workspaces and scripts: merge them in, keep everything else as it is.
+      const merged = path === 'package.json' && onDisk !== undefined ? mergePackageJson(onDisk, next.content) : undefined;
+      if (merged === undefined) kept.push(path);
+      else if (merged !== onDisk) derived.push({ ...next, content: merged });
+    }
+    // The root's pins win: a starter's shared tooling is aligned to them, so one copy installs.
+    const rootEntry = derived.find((entry) => entry.to === 'package.json') ?? { content: existsSync(join(root, 'package.json')) ? readFileSync(join(root, 'package.json'), 'utf8') : undefined };
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].to === 'package.json' || !/(^|\/)package\.json$/.test(entries[i].to) || entries[i].from === undefined) continue;
+      const text = readFileSync(join(base, ...entries[i].from.split('/')), 'utf8');
+      const aligned = alignPins(text, rootEntry.content);
+      if (aligned !== text) entries[i] = { to: entries[i].to, content: aligned, source: entries[i].source };
     }
 
     const merged = { ...current, apps: { ...current.apps } };
@@ -1157,7 +1226,7 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
     writeEntries(base, root, [...entries, ...derived, { to: 'project.json', content: `${JSON.stringify(merged, null, 2)}\n` }]);
     log(`Added ${opts.starters.join(' + ')} to ${root}, from ${BASE_REMOTE}@${short(commit)}: ${entries.length} files`);
     if (kept.length > 0) {
-      log(`Left as they are, because they were changed since they were generated: ${kept.join(', ')}. Bring in what the new app needs by hand (workspaces in package.json, the uv entry in dependabot.yml, the layout row in CLAUDE.md).`);
+      log(`Left as they are, because they were changed since they were generated: ${kept.join(', ')}. Bring in what the new app needs by hand (the uv entry in dependabot.yml, the layout row in CLAUDE.md).`);
     }
     // `npm ci` fails when the lockfile lacks a workspace package.json now names.
     // A starter's own lockfile written just now is already right for it.
@@ -1167,7 +1236,8 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
       const locked = spawn('npx', ['npm@11', 'install'], { cwd: root, stdio: 'inherit' });
       if ((locked.status ?? 1) !== 0) throw new Error(`setup add: npx npm@11 install failed in ${root}; the starters are written, run it yourself before npm run bootstrap`);
     } else if (kept.includes('package.json')) {
-      log('package.json was left as it is: after adding the workspace by hand, run npx npm@11 install, or npm ci fails.');
+      const scripts = Object.keys(JSON.parse(wanted.entries.find((entry) => entry.to === 'package.json').content).scripts ?? {});
+      log(`package.json was left as it is: add by hand the "workspaces" the new app needs (${newApps.map((app) => wanted.project.apps[app].path).join(', ')}) and these scripts if missing: ${scripts.join(', ')}; then run npx npm@11 install, or npm ci fails.`);
     }
     log('Next: npm run bootstrap, then npm run verify.');
     return { added: newApps, kept };
