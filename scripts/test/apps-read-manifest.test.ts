@@ -41,8 +41,12 @@ function codeOf(file: string, line: string): string {
   const t = line.trim();
   if (t.startsWith('//')) return '';
   if (t.startsWith('#') && HASH_COMMENT.test(file)) return '';
-  if (t.startsWith('*')) return '';
-  return t.replace(/\/\*.*?\*\//g, '').replace(/\/\*.*$/, '');
+  if (/^\*(?!\/)/.test(t)) return '';
+  // A `/*` counts as a comment opener only at a token start (line start or after
+  // whitespace), so `glob('apps/*/project.json')` and `'a/*' ... '*/'` stay
+  // scanned. A leading `*/` closes a comment from an earlier line; the rest is code.
+  const body = t.replace(/^\*\//, '').replace(/(^|\s)\/\*.*?\*\//g, '$1');
+  return /^\/\*/.test(body) ? '' : body;
 }
 const isRead = (file: string, line: string) => /project\.(json|mjs)/.test(codeOf(file, line));
 
@@ -74,6 +78,9 @@ describe('apps read nothing but `name` from project.json', () => {
     expect(isRead('a.mjs', "#m = readFileSync('../../project.json')")).toBe(true);
     expect(isRead('a.js', "#m = readFileSync('../../project.json')")).toBe(true);
     expect(isRead('a.ts', "#m = readFileSync('../../project.json')")).toBe(true);
+    expect(isRead('a.ts', "glob('apps/*/project.json')")).toBe(true);
+    expect(isRead('a.ts', "x = ['a/*', 'project.json', '*/']")).toBe(true);
+    expect(isRead('a.ts', "*/ require('../../project.json')")).toBe(true);
     expect(isRead('a.ts', "/* a */ x = require('project.json') /* b */")).toBe(true);
   });
 
