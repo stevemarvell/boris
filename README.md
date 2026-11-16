@@ -108,6 +108,7 @@ it. An empty one is accepted, but one with any branch is refused.
 
    ```bash
    if [ -d boris ]; then (cd boris && npm run bootstrap); fi
+   if [ -d boris ]; then node boris/scripts/user-telemetry-settings.mjs --repo boris; fi
    ```
 
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**

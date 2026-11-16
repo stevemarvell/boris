@@ -176,6 +176,7 @@ environment tools:
 
 \`\`\`bash
 if [ -d ${ctx.name} ]; then (cd ${ctx.name} && npm run bootstrap); fi
+if [ -d ${ctx.name} ]; then node ${ctx.name}/scripts/user-telemetry-settings.mjs --repo ${ctx.name}; fi
 \`\`\`
 `;
 }

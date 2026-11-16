@@ -66,17 +66,19 @@ The page above is about what the *deployments* expose. This section is about
 what the *pull request checks* hold, because it has the same shape and needs
 the same kind of written trigger.
 
-Three jobs run branch code with something live in the step. Two are in
+Three jobs hold something live while they work on a pull request. Two are in
 `.github/workflows/claude-code-review.yml` and carry a credential: the code
-review and the security review. The third is the `pr checks` job in
-`.github/workflows/pr-checks.yml`, which carries a write-scoped token instead
-and is described after them. Each one checks out the pull request and runs a
-script from that checkout before its main work starts. Every checkout sets
-`persist-credentials: false`, so none leaves a token in `.git/config` for that
-script to read; a test (`scripts/test/checkout-credentials.test.ts`) fails on
-any that does not. That closes the `.git/config` route only: `pr checks` still
-passes its token in the environment of two steps that run branch code (see
-below, follow-up #359).
+review and the security review. Each checks out the pull request and runs a
+script from that checkout before its main work starts. The third is the `pr
+checks` job in `.github/workflows/pr-checks.yml`, which carries a write-scoped
+token instead and is described after them; since #359 its scripts come from the
+base commit, not the pull request. Every checkout sets
+`persist-credentials: false`, so none leaves a token in `.git/config`; a test
+(`scripts/test/checkout-credentials.test.ts`) fails on any that does not. In
+all three jobs the workflow file itself is read from the pull request's ref
+(`pull_request`), so a pull request that edits the workflow runs its own steps
+with what the job holds; that is bounded by one account with write access and
+voided by a second writer.
 
 ```yaml
 - name: Checkout repository
@@ -169,30 +171,39 @@ the step that hands it the credential.
 ### A third job of the same shape, holding a different thing
 
 `pr checks` in `.github/workflows/pr-checks.yml` carries no Grafana
-credential, and it is in this list anyway, because the structure is identical:
-it checks out the pull request's merge ref and runs `scripts/pr-contention.mjs`
-and `scripts/test-census.mjs` from *that* checkout, with `GITHUB_TOKEN` scoped
-`pull-requests: write` available to the job. The fetch and "Say what collides"
-steps hold that token in their environment and run `scripts/pr-contention.mjs`
-from the checkout. The census step holds no token, but it runs earlier in the
-same job, so it can still reach the later token-holding steps by writing
-`$GITHUB_ENV`, `$GITHUB_PATH` or `.git/config`.
+credential, and it is in this list anyway, because it holds a token while it
+works on pull-request content: `GITHUB_TOKEN` scoped `pull-requests: write`,
+with the pull request's merge ref checked out.
 
 What that scope permits is wider than what the job does with it. GitHub has no
 comment-only permission, so the scope that lets it post and edit its own
 comment also permits **merging, closing, retitling and labelling any open pull
-request**. A pull request that edits `scripts/pr-contention.mjs` or
-`scripts/test-census.mjs` runs its own code with that scope, the same way one editing
-`scripts/write-ci-telemetry-settings.mjs` runs its own code with the Grafana
-credential.
+request**. So no script from the pull request's checkout runs in this job
+(#359). `scripts/pr-contention.mjs`
+and `scripts/test-census.mjs` execute from `base-scripts/`, a second checkout
+of the base commit (`persist-credentials: false`, sparse to `scripts/`), and
+the job log's "Say which commit the scripts came from" step prints that sha. The
+census and contention steps compare the pull request's tree, the main checkout,
+against the base, reading it only through `git`. A pull request that edits
+either script is judged by the unedited copy; its edit takes effect once
+merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
+fails if any step runs a `node scripts/...` path from the pull request's
+checkout; it does not recognise other spellings (#371).
 
-The same two things bound it — `pull_request` rather than `pull_request_target`,
-and one account with write access — and the same trigger voids it. So on that
-day this job needs the same treatment as the other two: run
-`scripts/pr-contention.mjs` and `scripts/test-census.mjs` from the default
-branch rather than the branch under review (#359). It is listed here because
-the remediation plan below has to be a complete list on the day it is used, and
-a job missing from the inventory is a job nobody remembers to fix.
+This closes script edits, not workflow edits. On `pull_request` GitHub runs
+`pr-checks.yml` as the pull request has it, so a pull request that edits the
+workflow can run its own steps with the token, and the test reads that same
+edited file. That is bounded by one account with write access and
+`pull_request` rather than `pull_request_target`, and voided by a second writer
+with push access (branch protection, #340, would let a review gate it). The
+same writer can also open a pull request against a branch other than `develop`
+whose scripts they edited, since the `pull_request` trigger has no `branches:`
+filter and `base.sha` is then that branch's tip.
+
+What remains: the scripts are as trustworthy as the base branch, so a merge to
+`develop` that has not been reviewed still reaches this token on the next run.
+That is the same one-writer bound as the other jobs, voided the same way by a
+second writer with merge rights.
 
 ### Reviews run once, and are advisory
 
