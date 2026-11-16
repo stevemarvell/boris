@@ -1100,7 +1100,10 @@ export function mergePackageJson(current, wanted) {
   if (mine === null || typeof mine !== 'object' || Array.isArray(mine)) return undefined;
   const theirs = JSON.parse(wanted);
   if (mine.workspaces === undefined && theirs.workspaces !== undefined) mine.workspaces = theirs.workspaces;
-  for (const [key, command] of Object.entries(theirs.scripts ?? {})) {
+  const wantsScripts = Object.entries(theirs.scripts ?? {});
+  // A scripts value that is not a plain object is the product's own business: leave the file.
+  if (mine.scripts !== undefined && (mine.scripts === null || typeof mine.scripts !== 'object' || Array.isArray(mine.scripts))) return undefined;
+  for (const [key, command] of wantsScripts) {
     mine.scripts = mine.scripts ?? {};
     if (!Object.hasOwn(mine.scripts, key)) mine.scripts[key] = command;
   }
@@ -1118,6 +1121,8 @@ export function alignPins(text, rootText) {
   } catch {
     return text;
   }
+  const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!isObject(root) || !isObject(manifest)) return text;
   const pins = { ...root.dependencies, ...root.devDependencies };
   let changed = false;
   for (const key of DEP_KEYS) {
@@ -1231,7 +1236,8 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
       const locked = spawn('npx', ['npm@11', 'install'], { cwd: root, stdio: 'inherit' });
       if ((locked.status ?? 1) !== 0) throw new Error(`setup add: npx npm@11 install failed in ${root}; the starters are written, run it yourself before npm run bootstrap`);
     } else if (kept.includes('package.json')) {
-      log('package.json was left as it is: after adding the workspace by hand, run npx npm@11 install, or npm ci fails.');
+      const scripts = Object.keys(JSON.parse(wanted.entries.find((entry) => entry.to === 'package.json').content).scripts ?? {});
+      log(`package.json was left as it is: add by hand the "workspaces" the new app needs (${newApps.map((app) => wanted.project.apps[app].path).join(', ')}) and these scripts if missing: ${scripts.join(', ')}; then run npx npm@11 install, or npm ci fails.`);
     }
     log('Next: npm run bootstrap, then npm run verify.');
     return { added: newApps, kept };

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assemble, loadCatalogue } from '../assemble.mjs';
 import { ROOT } from '../project.mjs';
-import { BASE_REMOTE, add, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
+import { BASE_REMOTE, add, alignPins, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
 
 describe('checkChoices', () => {
   const catalogue = loadCatalogue();
@@ -765,6 +765,25 @@ describe('add, inside a product', () => {
     const result = await add({ starters: ['node-react'] }, { root: dir, log: (l: string) => lines.push(l), spawn: () => ({ status: 0 }) });
     expect(result.kept).toEqual(['package.json']);
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe('not json {\n');
-    expect(lines.join('\n')).toMatch(/package\.json was left as it is/);
+    expect(lines.join('\n')).toMatch(/package\.json was left as it is.*"workspaces".*apps\/web.*scripts.*dev, build/s);
+  });
+
+  it('leaves a root package.json whose scripts is not an object, instead of throwing', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    manifest.scripts = 'nope';
+    const text = `${JSON.stringify(manifest, null, 2)}\n`;
+    writeFileSync(join(dir, 'package.json'), text);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'odd scripts');
+    const result = await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    expect(result.kept).toEqual(['package.json']);
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(text);
+  });
+
+  it('aligns nothing, and does not throw, when the root manifest parses to a non-object', () => {
+    const starter = '{"devDependencies":{"eslint":"10.13.0"}}\n';
+    for (const root of ['null', '"x"', '[]']) expect(alignPins(starter, root)).toBe(starter);
+    expect(alignPins('null', '{}')).toBe('null');
   });
 });
