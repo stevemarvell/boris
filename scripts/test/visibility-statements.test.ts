@@ -45,7 +45,11 @@ describe('visibility statements', () => {
   it('data-governance names the test that holds the no-print control', () => {
     const doc = read('docs/data-governance.md');
     expect(doc).toContain('scripts/test/no-secret-print.test.ts');
-    expect(read('scripts/test/no-secret-print.test.ts').length).toBeGreaterThan(0);
+    const test = read('scripts/test/no-secret-print.test.ts');
+    expect(test).toContain('GRAFANA_CLOUD_OTLP_AUTH');
+    expect(test).toContain('WORKFLOWS_DIR');
+    expect(test).toContain('workflowPrints(');
+    expect(test).toContain('scriptPrints(');
   });
 
   it('data-governance does not call the repository private', () => {

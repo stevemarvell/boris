@@ -23,6 +23,7 @@ interface Step {
   name?: string;
   run?: string;
   env?: Record<string, unknown>;
+  with?: Record<string, unknown>;
 }
 interface Job {
   env?: Record<string, unknown>;
@@ -50,13 +51,24 @@ function workflowPrints(source: string): string[] {
       const at = `${jobName}/${step.name ?? i}`;
       const lines = String(step.run ?? '').split('\n').map(code).filter(Boolean);
       const secretInScope = holdsSecret(wf.env, job.env, step.env);
+      for (const [key, value] of Object.entries(step.with ?? {})) {
+        const text = String(value);
+        if (secretInScope && /show_full_output/.test(key) && /true/i.test(text))
+          found.push(`${at}: with.${key} prints the whole session where ${SECRET} is set`);
+        if (secretInScope && /(^|\s)--(verbose|debug)\b/.test(text))
+          found.push(`${at}: with.${key} turns on --verbose/--debug where ${SECRET} is set`);
+      }
       for (const line of lines) {
-        const print = /(^|[\s;&|(])(cat|echo|printf|tee|head|tail|less|more|xxd|od|base64|jq|print|python3?\s+-c|node\s+-e)\b/.test(line);
+        const print = /(^|[\s;&|(])(cat|echo|printf|printenv|tee|head|tail|less|more|xxd|od|base64|jq|print|python3?\s+-c|node\s+-e)\b/.test(line);
         if (line.includes(SECRET) && (print || /secrets\./.test(line))) found.push(`${at}: names ${SECRET} in a command`);
         if (print && SETTINGS_FILE.test(line)) found.push(`${at}: prints the telemetry settings file`);
         if (/secrets\.GRAFANA_CLOUD/.test(line)) found.push(`${at}: interpolates a Grafana secret into a script`);
         if (secretInScope && /(^|[\s;&|(])(env|printenv|export\s+-p|declare\s+-x|set)\s*($|[|;&>])/.test(line))
           found.push(`${at}: dumps the environment where ${SECRET} is set`);
+        if (secretInScope && /\bprintenv\b|\bdeclare\s+-[a-zA-Z]*p|\bexport\s+-p\b/.test(line))
+          found.push(`${at}: prints variables where ${SECRET} is set`);
+        if (secretInScope && /\b(curl|wget)\b.*(\s-[a-zA-Z]*v\b|--verbose|--trace|--debug|\s-d\b)/.test(line))
+          found.push(`${at}: runs a verbose HTTP client where ${SECRET} is set`);
         if (secretInScope && /\bset\s+(-[a-zA-Z]*x|-o\s+xtrace)|\bbash\s+-[a-zA-Z]*x/.test(line))
           found.push(`${at}: turns on shell tracing where ${SECRET} is set`);
       }
@@ -138,8 +150,23 @@ describe('no step prints the Grafana credential', () => {
 
   it('catches printenv and env', () => {
     for (const cmd of ['printenv', 'env', 'env | sort']) {
-      expect(workflowPrints(withStep(cmd))).toEqual([expect.stringContaining('dumps the environment')]);
+      expect(workflowPrints(withStep(cmd))).toEqual(expect.arrayContaining([expect.stringContaining('dumps the environment')]));
     }
+  });
+
+  it('catches printenv NAME, declare -p and a verbose curl', () => {
+    for (const cmd of ['printenv GRAFANA_CLOUD_OTLP_AUTH', 'declare -p', 'curl -v -H "X: $GRAFANA_CLOUD_OTLP_AUTH" https://example.com']) {
+      expect(workflowPrints(withStep(cmd)), cmd).not.toEqual([]);
+    }
+  });
+
+  it('catches show_full_output and --verbose in the action inputs', () => {
+    const full = claude.replace('          claude_code_oauth_token:', '          show_full_output: true\n          claude_code_oauth_token:');
+    expect(full).not.toBe(claude);
+    expect(workflowPrints(full)).toEqual([expect.stringContaining('show_full_output')]);
+    const verbose = claude.replace('            --model sonnet', '            --model sonnet --verbose');
+    expect(verbose).not.toBe(claude);
+    expect(workflowPrints(verbose)).toEqual([expect.stringContaining('--verbose')]);
   });
 
   it('catches set -x and ACTIONS_STEP_DEBUG', () => {

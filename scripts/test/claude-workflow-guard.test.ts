@@ -97,17 +97,33 @@ function allowlistProblems(source: string): string[] {
   return problems;
 }
 
-/** Problems with the concurrency group: unguarded events must not share a group with guarded ones. */
+/**
+ * Problems with the concurrency group, read as an expression: it must be
+ * `(<@claude in body> && <author in the list>) && format('{0}', <number>) ||
+ * format('ignored-{0}', github.run_id)`, so an unguarded event lands in a group
+ * of its own. Substring checks would pass `||` where `&&` belongs.
+ */
 function concurrencyProblems(source: string): string[] {
-  const group = String((parse(source) as Workflow).concurrency?.group ?? '').replace(/\s+/g, ' ');
+  const raw = String((parse(source) as Workflow).concurrency?.group ?? '').replace(/\s+/g, ' ');
+  if (raw.includes('github.ref')) return ['keyed on github.ref: every issue comment shares one group'];
+  const expr = /^claude-\$\{\{ (.*) \}\}$/.exec(raw)?.[1];
+  if (!expr) return ['group is not claude-${{ expression }}'];
+  const arms = splitTop(expr, '||');
+  if (arms.length !== 2) return [`expression has ${arms.length} top-level || arms, not 2`];
+  const [guarded, other] = arms as [string, string];
   const problems: string[] = [];
-  if (group.includes('github.ref')) problems.push('keyed on github.ref: every issue comment shares one group');
-  for (const needle of ['github.event.issue.number', 'github.event.pull_request.number', 'github.run_id', "'@claude'"])
-    if (!group.includes(needle)) problems.push(`group lacks ${needle}`);
-  const list = /fromJSON\('(\[[^']*\])'\)/.exec(group)?.[1];
-  if (!list || JSON.stringify(JSON.parse(list)) !== JSON.stringify(ALLOWED)) problems.push(`group's list is ${list}`);
-  if (!group.includes('github.event.comment.author_association || github.event.review.author_association'))
-    problems.push('group does not test author_association');
+  if (other !== "format('ignored-{0}', github.run_id)") problems.push(`fallback arm is ${other}`);
+  const [guard, key, ...extra] = splitTop(guarded, '&&');
+  if (!guard || !key || extra.length) return [...problems, 'guarded arm is not (guard) && key'];
+  if (key !== "format('{0}', github.event.issue.number || github.event.pull_request.number)")
+    problems.push(`key is ${key}`);
+  const [mention, assoc, ...more] = splitTop(stripOuterParens(guard), '&&');
+  if (more.length || !mention || !assoc) return [...problems, 'guard is not <mention> && <association>'];
+  if (mention !== "contains(github.event.comment.body || github.event.review.body, '@claude')")
+    problems.push(`mention test is ${mention}`);
+  const m = /^contains\(fromJSON\('(\[[^']*\])'\), github\.event\.comment\.author_association \|\| github\.event\.review\.author_association\)$/.exec(assoc);
+  if (!m) problems.push(`association test is ${assoc}`);
+  else if (JSON.stringify(JSON.parse(m[1] ?? '[]')) !== JSON.stringify(ALLOWED)) problems.push(`group's list is ${m[1]}`);
   return problems;
 }
 
@@ -213,5 +229,17 @@ describe('claude.yml author_association guard', () => {
     );
     expect(mutated).not.toBe(WORKFLOW);
     expect(concurrencyProblems(mutated)).toEqual([expect.stringContaining("group's list is")]);
+  });
+
+  it('fails when the group joins its tests with || instead of &&', () => {
+    const mutated = WORKFLOW.replace("'@claude')\n    && contains(fromJSON", "'@claude')\n    || contains(fromJSON");
+    expect(mutated).not.toBe(WORKFLOW);
+    expect(concurrencyProblems(mutated)).not.toEqual([]);
+  });
+
+  it('fails when the key is no longer behind the guard', () => {
+    const mutated = WORKFLOW.replace("review.author_association))\n    && format('{0}'", "review.author_association))\n    format('{0}'");
+    expect(mutated).not.toBe(WORKFLOW);
+    expect(concurrencyProblems(mutated)).not.toEqual([]);
   });
 });
