@@ -22,9 +22,12 @@ counterpart to `drive-pr`, which runs a known recipe.
    `worktrees` skill, or drive a stuck pull request per `drive-pr`
    (`mergeable_state` first, per its step 1). Then list the pull requests
    an earlier run parked (step 3), which `stuck.mjs` does not report when
-   they are mergeable, current and checked: every open pull request whose
-   comments include a `drive-pr stopped` comment, read with
-   `gh api repos/{owner}/{repo}/issues/<n>/comments`. Report each with the
+   they are mergeable, current and checked: an open pull request is parked
+   when its latest `drive-pr stopped` comment (read with
+   `gh api repos/{owner}/{repo}/issues/<n>/comments`) is newer than its last
+   commit (`pulls/<n>/commits`); a push after the stop means it is being
+   worked again. Read at most the 30 most recently updated open pull
+   requests, and say so if there are more. Report each parked one with the
    reason in that comment; its issue stays claimed, so triage will not pick
    it, and a person or a fresh `drive-pr` decides what happens to it. Only
    once `stuck.mjs` exits `0` does step 1 below start.
