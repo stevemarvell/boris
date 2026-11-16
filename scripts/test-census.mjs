@@ -250,7 +250,16 @@ export async function mergeBase(baseRef, headRef) {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-  } catch {
+  } catch (error) {
+    // Only exit 1 with nothing on stdout means "no common ancestor". Anything
+    // else (unknown ref, git missing, a corrupt repo) is a different failure
+    // and must say what git said, not be passed off as a missing merge-base.
+    const stderr = String(error.stderr ?? '').trim();
+    if (error.status !== 1 || String(error.stdout ?? '').trim() || stderr) {
+      throw new Error(
+        `git merge-base ${baseRef} ${headRef} failed: ${stderr || error.message}`,
+      );
+    }
     out = '';
   }
   if (!out) {
@@ -272,7 +281,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     origin = await mergeBase(baseRef, headRef);
   } catch (error) {
-    console.error(`::error title=No merge-base::${error.message}`);
+    console.error(`::error title=Census could not find its base::${error.message}`);
     console.error(error.message);
     process.exit(1);
   }

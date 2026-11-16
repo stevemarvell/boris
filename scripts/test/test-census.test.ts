@@ -492,3 +492,43 @@ describe('the census counts against the merge-base (#372)', () => {
     }
   });
 });
+
+describe('a git failure that is not a missing merge-base says what git said (#372)', () => {
+  // Timeout: one real git init and one node spawn (<=1 s quiet); 30 s.
+  it('reports git\'s own error for an unknown ref, not a missing merge-base', { timeout: 30_000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'census-bad-'));
+    try {
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+          cwd: dir,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'a.test.ts'), ts('one'));
+      git('add', '-A');
+      git('commit', '-q', '-m', 'start');
+      const head = git('rev-parse', 'HEAD');
+      let out = '';
+      let status = 0;
+      try {
+        execFileSync('node', [resolve(__dirname, '..', 'test-census.mjs'), 'deadbeef', head], {
+          cwd: dir,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, PR_BODY: '', GITHUB_STEP_SUMMARY: '' },
+        });
+      } catch (error) {
+        const e = error as { status: number; stdout: string; stderr: string };
+        status = e.status;
+        out = `${e.stdout}${e.stderr}`;
+      }
+      expect(status).toBe(1);
+      expect(out).toContain('git merge-base deadbeef');
+      expect(out).toMatch(/deadbeef|Not a valid/i);
+      expect(out).not.toContain('No merge-base between');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
