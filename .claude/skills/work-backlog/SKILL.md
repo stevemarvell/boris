@@ -97,8 +97,20 @@ counterpart to `drive-pr`, which runs a known recipe.
    - `drive-pr` step 4, "Re-review before merging", applies before every merge
      here. Unattended merging without it voids the bound in
      `docs/data-governance.md`.
-   - If `drive-pr` stops on a ceiling, stop this skill too: report the
-     pull request and what is left, and do not start the next issue.
+   - If `drive-pr` stops on a ceiling, **park** that pull request P: it
+     keeps the `drive-pr stopped` comment (step 5 is unchanged), counts as
+     one of the three issues, and the run returns to step 1. Read P's changed
+     files with `gh api repos/{owner}/{repo}/pulls/<n>/files --jq
+     '.[].filename'` (call this F).
+   - After a park, the next pick is the first one in the new plan whose issue
+     body names no file path in F and has no `Depends on` line pointing at
+     P's issue. An issue naming no files counts as independent. Skip every
+     other pick, with the reason "overlaps parked #P", and say so in the
+     report.
+   - **Ceiling: 2 parked pull requests per run.** When the second is parked,
+     end the run. The report lists both, with what is left on each. The next
+     run finds them first: `stuck.mjs` (step 0) lists an open pull request
+     that is stale or conflicting.
 4. **Re-triage.** After the merge and the smoke check, go back to step 1. The
    merge has changed the state: the issue is closed, a smoke failure may have
    opened a new one, and a dependency may have cleared. The next pick comes
