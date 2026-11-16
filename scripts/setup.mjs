@@ -143,7 +143,7 @@ function refuseStrippedFlags(command, argv) {
         ? '--name <n> --owner <o> [--starter <s> ...]'
         : command === 'add'
           ? '--starter <s> [--starter <s> ...]'
-          : '[--skip-verify] [--dry-run] [--repo owner/name]'),
+          : '[--skip-verify] [--dry-run] [--repo owner/name] [--with <name>,...]'),
   );
 }
 
@@ -194,13 +194,29 @@ export function parseAddArgs(argv) {
   return opts;
 }
 
-/** `check`'s flags. Every one is optional. */
+/** An Error `main` turns into exit status 2 (a usage mistake caught before anything is done). */
+function usageError(message) {
+  return Object.assign(new Error(message), { exitCode: 2 });
+}
+
+/** `check`'s flags. Every one is optional. `--with` names optional integrations to file issues for. */
 export function parseCheckArgs(argv) {
   refuseStrippedFlags('check', argv);
-  const opts = { skipVerify: false, dryRun: false };
+  const opts = { skipVerify: false, dryRun: false, with: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (flag === '--skip-verify') {
+    if (flag === '--with') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error('usage: --with needs a value');
+      const names = value.split(',').map((n) => n.trim()).filter(Boolean);
+      const valid = OPTIONAL_NAMES;
+      const unknown = names.filter((n) => !valid.includes(n));
+      if (unknown.length > 0) {
+        throw usageError(`usage: --with takes a comma-separated list of: ${valid.join(', ')}; got ${unknown.map((n) => JSON.stringify(n)).join(', ')}`);
+      }
+      for (const n of names) if (!opts.with.includes(n)) opts.with.push(n);
+      i++;
+    } else if (flag === '--skip-verify') {
       opts.skipVerify = true;
     } else if (flag === '--dry-run') {
       opts.dryRun = true;
@@ -213,7 +229,7 @@ export function parseCheckArgs(argv) {
       opts.repo = value;
       i++;
     } else {
-      throw new Error(`usage: check [--skip-verify] [--dry-run] [--repo owner/name]: unknown flag "${flag}"`);
+      throw new Error(`usage: check [--skip-verify] [--dry-run] [--repo owner/name] [--with <name>,...]: unknown flag "${flag}"`);
     }
   }
   return opts;
@@ -314,13 +330,33 @@ function ownerBody({ story, scenarios, details }) {
   );
 }
 
-// The owner issues `check` files, each matched by exact title so a re-run
-// never duplicates one. Every one carries `human` + `do not automate`
-// (docs/sops.md SOP 2) plus its own rank.
+/** An agent issue body in the same sections. Nobody is asked to do anything:
+ * an agent picks it up, so Details to complete is written for one. */
+function agentBody({ story, scenarios, details, tech }) {
+  const blocks = scenarios
+    .map(([name, given, when, then]) => `**Scenario: ${name}**\n- **Given** ${given}\n- **When** ${when}\n- **Then** ${then}`)
+    .join('\n\n');
+  return (
+    '## Persona\n\nAn agent working this repository\'s backlog.\n\n' +
+    `## Story\n\n${story}\n\n` +
+    `## Acceptance criteria\n\n${blocks}\n\n` +
+    `## Details to complete\n\n${details}\n\n` +
+    `## Tech notes\n\n${tech}\n\n` +
+    '## Testing notes\n\nThe checks under Acceptance criteria are the proof.\n\n' +
+    '## References\n\n- `docs/sops.md` SOP 2\n'
+  );
+}
+
+// The issues `check` files, each matched by exact title so a re-run never
+// duplicates one. `owner: true` ones need a login, money or a credential: they
+// carry `human` + `do not automate` (docs/sops.md SOP 2), are assigned to the
+// owner, and an `optional` one is filed only when asked for with `--with
+// <name>`. `owner: false` ones are agent work: their rank label only, unassigned.
 export const OWNER_ISSUES = [
   {
     title: 'Add CLAUDE_CODE_OAUTH_TOKEN',
     rank: 'critical',
+    owner: true,
     secret: 'CLAUDE_CODE_OAUTH_TOKEN', // not filed while this repository secret is set
     body: (repo) =>
       ownerBody({
@@ -343,6 +379,8 @@ export const OWNER_ISSUES = [
   {
     title: 'Optional: Telegram notifications',
     rank: 'medium',
+    owner: true,
+    optional: 'telegram',
     body: (repo) =>
       ownerBody({
         story:
@@ -363,6 +401,8 @@ export const OWNER_ISSUES = [
   {
     title: 'Optional: Grafana CI telemetry',
     rank: 'medium',
+    owner: true,
+    optional: 'grafana',
     body: (repo) =>
       ownerBody({
         story:
@@ -384,39 +424,44 @@ export const OWNER_ISSUES = [
   {
     title: "Merge Dependabot's first PR",
     rank: 'high',
+    owner: false,
     body: (repo) =>
-      ownerBody({
+      agentBody({
         story:
-          "As the **owner**, I want Dependabot's first pull request reviewed and merged, so that the dependency-update loop is proven to work end to end, not just configured.",
+          "As an **agent**, I want Dependabot's first pull request reviewed and merged, so that the dependency-update loop is proven to work end to end, not just configured.",
         scenarios: [
-          ['the first update merges', "Dependabot's pull request has a green `verify`", 'you merge it', 'the dependency version on `develop` is the bumped one'],
-          ['there is no pull request yet', 'there is no open Dependabot pull request', 'you list the open pull requests by Dependabot', 'the list is empty'],
+          ['the first update merges', "Dependabot's pull request has a green `verify`", 'the agent merges it', 'the dependency version on `develop` is the bumped one'],
+          ['there is no pull request yet', 'there is no open Dependabot pull request', 'the agent lists the open pull requests by Dependabot', 'the list is empty and the agent reports that on this issue'],
         ],
         details:
           '1. List the open pull requests Dependabot has made.\n\n' +
-          `\`\`\`bash\ngh pr list -R ${repo} --author "app/dependabot"\n\`\`\`\n\n` +
-          '2. Open the first one, read the changelog link in its body, and wait for the `verify` check to go green.\n' +
-          '3. Merge it into `develop` from the pull request page (Merge pull request).\n' +
-          '4. Comment on this issue with the pull request number and close it.',
+          `\`\`\`bash\ngh api "repos/${repo}/pulls?state=open" --jq '.[] | select(.user.login == "dependabot[bot]") | [.number, .title] | @tsv'\n\`\`\`\n\n` +
+          '2. Open the first one and read the changelog link in its body.\n' +
+          '3. Wait for the `verify` check to be green. If it is red, stop and report that on this issue.\n' +
+          '4. Merge it into `develop` with the GitHub MCP tool `merge_pull_request`.\n' +
+          '5. Comment on this issue with the pull request number, then close it.',
+        tech: 'Merge with `merge_pull_request` (REST); `gh pr merge` is GraphQL, which cloud sessions refuse.',
       }),
   },
   {
     title: 'Rewrite README and CLAUDE.md around the product',
     rank: 'high',
+    owner: false,
     body: (repo) =>
-      ownerBody({
+      agentBody({
         story:
-          `As the **owner**, I want the README and CLAUDE.md of ${repo} to describe the product, so that the intro and the Layout match the application that is really here.`,
+          `As an **agent**, I want the README and CLAUDE.md of ${repo} to describe the product, so that the intro and the Layout match the application that is really here.`,
         scenarios: [
           ['the files describe the product', 'the application exists', 'a reader opens README.md and CLAUDE.md', 'the intro says what the product is for and the Layout lists its real directories'],
-          ['the stub is gone', 'the rewrite is merged', 'you search both files for the stub paragraph', 'the search output is empty'],
+          ['the stub is gone', 'the rewrite is merged', 'the agent searches both files for the stub paragraph', 'the search output is empty'],
         ],
         details:
-          '1. Open `CLAUDE.md` and replace the stub paragraph at the top with what the product is for. Keep the shared rules block as it is: it is synced, and a shared file never names the repository it sits in.\n' +
-          '2. Rewrite the Layout table in `CLAUDE.md` and the intro in `README.md` so they list the real application directories rather than the starters this repository was assembled from.\n' +
+          '1. Read `project.json` and each `apps/*/CLAUDE.md` to learn what the product is and what directories it has.\n' +
+          '2. Rewrite the intro and the Layout table of `README.md`, and the unshared sections of `CLAUDE.md` (the stub paragraph at the top and the Layout table), from what you read. Keep the shared rules block as it is: it is synced, and a shared file never names the repository it sits in.\n' +
           '3. Check the stub is gone.\n\n' +
           '```bash\ngrep -n "Replace this paragraph" CLAUDE.md README.md\n```\n\n' +
-          '4. Open a pull request against `develop`, comment its number here, and close this issue once it merges.',
+          '4. Open a pull request against `develop` and drive it to merged.',
+        tech: 'Edit only `README.md` and the unshared sections of `CLAUDE.md`.',
       }),
   },
 ];
@@ -424,10 +469,19 @@ export const OWNER_ISSUES = [
 /** Which of OWNER_ISSUES don't already exist — open or closed, so a person
  * closing one by hand doesn't get it recreated — by exact title. An issue
  * that asks for a secret is also skipped while that secret is set. */
-export function missingOwnerIssues(existingTitles, { secretNames = new Set() } = {}) {
+export function missingOwnerIssues(existingTitles, { secretNames = new Set(), withOptional = [] } = {}) {
   const have = new Set(existingTitles);
-  return OWNER_ISSUES.filter((issue) => !have.has(issue.title) && !(issue.secret && secretNames.has(issue.secret)));
+  const asked = new Set(withOptional);
+  return OWNER_ISSUES.filter(
+    (issue) =>
+      !have.has(issue.title) &&
+      !(issue.secret && secretNames.has(issue.secret)) &&
+      (!issue.optional || asked.has(issue.optional)),
+  );
 }
+
+/** The optional integrations `--with` may name. */
+export const OPTIONAL_NAMES = OWNER_ISSUES.filter((i) => i.optional).map((i) => i.optional);
 
 export const TEMPLATE_ISSUE_TITLE = 'Template: User story';
 
@@ -611,6 +665,7 @@ export async function runCheck({
   root = ROOT,
   dryRun = false,
   skipVerify = false,
+  withOptional = [],
   run = exec,
   fetchUrl = fetch,
   runVerify,
@@ -693,30 +748,38 @@ export async function runCheck({
   const allIssues = await listIssues(run, repo, 'all');
   const missing = missingOwnerIssues(
     allIssues.map((i) => i.title),
-    { secretNames },
+    { secretNames, withOptional },
   );
+  // An optional integration nobody asked for is not filed; say how to ask.
+  const existingTitles = new Set(allIssues.map((i) => i.title));
+  for (const issue of OWNER_ISSUES) {
+    if (issue.optional && !withOptional.includes(issue.optional) && !existingTitles.has(issue.title)) {
+      results.push({ mark: MARK.info, text: `${issue.optional}: optional, no issue filed. To file one: node scripts/setup.mjs check --with ${issue.optional}` });
+    }
+  }
   let assignee; // the authenticated login, looked up once and only if an issue is actually filed
   for (const issue of missing) {
-    const label = [issue.rank, 'human', 'do not automate'];
+    const label = issue.owner ? [issue.rank, 'human', 'do not automate'] : [issue.rank];
+    const kind = issue.owner ? 'owner' : 'agent';
     if (dryRun) {
-      results.push({ mark: MARK.owner, text: `would file owner issue "${issue.title}"` });
+      results.push({ mark: issue.owner ? MARK.owner : MARK.info, text: `would file ${kind} issue "${issue.title}"` });
       continue;
     }
-    if (assignee === undefined) {
+    if (issue.owner && assignee === undefined) {
       // Owner issues must be assigned (SOP 2), so a failed lookup stops the run
       // rather than filing them unassigned and reporting them filed.
       const me = await run('gh', ['api', 'user', '--jq', '.login']);
       if (me.status !== 0 || !me.stdout.trim()) throw new Error(`gh api user failed: ${reason(me)}`);
       assignee = me.stdout.trim();
     }
-    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body(repo), labels: label, assignee }));
+    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body(repo), labels: label, assignee: issue.owner ? assignee : undefined }));
     results.push(
       created.status === 0
-        ? { mark: MARK.fixed, text: `filed owner issue "${issue.title}"` }
-        : { mark: MARK.owner, text: `could not file "${issue.title}" (${reason(created)}) — file it by hand, labelled human + do not automate` },
+        ? { mark: MARK.fixed, text: `filed ${kind} issue "${issue.title}"` }
+        : { mark: MARK.owner, text: `could not file "${issue.title}" (${reason(created)}) — file it by hand${issue.owner ? ', labelled human + do not automate' : ''}` },
     );
   }
-  if (missing.length === 0) results.push({ mark: MARK.done, text: 'every owner issue already exists' });
+  if (missing.length === 0) results.push({ mark: MARK.done, text: 'every issue already exists' });
 
   // Story template issue
   const openIssues = await listIssues(run, repo, 'open');
@@ -1263,12 +1326,22 @@ export async function main(argv) {
     return 0;
   }
   if (command === 'check') {
-    const opts = parseCheckArgs(rest);
-    const result = await runCheck(opts);
+    let opts;
+    try {
+      opts = parseCheckArgs(rest);
+    } catch (error) {
+      if (error.exitCode === 2) {
+        console.error(error.message);
+        return 2;
+      }
+      throw error;
+    }
+    const { with: withOptional, ...checkOpts } = opts;
+    const result = await runCheck({ ...checkOpts, withOptional });
     process.stdout.write(result.lines.join('\n') + '\n');
     return result.exitCode;
   }
-  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | ${ADD_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name]`);
+  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | ${ADD_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name] [--with <name>,...]`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

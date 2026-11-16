@@ -146,10 +146,13 @@ it. An empty one is accepted, but one with any branch is refused.
    - protects `develop` if the repository is public. A free-plan repository
      that is not public can't protect a branch (unverified), so "PRs only" is
      a rule people follow there;
-   - files your own work as issues labelled `human` + `do not automate`:
-     the token above, Dependabot's first PR, rewriting the README and
-     `CLAUDE.md` around the product, and Telegram and Grafana, each optional
-     and in its own issue;
+   - files one issue for you, labelled `human` + `do not automate`: the token
+     above. Agent work is filed as ordinary issues, rank label only and
+     unassigned: merging Dependabot's first PR, and rewriting the README and
+     `CLAUDE.md` around the product. Telegram and Grafana are optional and
+     filed only when asked for, as `human` issues:
+     `node scripts/setup.mjs check --with telegram,grafana` (any other name
+     exits 2, naming the valid ones);
    - adds the story template issue, filed from `.github/ISSUE_TEMPLATE/story.md`,
      the same file GitHub's "New issue" button offers;
    - runs the name check, which fails if this base's name is left anywhere it
