@@ -207,8 +207,9 @@ export function parseCheckArgs(argv) {
     const flag = argv[i];
     if (flag === '--with') {
       const value = argv[i + 1];
-      if (value === undefined || value.startsWith('--')) throw new Error('usage: --with needs a value');
+      if (value === undefined || value.startsWith('--')) throw usageError('usage: --with needs a value');
       const names = value.split(',').map((n) => n.trim()).filter(Boolean);
+      if (names.length === 0) throw usageError('usage: --with needs a value');
       const valid = OPTIONAL_NAMES;
       const unknown = names.filter((n) => !valid.includes(n));
       if (unknown.length > 0) {
@@ -431,15 +432,17 @@ export const OWNER_ISSUES = [
           "As an **agent**, I want Dependabot's first pull request reviewed and merged, so that the dependency-update loop is proven to work end to end, not just configured.",
         scenarios: [
           ['the first update merges', "Dependabot's pull request has a green `verify`", 'the agent merges it', 'the dependency version on `develop` is the bumped one'],
-          ['there is no pull request yet', 'there is no open Dependabot pull request', 'the agent lists the open pull requests by Dependabot', 'the list is empty and the agent reports that on this issue'],
+          ['there is no pull request yet', 'there is no open Dependabot pull request', 'the agent lists the open pull requests by Dependabot', 'the list is empty, the agent comments "nothing to merge yet" once, and the issue is closed'],
+          ['the pull request changes more than a version bump', "the diff of Dependabot's pull request touches a file besides the manifest and lockfile, or adds or changes an install script", 'the agent reads the diff', 'the agent comments the finding once and the issue is handed to the owner with the `human` label'],
         ],
         details:
           '1. List the open pull requests Dependabot has made.\n\n' +
-          `\`\`\`bash\ngh api "repos/${repo}/pulls?state=open" --jq '.[] | select(.user.login == "dependabot[bot]") | [.number, .title] | @tsv'\n\`\`\`\n\n` +
-          '2. Open the first one and read the changelog link in its body.\n' +
-          '3. Wait for the `verify` check to be green. If it is red, stop and report that on this issue.\n' +
-          '4. Merge it into `develop` with the GitHub MCP tool `merge_pull_request`.\n' +
-          '5. Comment on this issue with the pull request number, then close it.',
+          `\`\`\`bash\ngh api --paginate "repos/${repo}/pulls?state=open" --jq '.[] | select(.user.login == "dependabot[bot]") | [.number, .title] | @tsv'\n\`\`\`\n\n` +
+          '2. If the list is empty, comment "nothing to merge yet" on this issue and close it as completed. Stop here.\n' +
+          '3. Open the first one and read the changelog link in its body. Read its diff: it may change only the dependency manifest and its lockfile, and may add or change no install script (`preinstall`, `install`, `postinstall`, `prepare`). If it changes anything else, comment what you found, add the labels `human` and `do not automate` with the REST add-labels endpoint, and stop: the owner decides.\n' +
+          '4. Wait for the `verify` check to be green. If it is red, comment that, add the same two labels, and stop.\n' +
+          '5. Merge it into `develop` with the GitHub MCP tool `merge_pull_request`.\n' +
+          '6. Comment on this issue with the pull request number, then close it.',
         tech: 'Merge with `merge_pull_request` (REST); `gh pr merge` is GraphQL, which cloud sessions refuse.',
       }),
   },

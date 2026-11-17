@@ -153,6 +153,19 @@ describe('parseCheckArgs', () => {
   it('refuses --with with no value', () => {
     expect(() => parseCheckArgs(['--with'])).toThrow(/needs a value/);
   });
+
+  it('refuses an empty --with list ("" or ",") as the same exit-2 usage error', () => {
+    for (const value of ['', ',', ' , ']) {
+      let caught: (Error & { exitCode?: number }) | undefined;
+      try {
+        parseCheckArgs(['--with', value]);
+      } catch (e) {
+        caught = e as Error & { exitCode?: number };
+      }
+      expect(caught?.message, JSON.stringify(value)).toMatch(/needs a value/);
+      expect(caught?.exitCode, JSON.stringify(value)).toBe(2);
+    }
+  });
 });
 
 describe('preflight', () => {
@@ -578,6 +591,12 @@ describe('runCheck', () => {
     expect(dependabot).toContain('merge_pull_request');
     expect(dependabot).toContain('changelog');
     expect(dependabot).toContain('Comment on this issue with the pull request number');
+    expect(dependabot).toContain('--paginate');
+    expect(dependabot).toContain('nothing to merge yet');
+    expect(dependabot).toContain('close it as completed');
+    expect(dependabot).toContain('install script');
+    expect(dependabot).toContain('manifest and its lockfile');
+    expect(dependabot).toContain('add the labels `human` and `do not automate`');
     const readme = filed('Rewrite README and CLAUDE.md around the product')!.find((a) => a.startsWith('body='))!;
     expect(readme).toContain('project.json');
     expect(readme).toContain('apps/*/CLAUDE.md');
