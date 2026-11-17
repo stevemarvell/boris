@@ -187,7 +187,12 @@ census and contention steps compare the pull request's tree, the main checkout,
 against the base, reading it only through `git`. A pull request that edits
 either script is judged by the unedited copy; its edit takes effect once
 merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
-allowlists what a step may run, after stripping redirections: `node` only with
+allowlists what a step may run, splitting commands on `;`, `&&`, `||`, `|`, a
+lone `&` and `$( )`, and stripping redirections after checking their targets
+(only `/dev/null`, `&1`/`&2`, `$RUNNER_TEMP/...`, and the three files the
+workflow writes: `open-prs.json`, `refs.txt`, `"$GITHUB_OUTPUT"`). A step,
+job or workflow `shell:` must be exactly `bash`, and `working-directory` is
+rejected anywhere. `node` only with
 a `base-scripts/scripts/` path as its first word (no flags, no `..`), `gh`,
 `git`, `echo`, `cat`, `printf`, `base64`, `test`/`[`, `set` with only
 `-e`/`-u`/`-o pipefail`, and `export` or assignment of `BASE_SHA` only (plus the

@@ -26,10 +26,16 @@ interface Step {
   run?: string;
   env?: Record<string, unknown>;
   with?: Record<string, unknown>;
+  shell?: unknown;
+  'working-directory'?: unknown;
+}
+interface Defaults {
+  run?: { shell?: unknown; 'working-directory'?: unknown };
 }
 interface Workflow {
   env?: Record<string, unknown>;
-  jobs: { checks: { env?: Record<string, unknown>; steps: Step[] } };
+  defaults?: Defaults;
+  jobs: { checks: { env?: Record<string, unknown>; defaults?: Defaults; steps: Step[] } };
 }
 
 const ALLOWED_COMMANDS = new Set(['gh', 'git', 'echo', 'cat', 'printf', 'base64', 'test', '[', 'set', 'export']);
@@ -50,7 +56,14 @@ const unquote = (w: string) => w.replace(/^["']+|["']+$/g, '');
 interface Command {
   assigns: string[];
   argv: string[];
+  redirects: string[];
 }
+
+// Where a redirect may write: nowhere, a descriptor, the runner's temp dir, and
+// the three files the real workflow writes (its own outputs, in the workspace).
+const REDIRECT_TARGETS = new Set(['/dev/null', '&1', '&2', 'open-prs.json', 'refs.txt', '"$GITHUB_OUTPUT"']);
+const redirectOk = (t: string) =>
+  REDIRECT_TARGETS.has(t) || (/^"?\$RUNNER_TEMP(\/|"|$)/.test(t) && !t.includes('..'));
 
 /** Hoist `$(...)` bodies out as commands of their own, innermost first. */
 function hoist(text: string): string[] {
@@ -77,19 +90,21 @@ function commands(run: string): Command[] {
     .join('\n');
   const out: Command[] = [];
   for (const chunk of hoist(text)) {
-    for (const seg of chunk.split(/\n|;|&&|\|\||\||`|\(|\)|\{\s|\s\}/)) {
+    for (const seg of chunk.split(/\n|;|&&|\|\||\||(?<![>&])&(?![>&])|`|\(|\)|\{\s|\s\}/)) {
       let tokens: string[] = seg.match(/(?:"[^"]*"?|'[^']*'?|[^\s"'])+/g) ?? [];
       while (tokens.length && SHELL_KEYWORDS.has(tokens[0] ?? '')) tokens = tokens.slice(1);
       const words: string[] = [];
+      const redirects: string[] = [];
       for (let i = 0; i < tokens.length; i++) {
         const tok = tokens[i] ?? '';
         const redirect = /^\d*(?:>>?|<<?|>&|<&|&>)(.*)$/.exec(tok);
         if (!redirect) words.push(tok);
-        else if (!redirect[1]) i++; // the target is the next token
+        else if (redirect[1]) redirects.push(redirect[1]);
+        else redirects.push(tokens[++i] ?? '');
       }
       const assigns: string[] = [];
       while (words.length && /^[A-Za-z_]\w*=/.test(words[0] ?? '')) assigns.push((words.shift() ?? '').split('=')[0] ?? '');
-      if (assigns.length || words.length) out.push({ assigns, argv: words });
+      if (assigns.length || words.length || redirects.length) out.push({ assigns, argv: words, redirects });
     }
   }
   return out;
@@ -130,7 +145,13 @@ function violations(text: string): string[] {
   for (const [where, env] of [['workflow', wf.env], ['job', wf.jobs.checks.env]] as const) {
     for (const k of Object.keys(env ?? {})) if (DANGEROUS_ENV.test(k)) out.push(`${where} env: ${k} changes what commands run`);
   }
+  for (const [where, d] of [['workflow', wf.defaults], ['job', wf.jobs.checks.defaults]] as const) {
+    if (d?.run?.shell !== undefined && d.run.shell !== 'bash') out.push(`${where} defaults.run.shell must be bash`);
+    if (d?.run?.['working-directory'] !== undefined) out.push(`${where} defaults.run.working-directory is not allowed`);
+  }
   for (const s of wf.jobs.checks.steps) {
+    if (s.shell !== undefined && s.shell !== 'bash') out.push(`${label(s)}: shell must be bash`);
+    if (s['working-directory'] !== undefined) out.push(`${label(s)}: working-directory is not allowed`);
     if (s.uses && (s.uses.startsWith('.') || s.uses.startsWith('docker://'))) {
       out.push(`${label(s)}: uses ${s.uses} runs code from the pull request`);
     }
@@ -140,6 +161,7 @@ function violations(text: string): string[] {
     for (const c of commands(s.run ?? '')) {
       const why = rejectCommand(c);
       if (why) out.push(`${label(s)}: ${why}`);
+      for (const t of c.redirects) if (!redirectOk(t)) out.push(`${label(s)}: redirect to ${t || 'nothing'} not allowed`);
     }
   }
   return out;
@@ -347,6 +369,59 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   it('rejects a job-level env naming NODE_OPTIONS', () => {
     const v = violations(mutate('    permissions:\n', '    env:\n      NODE_OPTIONS: --require=./x\n    permissions:\n'));
     expect(v.join('\n')).toContain('job env: NODE_OPTIONS');
+  });
+
+  it('rejects a background & before a branch command', () => {
+    expect(census('echo hi & npm run x')).toContain('command not allowed: npm run x');
+    expect(census('echo hi & node scripts/evil.mjs')).toContain(NODE_MSG);
+  });
+
+  it('still reads 2>&1, &> and >& as redirections, not as background', () => {
+    expect(census('echo hi 2>&1;')).not.toContain('redirect');
+    expect(census('echo hi >/dev/null 2>&1;')).not.toContain('redirect');
+    expect(census('echo hi &>/dev/null;')).not.toContain('redirect');
+    expect(census('echo hi >&2;')).not.toContain('redirect');
+  });
+
+  it('rejects a step shell that runs a script', () => {
+    const v = violations(mutate("        if: github.event_name == 'pull_request'\n        env:", "        if: github.event_name == 'pull_request'\n        shell: bash scripts/x.sh {0}\n        env:"));
+    expect(v.join('\n')).toContain(`${CENSUS_STEP}: shell must be bash`);
+  });
+
+  it('rejects a job defaults.run.shell that runs a script', () => {
+    const v = violations(mutate('    permissions:\n', '    defaults:\n      run:\n        shell: node scripts/x.mjs {0}\n    permissions:\n'));
+    expect(v.join('\n')).toContain('job defaults.run.shell must be bash');
+  });
+
+  it('rejects a workflow defaults.run.shell that runs a script', () => {
+    const v = violations(mutate('jobs:\n  checks:', 'defaults:\n  run:\n    shell: node scripts/x.mjs {0}\n\njobs:\n  checks:'));
+    expect(v.join('\n')).toContain('workflow defaults.run.shell must be bash');
+  });
+
+  it('rejects working-directory on a step or in defaults', () => {
+    const t = mutate("        if: github.event_name == 'pull_request'\n        env:", "        if: github.event_name == 'pull_request'\n        working-directory: scripts\n        env:");
+    expect(violations(t).join('\n')).toContain(`${CENSUS_STEP}: working-directory is not allowed`);
+    const d = mutate('    permissions:\n', '    defaults:\n      run:\n        working-directory: scripts\n    permissions:\n');
+    expect(violations(d).join('\n')).toContain('job defaults.run.working-directory is not allowed');
+  });
+
+  it('allows an explicit shell: bash', () => {
+    const t = mutate("        if: github.event_name == 'pull_request'\n        env:", "        if: github.event_name == 'pull_request'\n        shell: bash\n        env:");
+    expect(violations(t)).toEqual([]);
+  });
+
+  it('rejects a redirect into .git/config', () => {
+    expect(census('echo x >> .git/config;')).toContain('redirect to .git/config not allowed');
+  });
+
+  it('rejects a redirect into a git hook', () => {
+    expect(census('printf x > .git/hooks/pre-commit;')).toContain('redirect to .git/hooks/pre-commit not allowed');
+  });
+
+  it('allows redirects to /dev/null and $RUNNER_TEMP, and rejects one climbing out of it', () => {
+    expect(census('echo x > "$RUNNER_TEMP/out";')).not.toContain('redirect');
+    expect(census('echo x > $RUNNER_TEMP/out;')).not.toContain('redirect');
+    expect(census('echo x > "$RUNNER_TEMP/../../x";')).toContain('redirect to');
   });
 
   it('counts a token interpolated into a run: as held', () => {
