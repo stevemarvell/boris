@@ -11,7 +11,13 @@ import { parse } from 'yaml';
 // The check is an allowlist of what a step may run, not a search for one
 // spelling of branch code: `node scripts/x.mjs` is one of a dozen ways to run
 // the checkout, and a denylist loses to the next spelling. Anything not named
-// here is rejected, naming the step.
+// here is rejected, naming the step. It covers: which commands run (after
+// redirections are stripped), the exact form of `node`, the options `set`
+// takes, which variables may be assigned or exported, writes to
+// GITHUB_ENV/GITHUB_PATH, and env keys that change how commands resolve. It
+// does not cover what an allowed command does with its own arguments (a `git`
+// alias or hook in the checkout, say); that stays bounded by one writer
+// (docs/data-governance.md).
 const FILE = join(dirname(fileURLToPath(import.meta.url)), '../../.github/workflows/pr-checks.yml');
 
 interface Step {
@@ -30,41 +36,89 @@ const ALLOWED_COMMANDS = new Set(['gh', 'git', 'echo', 'cat', 'printf', 'base64'
 const SHELL_KEYWORDS = new Set(['{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do', 'done', '!']);
 const BASE_SCRIPTS = 'base-scripts/scripts/';
 const TOKEN = /GH_TOKEN|github\.token|secrets\./;
+// Plain shell variables the real workflow sets or exports.
+const ALLOWED_VARS = new Set(['BASE_SHA']);
+// Prefixed onto the one `git fetch` that authenticates through git's environment.
+const GIT_FETCH_VARS = new Set(['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']);
+// Env keys that change what a command resolves to or loads.
+const DANGEROUS_ENV = /^(NODE_OPTIONS|PATH|BASH_ENV|ENV|LD_.*)$/;
 
 const load = (text: string) => parse(text) as Workflow;
 const label = (s: Step) => s.name ?? s.uses ?? (s.run ?? '').trim().split('\n')[0] ?? '';
 const unquote = (w: string) => w.replace(/^["']+|["']+$/g, '');
 
-/** The commands of a `run:` block, one argv each. */
-function commands(run: string): string[][] {
+interface Command {
+  assigns: string[];
+  argv: string[];
+}
+
+/** Hoist `$(...)` bodies out as commands of their own, innermost first. */
+function hoist(text: string): string[] {
+  const parts: string[] = [];
+  let t = text;
+  for (;;) {
+    const next = t.replace(/\$\(([^()]*)\)/, (_m, inner: string) => {
+      parts.push(inner);
+      return `SUBST${parts.length}`;
+    });
+    if (next === t) break;
+    t = next;
+  }
+  return [t, ...parts];
+}
+
+/** The commands of a `run:` block: leading assignments and argv, redirections removed. */
+function commands(run: string): Command[] {
   const text = run
     .replace(/\\\n/g, ' ')
     .replace(/\$\{\{[\s\S]*?\}\}/g, 'EXPR')
     .split('\n')
     .filter((l) => !l.trim().startsWith('#'))
     .join('\n');
-  const out: string[][] = [];
-  for (let seg of text.split(/\n|;|&&|\|\||\||\$\(|`|\(|\)|\{\s|\s\}/)) {
-    seg = seg.trim().replace(/^["']+\s*/, '');
-    // Leading VAR=value assignments belong to the command after them.
-    seg = seg.replace(/^([A-Za-z_]\w*=("[^"]*"?|'[^']*'?|\S*)\s*)+/, '');
-    let words = seg.split(/\s+/).filter(Boolean);
-    while (words.length && SHELL_KEYWORDS.has(words[0] ?? '')) words = words.slice(1);
-    if (words.length && /^[<>]/.test(words[0] ?? '')) words = [];
-    if (words.length) out.push(words);
+  const out: Command[] = [];
+  for (const chunk of hoist(text)) {
+    for (const seg of chunk.split(/\n|;|&&|\|\||\||`|\(|\)|\{\s|\s\}/)) {
+      let tokens: string[] = seg.match(/(?:"[^"]*"?|'[^']*'?|[^\s"'])+/g) ?? [];
+      while (tokens.length && SHELL_KEYWORDS.has(tokens[0] ?? '')) tokens = tokens.slice(1);
+      const words: string[] = [];
+      for (let i = 0; i < tokens.length; i++) {
+        const tok = tokens[i] ?? '';
+        const redirect = /^\d*(?:>>?|<<?|>&|<&|&>)(.*)$/.exec(tok);
+        if (!redirect) words.push(tok);
+        else if (!redirect[1]) i++; // the target is the next token
+      }
+      const assigns: string[] = [];
+      while (words.length && /^[A-Za-z_]\w*=/.test(words[0] ?? '')) assigns.push((words.shift() ?? '').split('=')[0] ?? '');
+      if (assigns.length || words.length) out.push({ assigns, argv: words });
+    }
   }
   return out;
 }
 
-/** Why a `run:` command is not allowed, or null when it is. */
-function rejectCommand(argv: string[]): string | null {
+/** Why a command is not allowed, or null when it is. */
+function rejectCommand({ assigns, argv }: Command): string | null {
   const cmd = unquote(argv[0] ?? '');
+  const isFetch = cmd === 'git' && unquote(argv[1] ?? '') === 'fetch';
+  for (const name of assigns) {
+    if (!ALLOWED_VARS.has(name) && !(isFetch && GIT_FETCH_VARS.has(name))) return `assignment not allowed: ${name}`;
+  }
+  if (!cmd) return null;
   if (cmd === 'node') {
-    const script = argv.slice(1).map(unquote).find((a) => !a.startsWith('-'));
-    if (script === undefined || !script.startsWith(BASE_SCRIPTS) || script.includes('..')) {
-      return `node must run a script under ${BASE_SCRIPTS}, got ${script ?? 'none'}`;
+    // No flags at all: --import=, -r./x and --require take code from anywhere.
+    const script = unquote(argv[1] ?? '');
+    if (!script.startsWith(BASE_SCRIPTS) || script.includes('..')) {
+      return `node must run a script under ${BASE_SCRIPTS} as its first word, got ${argv.slice(1).join(' ') || 'nothing'}`;
     }
     return null;
+  }
+  if (cmd === 'set') {
+    const args = argv.slice(1).map(unquote);
+    const ok = args.every((a, i) => /^-[euo]+$/.test(a) || (a === 'pipefail' && /o$/.test(args[i - 1] ?? '')));
+    return ok ? null : `set takes only -e/-u/-o pipefail: ${argv.join(' ')}`;
+  }
+  if (cmd === 'export') {
+    const bad = argv.slice(1).map((a) => unquote(a).split('=')[0] ?? '').filter((n) => !ALLOWED_VARS.has(n));
+    return bad.length ? `export not allowed: ${bad.join(' ')}` : null;
   }
   return ALLOWED_COMMANDS.has(cmd) ? null : `command not allowed: ${argv.join(' ')}`;
 }
@@ -72,12 +126,19 @@ function rejectCommand(argv: string[]): string | null {
 /** Every step that runs something the job does not allow, with the reason. */
 function violations(text: string): string[] {
   const out: string[] = [];
-  for (const s of load(text).jobs.checks.steps) {
+  const wf = load(text);
+  for (const [where, env] of [['workflow', wf.env], ['job', wf.jobs.checks.env]] as const) {
+    for (const k of Object.keys(env ?? {})) if (DANGEROUS_ENV.test(k)) out.push(`${where} env: ${k} changes what commands run`);
+  }
+  for (const s of wf.jobs.checks.steps) {
     if (s.uses && (s.uses.startsWith('.') || s.uses.startsWith('docker://'))) {
       out.push(`${label(s)}: uses ${s.uses} runs code from the pull request`);
     }
-    for (const argv of commands(s.run ?? '')) {
-      const why = rejectCommand(argv);
+    for (const k of Object.keys(s.env ?? {})) if (DANGEROUS_ENV.test(k)) out.push(`${label(s)}: env ${k} changes what commands run`);
+    const code = (s.run ?? '').split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    if (/GITHUB_(ENV|PATH)/.test(code)) out.push(`${label(s)}: writes to GITHUB_ENV or GITHUB_PATH`);
+    for (const c of commands(s.run ?? '')) {
+      const why = rejectCommand(c);
       if (why) out.push(`${label(s)}: ${why}`);
     }
   }
@@ -117,6 +178,9 @@ const mutate = (from: string, to: string) => {
 const CENSUS = 'node base-scripts/scripts/test-census.mjs';
 const CENSUS_STEP = 'Count the tests on both sides';
 const SETUP_NODE = 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1';
+const NODE_MSG = `${CENSUS_STEP}: node must run a script under`;
+/** The census step's violations with its node command replaced. */
+const census = (to: string) => violations(mutate(CENSUS, to)).join('\n');
 
 describe('pr-checks.yml runs only what the allowlist names', () => {
   it('the real workflow is clean, has steps to scan and token-holding ones', () => {
@@ -138,43 +202,59 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('rejects node with a flag before a branch script', () => {
-    const v = violations(mutate(CENSUS, 'node --no-warnings scripts/test-census.mjs'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: node must run a script under`);
+    expect(census('node --no-warnings scripts/test-census.mjs')).toContain(NODE_MSG);
   });
 
   it('rejects a quoted branch script', () => {
-    const v = violations(mutate(CENSUS, 'node "scripts/test-census.mjs"'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: node must run`);
+    expect(census('node "scripts/test-census.mjs"')).toContain(NODE_MSG);
   });
 
   it('rejects a branch script reached through $PWD', () => {
-    const v = violations(mutate(CENSUS, 'node $PWD/scripts/test-census.mjs'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: node must run`);
+    expect(census('node $PWD/scripts/test-census.mjs')).toContain(NODE_MSG);
   });
 
   it('rejects a flag that loads branch code ahead of a base script', () => {
-    const v = violations(mutate(CENSUS, `node --require ./evil.js ${CENSUS.slice(5)}`));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: node must run`);
+    expect(census(`node --require ./evil.js ${CENSUS.slice(5)}`)).toContain(NODE_MSG);
+  });
+
+  it('rejects --import=./evil.mjs joined with =', () => {
+    expect(census(`node --import=./evil.mjs ${CENSUS.slice(5)}`)).toContain(NODE_MSG);
+  });
+
+  it('rejects -r./evil.js attached to its value', () => {
+    expect(census(`node -r./evil.js ${CENSUS.slice(5)}`)).toContain(NODE_MSG);
+  });
+
+  it('rejects a flag whose value is a base script, leaving a branch script to run', () => {
+    expect(census('node --require base-scripts/scripts/test-census.mjs ./scripts/evil.mjs')).toContain(NODE_MSG);
   });
 
   it('rejects a base-scripts path that climbs out with ..', () => {
-    const v = violations(mutate(CENSUS, 'node base-scripts/scripts/../../scripts/test-census.mjs'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: node must run`);
+    expect(census('node base-scripts/scripts/../../scripts/test-census.mjs')).toContain(NODE_MSG);
   });
 
   it('rejects bash on a repo script', () => {
-    const v = violations(mutate(CENSUS, 'bash scripts/x.sh'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: command not allowed: bash scripts/x.sh`);
+    expect(census('bash scripts/x.sh')).toContain(`${CENSUS_STEP}: command not allowed: bash scripts/x.sh`);
   });
 
   it('rejects npm run', () => {
-    const v = violations(mutate(CENSUS, 'npm run x'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: command not allowed: npm run x`);
+    expect(census('npm run x')).toContain(`${CENSUS_STEP}: command not allowed: npm run x`);
   });
 
   it('rejects npx', () => {
-    const v = violations(mutate(CENSUS, 'npx x'));
-    expect(v.join('\n')).toContain(`${CENSUS_STEP}: command not allowed: npx x`);
+    expect(census('npx x')).toContain(`${CENSUS_STEP}: command not allowed: npx x`);
+  });
+
+  it('rejects a command behind a leading redirection to a file', () => {
+    expect(census('>/dev/null npm run x')).toContain('command not allowed: npm run x');
+  });
+
+  it('rejects a command behind a leading fd redirection', () => {
+    expect(census('2>&1 bash scripts/x.sh')).toContain('command not allowed: bash scripts/x.sh');
+  });
+
+  it('rejects a command behind a leading redirection with a separate target', () => {
+    expect(census('> out.txt npx x')).toContain('command not allowed: npx x');
   });
 
   it('rejects a local action', () => {
@@ -185,6 +265,88 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   it('rejects a branch command hidden after && among allowed ones', () => {
     const v = violations(mutate('run: echo "pr checks scripts', 'run: echo hi && npm run x && echo "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
+  });
+
+  it('rejects a branch command inside $( )', () => {
+    const v = violations(mutate('run: echo "pr checks scripts', 'run: echo "$(npm run x)" "pr checks scripts'));
+    expect(v.join('\n')).toContain('command not allowed: npm run x');
+  });
+
+  it('rejects set with anything but -e, -u, -o pipefail', () => {
+    expect(census('set -x')).toContain('set takes only');
+    expect(census('set -- x')).toContain('set takes only');
+    expect(census('set -a')).toContain('set takes only');
+  });
+
+  it('allows set -euo pipefail and set -e', () => {
+    expect(census('set -euo pipefail;')).not.toContain('set takes only');
+    expect(census('set -e;')).not.toContain('set takes only');
+  });
+
+  it('rejects export PATH', () => {
+    expect(census('export PATH="$PWD/scripts:$PATH"')).toContain('export not allowed: PATH');
+  });
+
+  it('rejects export NODE_OPTIONS', () => {
+    expect(census('export NODE_OPTIONS=--require=./evil.js')).toContain('export not allowed: NODE_OPTIONS');
+  });
+
+  it('rejects export BASH_ENV and LD_PRELOAD', () => {
+    expect(census('export BASH_ENV=./x')).toContain('export not allowed: BASH_ENV');
+    expect(census('export LD_PRELOAD=./x.so')).toContain('export not allowed: LD_PRELOAD');
+  });
+
+  it('rejects export of a GH_ or GIT_ variable', () => {
+    expect(census('export GH_TOKEN=x')).toContain('export not allowed: GH_TOKEN');
+    expect(census('export GIT_CONFIG_COUNT=1')).toContain('export not allowed: GIT_CONFIG_COUNT');
+  });
+
+  it('rejects a NODE_OPTIONS assignment in front of an allowed node command', () => {
+    expect(census(`NODE_OPTIONS=--require=./evil.js ${CENSUS}`)).toContain('assignment not allowed: NODE_OPTIONS');
+  });
+
+  it('rejects a PATH assignment in front of an allowed command', () => {
+    expect(census('PATH=$PWD/bin:$PATH git status')).toContain('assignment not allowed: PATH');
+  });
+
+  it('rejects the git fetch variables in front of anything but git fetch', () => {
+    expect(census('GIT_CONFIG_COUNT=1 echo hi')).toContain('assignment not allowed: GIT_CONFIG_COUNT');
+    expect(census('GIT_CONFIG_COUNT=1 git status')).toContain('assignment not allowed: GIT_CONFIG_COUNT');
+  });
+
+  it('rejects an assignment on its own line that changes PATH', () => {
+    expect(census('PATH=$PWD/bin:$PATH')).toContain('assignment not allowed: PATH');
+  });
+
+  it('rejects a redirect to GITHUB_ENV', () => {
+    expect(census('echo NODE_OPTIONS=--require=./x >> $GITHUB_ENV')).toContain('writes to GITHUB_ENV or GITHUB_PATH');
+  });
+
+  it('rejects a redirect to GITHUB_PATH, quoted or braced', () => {
+    expect(census('echo "$PWD/bin" >> "$GITHUB_PATH"')).toContain('writes to GITHUB_ENV or GITHUB_PATH');
+    expect(census('echo x >>"${GITHUB_PATH}"')).toContain('writes to GITHUB_ENV or GITHUB_PATH');
+  });
+
+  it('rejects a step env naming NODE_OPTIONS', () => {
+    const v = violations(mutate('PR_BODY: ${{ github.event.pull_request.body }}', 'PR_BODY: x\n          NODE_OPTIONS: --require=./evil.js'));
+    expect(v.join('\n')).toContain(`${CENSUS_STEP}: env NODE_OPTIONS`);
+  });
+
+  it('rejects a step env naming PATH or BASH_ENV', () => {
+    const p = violations(mutate('PR_BODY: ${{ github.event.pull_request.body }}', 'PR_BODY: x\n          PATH: ./bin'));
+    expect(p.join('\n')).toContain(`${CENSUS_STEP}: env PATH`);
+    const b = violations(mutate('PR_BODY: ${{ github.event.pull_request.body }}', 'PR_BODY: x\n          BASH_ENV: ./x'));
+    expect(b.join('\n')).toContain(`${CENSUS_STEP}: env BASH_ENV`);
+  });
+
+  it('rejects a step env naming LD_PRELOAD', () => {
+    const v = violations(mutate('PR_BODY: ${{ github.event.pull_request.body }}', 'PR_BODY: x\n          LD_PRELOAD: ./x.so'));
+    expect(v.join('\n')).toContain(`${CENSUS_STEP}: env LD_PRELOAD`);
+  });
+
+  it('rejects a job-level env naming NODE_OPTIONS', () => {
+    const v = violations(mutate('    permissions:\n', '    env:\n      NODE_OPTIONS: --require=./x\n    permissions:\n'));
+    expect(v.join('\n')).toContain('job env: NODE_OPTIONS');
   });
 
   it('counts a token interpolated into a run: as held', () => {
