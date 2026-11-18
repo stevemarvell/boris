@@ -187,8 +187,20 @@ census and contention steps compare the pull request's tree, the main checkout,
 against the base, reading it only through `git`. A pull request that edits
 either script is judged by the unedited copy; its edit takes effect once
 merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
-fails if any step runs a `node scripts/...` path from the pull request's
-checkout; it does not recognise other spellings (#371).
+allowlists what a step may run, splitting commands on `;`, `&&`, `||`, `|`, a
+lone `&` and `$( )`, and stripping redirections after checking their targets
+(only `/dev/null`, `&1`/`&2`, `$RUNNER_TEMP/...`, and the three files the
+workflow writes: `open-prs.json`, `refs.txt`, `"$GITHUB_OUTPUT"`). A step,
+job or workflow `shell:` must be exactly `bash`, and `working-directory` is
+rejected anywhere. `node` only with
+a `base-scripts/scripts/` path as its first word (no flags, no `..`), `gh`,
+`git`, `echo`, `cat`, `printf`, `base64`, `test`/`[`, `set` with only
+`-e`/`-u`/`-o pipefail`, and `export` or assignment of `BASE_SHA` only (plus the
+`GIT_CONFIG_*` prefix on the one `git fetch`). It rejects `npm`, `npx`, `bash`,
+local `uses: ./`, any mention of `GITHUB_ENV`/`GITHUB_PATH`, and `NODE_OPTIONS`,
+`PATH`, `BASH_ENV` or `LD_*` in an `env:` (#371). It does not look inside an
+allowed command: a `git` alias or hook from the checkout is not covered.
+Anything else fails naming the step.
 
 This closes script edits, not workflow edits. On `pull_request` GitHub runs
 `pr-checks.yml` as the pull request has it, so a pull request that edits the
