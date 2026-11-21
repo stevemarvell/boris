@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { APP_CHECK_DRIVERS } from '../../.claude/hooks/verify-on-stop.mjs';
-import { FULL, commandsFor } from '../verify-changed.mjs';
+import { FULL, commandsFor, unionChanged } from '../verify-changed.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -46,6 +46,24 @@ describe('verify:changed commandsFor', () => {
     expect(commandsFor(['README.md'], fixture)).toEqual([FULL]);
     expect(commandsFor([], fixture)).toEqual([FULL]);
     expect(FULL).toBe('npm run verify');
+  });
+});
+
+describe('unionChanged', () => {
+  it('unions the committed diff with modified, untracked and renamed working-tree files', () => {
+    const diff = 'scripts/a.mjs\napps/api/x.py\n';
+    const status = ' M apps/web/src/a.tsx\0?? docs/new.md\0R  apps/api/new.py\0apps/api/old.py\0 M scripts/a.mjs\0';
+    expect(unionChanged(diff, status).sort()).toEqual(
+      ['apps/api/new.py', 'apps/api/old.py', 'apps/api/x.py', 'apps/web/src/a.tsx', 'docs/new.md', 'scripts/a.mjs'].sort(),
+    );
+  });
+
+  it('plans the app that only has uncommitted work', () => {
+    expect(commandsFor(unionChanged('scripts/a.mjs\n', ' M apps/web/src/a.tsx\0'), fixture)).toEqual([HARNESS, WEB]);
+  });
+
+  it('is empty when nothing changed', () => {
+    expect(unionChanged('', '')).toEqual([]);
   });
 });
 

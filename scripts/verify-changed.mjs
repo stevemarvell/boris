@@ -7,7 +7,7 @@
 import { execFileSync, execSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { plan } from '../.claude/hooks/verify-on-stop.mjs';
+import { parseStatus, plan } from '../.claude/hooks/verify-on-stop.mjs';
 import { loadProject } from './project.mjs';
 
 export const FULL = 'npm run verify';
@@ -29,10 +29,21 @@ export function commandsFor(changed, project) {
   return commands.length > 0 ? commands : [FULL];
 }
 
+/**
+ * Committed changes against develop plus the working tree's modified and
+ * untracked files: verify runs before the commit, so the diff alone misses
+ * uncommitted work. Pure over the two git outputs, so it is testable.
+ */
+export function unionChanged(diffOut, statusRaw) {
+  return [...new Set([...diffOut.split('\n').filter(Boolean), ...parseStatus(statusRaw)])];
+}
+
 export function changedFiles() {
-  return execFileSync('git', ['diff', '--name-only', 'origin/develop...HEAD'], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n')
-    .filter(Boolean);
+  const out = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  return unionChanged(
+    out(['diff', '--name-only', 'origin/develop...HEAD']),
+    out(['status', '--porcelain=v1', '-z', '-uall']),
+  );
 }
 
 function main() {
