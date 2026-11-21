@@ -32,15 +32,29 @@ marked ready, and again only when the `re-review` label is added; it does not
 re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
 `drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
 request that edits `.github/workflows/`, where `claude-code-action` refuses to
-run, or one authored by `dependabot[bot]`.
+run, or one authored by `dependabot[bot]`. Give it **one combined hand review**:
+a single brief to one `security-checker` agent that tells it to apply
+`.claude/agents/security-checker.md` in full and then `code-checker.md`, and
+to report the two sets of findings separately. It is one agent, not two, and
+the security rubric is never cut down.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
 the same check.
 
 **Ceiling: 3 implementers at once**, matching `MAX_ISSUES_PER_RUN` (SOP 1).
-Each costs 57k–144k tokens (SOP 4), and parallel agents on overlapping files
-only produce contention warnings (`pr checks`).
+This is discipline; nothing counts running agents. Within it, **run them in
+parallel only on issues whose paths do not overlap**
+(overlap only produces contention warnings, `pr checks`), and **start no more
+than the remaining usage window can finish**: an agent killed at a usage limit
+wastes everything it spent. Each costs about 105k–165k tokens (SOP 4). Issues
+that touch the same files go in **one brief and one PR**. The coordinator
+relays only each agent's final report, not its progress (SOP 1).
+
+**On a usage limit** (an agent or a review run stops on one): record what is
+in flight (issues, PRs, agents) in the run's report, schedule one resume after
+the reset time the limit states, and start no new work until then. Other
+skills point here.
 
 ## The brief
 

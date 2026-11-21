@@ -41,7 +41,7 @@ so a loop under its attempt ceiling can still run long.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Implementer agents running at once | 3 | `.claude/skills/delegate/SKILL.md` |
+| Implementer agents running at once | 3, on non-overlapping paths only, and no more than the remaining usage window can finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
@@ -235,8 +235,8 @@ whatever it spends. `.claude/hooks/filter-verbose.mjs` shrinks CI logs and
 no model.
 
 **Spawn fewer agents.** Each one carries its own context window, loads
-`CLAUDE.md`, and costs 57k–144k tokens on the evidence in
-the model-tiering trial recorded in the base repository. Parallel agents multiply that directly; the
+`CLAUDE.md`, and costs about 105k–165k tokens (observed
+per implementer run, 2026-11-15/16; the model-tiering trial in the base repository measured 57k–144k). Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
 Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
