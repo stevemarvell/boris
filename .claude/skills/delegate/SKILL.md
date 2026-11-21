@@ -33,8 +33,10 @@ re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
 `drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
 request that edits `.github/workflows/`, where `claude-code-action` refuses to
 run, or one authored by `dependabot[bot]`. Give it **one combined hand review**:
-a single brief to one agent that covers code and security together, not two
-agents.
+a single brief to one `security-checker` agent that tells it to apply
+`.claude/agents/security-checker.md` in full and then `code-checker.md`, and
+to report the two sets of findings separately. It is one agent, not two, and
+the security rubric is never cut down.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
