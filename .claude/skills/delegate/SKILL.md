@@ -40,7 +40,9 @@ Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
 the same check.
 
-**Run implementers in parallel only on issues whose paths do not overlap**
+**Ceiling: 3 implementers at once**, matching `MAX_ISSUES_PER_RUN` (SOP 1).
+This is discipline; nothing counts running agents. Within it, **run them in
+parallel only on issues whose paths do not overlap**
 (overlap only produces contention warnings, `pr checks`), and **start no more
 than the remaining usage window can finish**: an agent killed at a usage limit
 wastes everything it spent. Each costs about 105k–165k tokens (SOP 4). Issues

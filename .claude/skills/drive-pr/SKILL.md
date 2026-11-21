@@ -272,9 +272,15 @@ One round is: read every open finding from step 2, then for each one:
   replies below: it quotes the implementer's report. A reply alone is not enough to clear
   step 4's merge gate.
 - **Medium findings that only tighten a test or reword docs are not fixed
-  here.** Record them in one hardening issue per area (create it if absent,
-  else comment on it with the finding and the PR), reply to each linking it,
-  and merge without a fix round.
+  here**, unless `security-checker` raised them about a control (SOP 3):
+  those get a fix round. Record the rest in one hardening issue per area. The
+  area is the top-level path the finding is on (`scripts`, `.claude`, `docs`,
+  `apps/<app>`). Find it with
+  `gh api -X GET search/issues -f q='repo:{owner}/{repo} is:issue is:open in:title "Hardening: <area>"'`.
+  If none, create `Hardening: <area>` in the story template, labelled
+  `medium`; else comment on it with the finding as a Given/When/Then line and
+  the PR. Reply to each finding linking it. That issue backs the reply, so it
+  clears step 4's merge gate. Triage ranks it like any `medium` issue.
 - **Reply to every finding, fixed or not**, with what was done or why not:
   - Inline finding → reply in its own thread
     (`add_reply_to_pull_request_comment`, or
@@ -290,8 +296,7 @@ One round is: read every open finding from step 2, then for each one:
     would be executed by the shell.
 - **Whether to ask for a re-review is decided once, in step 4** ("Re-review
   before merging"). Do not add the label here; note whether this round changed
-  code for a `high` or `critical` finding or touched a control, because step 4
-  asks.
+  code or a control, because step 4 asks.
 - Send one brief per round covering every finding that reproduced, so the
   implementer pushes the round's fixes together and the branch never sits
   with a fix committed but unexplained. Reply to each finding once its fix
@@ -301,10 +306,11 @@ The implementer runs `npm run verify` before it pushes (its own ceiling is
 the 3 attempts `.claude/commands/ship.md` declares — this step does not get
 a separate budget for that); the driver confirms it from the checks.
 
-**Round 2 exists only for a `high` or `critical` finding that round 1 left
-unresolved** — a finding still disputed, a fix that did not turn `verify` green, or new findings
-posted by a `re-review` the driver asked for after round 1 (the reviews do
-not re-run on a push). Redo the same procedure once more.
+**Round 2 exists only for** a fix that did not turn `verify` green (whatever
+the finding's rank), or a `high` or `critical` finding that round 1 left
+unresolved: still disputed, or newly posted by a `re-review` the driver asked
+for after round 1 (the reviews do not re-run on a push). Redo the same
+procedure once more.
 
 **Ceiling hit** (something is still unresolved after round 2): stop. Do not
 attempt a third round, do not merge with an unanswered finding. Go to step 5.
