@@ -303,7 +303,7 @@ Changing a dependency needs npm 11 for the lock step (`npx npm@11 install`);
 
 ```mermaid
 flowchart LR
-  issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>≤ 3 per run"]
+  issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>all workable"]
   triage --> pr["Pull request<br/>own worktree"]
   pr --> checks{"verify<br/>(merge gate)"}
   pr -.-> reviews["code + security review,<br/>pr checks<br/>(advisory)"]
@@ -318,7 +318,7 @@ flowchart LR
    `human` and `do not automate`.
 2. **Triage** (`node scripts/triage.mjs`) picks what an agent may take on:
    it skips issues a person owns, issues already in flight, and issues with
-   open dependencies, and takes at most three per run.
+   open dependencies, and lists all that are workable; the run re-triages after each merge until none are left.
 3. **A pull request**, written by an `implementer` agent in its own worktree.
    `verify` is the one check the coordinator waits for before merging;
    nothing mechanical requires it on a free-plan repository until branch protection lands (#340). The code review, security review and `pr checks` (test census and cross-PR

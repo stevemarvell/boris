@@ -41,11 +41,11 @@ so a loop under its attempt ceiling can still run long.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Implementer agents running at once | 3, on non-overlapping paths only, and no more than the remaining usage window can finish | `.claude/skills/delegate/SKILL.md` |
+| Agents running at once | 3 unless the owner sets another number for the run, on non-overlapping paths only; fewer as usage nears its limit, and none started that the remaining usage window cannot finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
-| Issues worked in one `work-backlog` run | 3, re-triaged after each merge | `scripts/triage.mjs`, `MAX_ISSUES_PER_RUN` |
+| Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
