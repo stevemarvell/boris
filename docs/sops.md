@@ -46,6 +46,7 @@ so a loop under its attempt ceiling can still run long.
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
+| Times one issue is picked in a `work-backlog` run without a pull request resulting | 2, then it is labelled `human` and `do not automate`, commented, and not picked again | `.claude/skills/work-backlog/SKILL.md` (step 2) |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
@@ -56,6 +57,11 @@ progress is visible in the log, and running out is a specific failure rather
 than a timeout. That is what a bounded loop should look like.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 **Today: nothing mechanical, for the model-driven loops.** SOP 1 is a
 discipline that a session follows by reading it. Be honest about that rather
@@ -338,6 +344,11 @@ then rank the issue yourself.
 
 ### What enforces this
 
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
+
 Nothing mechanical, and the same applies to both reviewers — the rubrics in
 `.claude/agents/` name the three words, but nothing rejects a review that coins
 a fourth. What holds it together is that there is one place to put a ranking:
@@ -415,6 +426,11 @@ the commit records who and when.
 
 ### What enforces this
 
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
+
 Mostly nothing, and there is a specific way that fails: both review agents
 read `CLAUDE.md`, so practice that changed in conversation but not in the file
 comes back as a finding on every pull request — correct against the file, stale
@@ -490,6 +506,11 @@ and the local file is where permissions go to escape review. Widen the tracked
 file rather than letting the untracked one absorb the difference.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 **The auto-mode classifier, in one direction only.** What is observed, and
 nothing wider:
@@ -581,6 +602,11 @@ conflict by deleting evidence, and nothing in the file's own suite can tell.
 
 ### What enforces this
 
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
+
 The test census (`scripts/test-census.mjs`, a step of the `pr checks` job) counts declarations on
 both sides of a pull request and goes red when the head has fewer without that
 line. It is the backstop, and it counts declarations rather than results — a
@@ -634,6 +660,11 @@ test can pass unchanged whether or not the thing it measures actually fits
 the viewport it is meant to guarantee it does.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 Nothing mechanical, and it would be dishonest to claim otherwise, in the
 company SOP 1 keeps. This is discipline, the same category as SOP 4's
@@ -731,6 +762,11 @@ now that CI proves the mechanism works — and belongs with whoever next
 edits that file, not folded into this one silently.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 **In CI: partially mechanical.** `failIfUnavailable: true` makes a missing
 dependency a job failure rather than a silent fallback — that half is

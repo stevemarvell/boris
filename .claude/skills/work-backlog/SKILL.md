@@ -87,8 +87,8 @@ counterpart to `drive-pr`, which runs a known recipe.
    - if it stopped because the issue needs a person, a dashboard, money, or
      a decision (`implementer.md`, "When the work needs a person"), comment
      on the issue with what it found (`add_issue_comment`), label it `human`
-     and `do not automate` (`issue_write` with method `update`), and count it
-     as one of the three. The `gh` fallback is `gh api
+     and `do not automate` (`issue_write` with method `update`), and do not
+     pick it again. The `gh` fallback is `gh api
      repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>` and `gh api -X
      POST repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=human' -f
      'labels[]=do not automate'`.
@@ -99,6 +99,12 @@ counterpart to `drive-pr`, which runs a known recipe.
      `docs/data-governance.md`.
    - If `drive-pr` stops on a ceiling, stop this skill too: report the
      pull request and what is left, and do not start the next issue.
+   - **Per-issue bound: picked twice, no pull request, then `human`.** Keep
+     a tally in this run of each issue picked. An issue picked twice in this
+     run without a pull request resulting is labelled `human` and `do not
+     automate`, commented with what happened (as above), and not picked
+     again. Without this, a run that keeps going could re-pick the same
+     failing issue until the usage window ends.
 4. **Re-triage.** After the merge and the smoke check, go back to step 1. The
    merge has changed the state: the issue is closed, a smoke failure may have
    opened a new one, and a dependency may have cleared. The next pick comes
