@@ -7,6 +7,7 @@ import {
   MAX_PAGES,
   PAGE_SIZE,
   attemptLookup,
+  trustedLogins,
   claimedIssues,
   fetchOpen,
   openDependencies,
@@ -495,7 +496,7 @@ describe('recorded attempts (#395)', () => {
     const calls: string[][] = [];
     const run = (args: string[]) => (calls.push(args), '1\n1\n0\n');
     const call = () => calls[0]!;
-    expect(attemptLookup(run)(7)).toBe(2);
+    expect(attemptLookup(run, [OWNER])(7)).toBe(2);
     expect(call()).toContain('--paginate');
     expect(call().join(' ')).toContain('issues/7/comments');
     expect(call()[call().indexOf('--jq') + 1]).toContain(ATTEMPT_MARKER);
@@ -503,13 +504,45 @@ describe('recorded attempts (#395)', () => {
 
   it.skipIf(!hasJq)('the real jq filter counts only comments that start with the marker', { timeout: 15_000 }, () => {
     let filter = '';
-    attemptLookup((args) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0'))(1);
+    attemptLookup(((args: string[]) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0')), [OWNER])(1);
     const comments = [
-      { body: `${ATTEMPT_MARKER}\nimplementer ended with no PR` },
-      { body: `quoting ${ATTEMPT_MARKER} mid-text` },
-      { body: 'unrelated' },
-      { body: `${ATTEMPT_MARKER}\nsecond` },
+      { user: { login: OWNER }, body: `${ATTEMPT_MARKER}\nimplementer ended with no PR` },
+      { user: { login: OWNER }, body: `quoting ${ATTEMPT_MARKER} mid-text` },
+      { user: { login: OWNER }, body: 'unrelated' },
+      { user: { login: OWNER }, body: `${ATTEMPT_MARKER}\nsecond` },
     ];
     expect(execFileSync('jq', [filter], { input: JSON.stringify(comments), encoding: 'utf8' }).trim()).toBe('2');
+  });
+
+  it.skipIf(!hasJq)('a stranger\'s two markers do not count: the real jq leaves the issue workable', { timeout: 15_000 }, () => {
+    let filter = '';
+    attemptLookup(((args: string[]) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0')), [OWNER, 'session'])(1);
+    const mark = (login: string) => ({ user: { login }, body: `${ATTEMPT_MARKER}\nended with no PR` });
+    const count = (comments: unknown[]) =>
+      Number(execFileSync('jq', [filter], { input: JSON.stringify(comments), encoding: 'utf8' }).trim());
+    const stranger = count([mark('stranger'), mark('stranger')]);
+    expect(stranger).toBe(0);
+    expect(count([mark(OWNER), mark('session'), mark('stranger')])).toBe(2);
+    const plan = triage([issue(1, ['medium'])], [], undefined, () => stranger);
+    expect(plan.work.map((w) => w.number)).toEqual([1]);
+  });
+
+  it('attemptLookup refuses a login that could break out of the jq string', () => {
+    expect(() => attemptLookup(() => '', ['x" or true or "'])).toThrow('not a GitHub login');
+    expect(() => attemptLookup(() => '', [])).toThrow('not a GitHub login');
+  });
+
+  it('trustedLogins falls back to the owner alone when gh api user fails', () => {
+    const run = (args: string[]) => {
+      if (args[1] === 'user') throw new Error('gh api user failed: HTTP 403');
+      return 'owner\n';
+    };
+    expect(trustedLogins(run)).toEqual(['owner']);
+  });
+
+  it('trustedLogins adds the session login, once, when it differs', () => {
+    const run = (args: string[]) => (args[1] === 'user' ? 'session\n' : 'owner\n');
+    expect(trustedLogins(run)).toEqual(['owner', 'session']);
+    expect(trustedLogins((args) => (args[1] === 'user' ? 'owner\n' : 'owner\n'))).toEqual(['owner']);
   });
 });

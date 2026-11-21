@@ -312,14 +312,39 @@ export function permissionLookup(run = gh) {
   };
 }
 
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\[bot\])?$/;
+
+/** The jq condition "authored by one of these logins". Throws on a login that is not one, or on none. */
+export function authorClause(logins) {
+  if (!logins.length || !logins.every((l) => typeof l === 'string' && LOGIN.test(l))) throw new Error('not a GitHub login');
+  return `(${logins.map((l) => `.user.login == "${l}"`).join(' or ')})`;
+}
+
 /**
- * `attemptsOf` for the CLI: how many comments on an issue start with
- * `ATTEMPT_MARKER`, counted inside `--jq` so no comment text is read. Pages
- * print one count each; they are summed. A failed lookup throws.
+ * The logins whose comments steer the loop: the repository owner's, plus this
+ * session's own when `gh api user` answers. An installation or GITHUB_TOKEN
+ * credential has no user, so that lookup failing falls back to the owner alone.
  */
-export function attemptLookup(run = gh) {
+export function trustedLogins(run = gh) {
+  const owner = run(['api', 'repos/{owner}/{repo}', '--jq', '.owner.login']).trim();
+  let session = '';
+  try {
+    session = run(['api', 'user', '--jq', '.login']).trim();
+  } catch {
+    // no user behind this credential
+  }
+  return [...new Set([owner, session].filter(Boolean))];
+}
+
+/**
+ * `attemptsOf` for the CLI: how many comments by a trusted login start with
+ * `ATTEMPT_MARKER`, counted inside `--jq` so no comment text is read and a
+ * stranger's marker does not count. Pages print one count each; they are
+ * summed. A failed lookup throws.
+ */
+export function attemptLookup(run = gh, logins = []) {
+  const jq = `[.[] | select(${authorClause(logins)} and (.body | startswith("${ATTEMPT_MARKER}")))] | length`;
   return (number) => {
-    const jq = `[.[] | select(.body | startswith("${ATTEMPT_MARKER}"))] | length`;
     const out = run(['api', '--paginate', `repos/{owner}/{repo}/issues/${number}/comments?per_page=100`, '--jq', jq]);
     return out.split('\n').filter(Boolean).reduce((sum, n) => sum + Number(n), 0);
   };
@@ -328,7 +353,7 @@ export function attemptLookup(run = gh) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests, permissionLookup(), attemptLookup());
+    const plan = triage(issues, pullRequests, permissionLookup(), attemptLookup(gh, trustedLogins()));
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );

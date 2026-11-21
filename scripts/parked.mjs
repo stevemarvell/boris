@@ -15,20 +15,16 @@
 // Usage: node scripts/parked.mjs [--json]          lists parked PRs, reasons and files
 //        node scripts/parked.mjs --check <issue>   says whether that issue overlaps a parked PR
 import { pathToFileURL } from 'node:url';
-import { gh } from './triage.mjs';
+import { authorClause, gh, trustedLogins } from './triage.mjs';
 
 /** The most recently updated open pull requests read; more is reported. */
 export const MAX_PULLS = 30;
 
 export const STOP_PREFIX = 'drive-pr stopped';
 
-const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\[bot\])?$/;
-
 /** The jq that keeps only a trusted author's `drive-pr stopped` comments. Throws on a login that is not one. */
 export function stopFilter(logins) {
-  if (!logins.length || !logins.every((l) => typeof l === 'string' && LOGIN.test(l))) throw new Error('not a GitHub login');
-  const who = logins.map((l) => `.user.login == "${l}"`).join(' or ');
-  return `.[] | select((${who}) and (.body | startswith("${STOP_PREFIX}"))) | {created_at, body}`;
+  return `.[] | select(${authorClause(logins)} and (.body | startswith("${STOP_PREFIX}"))) | {created_at, body}`;
 }
 
 /** Parked when the latest stop comment is newer than the last commit (ISO timestamps compare as text). */
@@ -81,8 +77,7 @@ export function render({ parked, files, more }) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
-    const logins = [gh(['api', 'user', '--jq', '.login']).trim(), gh(['api', 'repos/{owner}/{repo}', '--jq', '.owner.login']).trim()];
-    const result = listParked(gh, [...new Set(logins)]);
+    const result = listParked(gh, trustedLogins());
     const at = process.argv.indexOf('--check');
     if (at > 0) {
       const issue = JSON.parse(gh(['api', `repos/{owner}/{repo}/issues/${Number(process.argv[at + 1])}`]));

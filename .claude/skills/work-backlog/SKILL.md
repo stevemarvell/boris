@@ -107,7 +107,7 @@ counterpart to `drive-pr`, which runs a known recipe.
      and saying what happened. If triage's plan showed that issue with a
      failed attempt already recorded, also label it `human` and `do not
      automate`: triage then lists it under Skip. Triage counts the marked
-     comments (`attemptLookup`), so the bound survives a resumed run.
+     comments by the owner or this session (`attemptLookup`), so the bound survives a resumed run.
 3. **Drive it.** Follow `drive-pr` for that pull request. Its own ceilings
    apply inside this one (40 polls, 2 fix rounds, 30 smoke polls).
    - `drive-pr` step 4, "Re-review before merging", applies before every merge
