@@ -187,8 +187,20 @@ census and contention steps compare the pull request's tree, the main checkout,
 against the base, reading it only through `git`. A pull request that edits
 either script is judged by the unedited copy; its edit takes effect once
 merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
-fails if any step runs a `node scripts/...` path from the pull request's
-checkout; it does not recognise other spellings (#371).
+allowlists what a step may run, splitting commands on `;`, `&&`, `||`, `|`, a
+lone `&` and `$( )`, and stripping redirections after checking their targets
+(only `/dev/null`, `&1`/`&2`, `$RUNNER_TEMP/...`, and the three files the
+workflow writes: `open-prs.json`, `refs.txt`, `"$GITHUB_OUTPUT"`). A step,
+job or workflow `shell:` must be exactly `bash`, and `working-directory` is
+rejected anywhere. `node` only with
+a `base-scripts/scripts/` path as its first word (no flags, no `..`), `gh`,
+`git`, `echo`, `cat`, `printf`, `base64`, `test`/`[`, `set` with only
+`-e`/`-u`/`-o pipefail`, and `export` or assignment of `BASE_SHA` only (plus the
+`GIT_CONFIG_*` prefix on the one `git fetch`). It rejects `npm`, `npx`, `bash`,
+local `uses: ./`, any mention of `GITHUB_ENV`/`GITHUB_PATH`, and `NODE_OPTIONS`,
+`PATH`, `BASH_ENV` or `LD_*` in an `env:` (#371). It does not look inside an
+allowed command: a `git` alias or hook from the checkout is not covered.
+Anything else fails naming the step.
 
 This closes script edits, not workflow edits. On `pull_request` GitHub runs
 `pr-checks.yml` as the pull request has it, so a pull request that edits the
@@ -317,13 +329,31 @@ that path three things stand between the comment and a job holding
 `CLAUDE_CODE_OAUTH_TOKEN` and the Grafana credentials: the `author_association`
 guard in `.github/workflows/claude.yml` (only `OWNER`, `MEMBER` or
 `COLLABORATOR`), the job's read-only `permissions`, and `claude-code-action`'s
-own actor check. `claude-code-review.yml` holds the same credentials on a
+own actor check.
+
+`scripts/test/claude-workflow-guard.test.ts` holds that guard: each trigger
+branch's allowlist must be exactly those three and joined by `&&`. It covers
+`claude.yml` only.
+
+`claude-code-review.yml` holds the same credentials on a
 different path, `pull_request`, which the guard does not cover. It is bounded
 by GitHub itself: a `pull_request` run from a fork gets no secrets (unverified:
 [GitHub's description of secrets in workflows](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)),
 and a branch in this repository needs write access; a Dependabot run gets
 Dependabot's secrets, not these. Its sandbox and `--allowedTools` narrow what
 the session reads (SOP 10).
+
+`claude.yml`'s `concurrency` group is keyed on the issue or pull request number
+for an `@claude` comment or review that passes the same guard, and on the run id
+for anything else, so a stranger's comment (whose own run the job's `if:` skips)
+joins no group an owner's run is in and cannot cancel it. It used to be keyed on
+`github.ref`, which is the default branch for every `issue_comment`, so any
+comment cancelled an in-flight owner run. Unverified on GitHub: the key is
+checked statically, and no stranger's comment was posted against an in-flight
+run to watch the owner run survive; whether a workflow-level group is entered
+before a job's `if:` skips the run is [GitHub's concurrency
+documentation](https://docs.github.com/en/actions/using-jobs/using-concurrency)
+to state, and it was not reachable from the session that wrote this.
 
 What voids that bound: a `COLLABORATOR` with read-only access can pass the
 guard, since the association says only that the person was invited. Keep
@@ -334,9 +364,21 @@ The Grafana credential is never printed by this repository's own code:
 only to a JSON file under `runner.temp` and prints just that file's path, and
 no workflow `cat`s the file or echoes the secret. Secret masking in the logs
 covers the exact secret value only, so this absence of any print is the
-control, not the mask. Telemetry in Grafana is not readable through GitHub
-(unverified); what a workflow prints is readable by anyone, so a log line is
-public the moment it is written.
+control, not the mask.
+
+`scripts/test/no-secret-print.test.ts` holds that control for every workflow
+and script: it fails on any step that prints the settings file or the
+credential, dumps the environment or variables (`env`, `printenv`,
+`declare -p`), runs `curl -v`, sets `show_full_output` or `--verbose`, or turns
+on `set -x` or `ACTIONS_STEP_DEBUG` in a job holding the secret, and on any
+script that prints the credential, its header or `process.env`. It is a textual
+backstop, not a proof: a print hidden behind a variable it cannot follow gets
+past it, and a step-debug flag set as a repository secret or variable is
+invisible to a scan of files.
+
+Telemetry in Grafana is not readable through GitHub (unverified); what a
+workflow prints is readable by anyone, so a log line is public the moment it is
+written.
 
 Two side effects look like breakage and are not:
 

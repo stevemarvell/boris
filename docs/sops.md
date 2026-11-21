@@ -41,12 +41,13 @@ so a loop under its attempt ceiling can still run long.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Implementer agents running at once | 3 | `.claude/skills/delegate/SKILL.md` |
+| Agents running at once | 3 unless the owner sets another number for the run, on non-overlapping paths only; fewer as usage nears its limit, and none started that the remaining usage window cannot finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
-| Issues worked in one `work-backlog` run | 3, re-triaged after each merge | `scripts/triage.mjs`, `MAX_ISSUES_PER_RUN` |
-| Pull requests parked in one `work-backlog` run | 2 | `.claude/skills/work-backlog/SKILL.md` |
+| Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
+| Times one issue is picked in a `work-backlog` run without a pull request resulting | 2, then it is labelled `human` and `do not automate`, commented, and not picked again | `.claude/skills/work-backlog/SKILL.md` (step 2) |
+| Pull requests parked at a `drive-pr` ceiling in one `work-backlog` run | No count; the run goes on to the next independent issue and reports each parked pull request | `.claude/skills/work-backlog/SKILL.md` (step 3) |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
@@ -57,6 +58,11 @@ progress is visible in the log, and running out is a specific failure rather
 than a timeout. That is what a bounded loop should look like.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 **Today: nothing mechanical, for the model-driven loops.** SOP 1 is a
 discipline that a session follows by reading it. Be honest about that rather
@@ -236,8 +242,8 @@ whatever it spends. `.claude/hooks/filter-verbose.mjs` shrinks CI logs and
 no model.
 
 **Spawn fewer agents.** Each one carries its own context window, loads
-`CLAUDE.md`, and costs 57k–144k tokens on the evidence in
-the model-tiering trial recorded in the base repository. Parallel agents multiply that directly; the
+`CLAUDE.md`, and costs about 105k–165k tokens (observed
+per implementer run, 2026-11-15/16; the model-tiering trial in the base repository measured 57k–144k). Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
 Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
