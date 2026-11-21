@@ -19,6 +19,10 @@
 //    (`readiness`). It is listed as `Not ready` for the coordinator to
 //    complete (work-backlog step 1), is never also skipped, and does not
 //    count as work.
+//    An issue carrying two comments marked `<!-- backlog-attempt -->` (one per
+//    failed attempt, written by the work-backlog loop) is skipped too, whatever
+//    its labels: the per-issue bound lives on the issue, so a resumed run
+//    cannot lose it (`attemptsOf`, #395).
 // 5. Order the rest by the one scale (SOP 5): critical, high, medium, then
 //    unranked. Within a rank, `security` first, then oldest first.
 // 6. No count limit: `work` is every workable issue. A run's declared maximum
@@ -46,6 +50,12 @@ export const MAX_PAGES = 4;
 
 /** The most open issues and pull requests, together, one run reads. Hitting it is reported. */
 export const FETCH_LIMIT = PAGE_SIZE * MAX_PAGES;
+
+/** The first line of the comment the loop leaves on an issue when its implementer ends with no pull request. */
+export const ATTEMPT_MARKER = '<!-- backlog-attempt -->';
+
+/** Recorded failed attempts after which an issue is no longer picked. */
+export const MAX_ATTEMPTS = 2;
 
 const RANK = { critical: 0, high: 1, medium: 2 };
 const UNRANKED = 3;
@@ -148,9 +158,10 @@ export function readiness(issue) {
  * @param issues        [{ number, title, labels: string[], body, user: { login }, authorAssociation }]
  * @param pullRequests  open PRs: [{ number, body }]
  * @param permissionOf (login) => the author's repository permission; see `trusted`
+ * @param attemptsOf   (number) => count of `ATTEMPT_MARKER` comments on the issue; read only for an issue that is otherwise workable
  * @returns {{ work, notReady, skip }} work is every workable issue, in order
  */
-export function triage(issues, pullRequests, permissionOf = undefined) {
+export function triage(issues, pullRequests, permissionOf = undefined, attemptsOf = undefined) {
   const openNumbers = new Set(issues.map((i) => i.number));
   const claimed = claimedIssues(pullRequests);
   const eligible = [];
@@ -191,18 +202,29 @@ export function triage(issues, pullRequests, permissionOf = undefined) {
       notReady.push({ number: issue.number, title: issue.title, reason });
       continue;
     }
+    const attempts = attemptsOf ? attemptsOf(issue.number) : 0;
+    if (attempts >= MAX_ATTEMPTS) {
+      skip.push({
+        number: issue.number,
+        title: issue.title,
+        reason: `${attempts} failed attempts recorded on the issue; label it human and do not automate`,
+      });
+      continue;
+    }
     eligible.push({
       number: issue.number,
       title: issue.title,
+      attempts,
       rank: rankOf(issue.labels),
       security: issue.labels.includes('security'),
     });
   }
 
   eligible.sort((a, b) => a.rank - b.rank || Number(b.security) - Number(a.security) || a.number - b.number);
-  const ordered = eligible.map(({ number, title, rank }) => ({
+  const ordered = eligible.map(({ number, title, rank, attempts }) => ({
     number,
     title,
+    attempts,
     rank: Object.keys(RANK)[rank] ?? 'unranked',
   }));
   return {
@@ -216,7 +238,7 @@ export function triage(issues, pullRequests, permissionOf = undefined) {
 export function render({ work, notReady = [], skip }, { truncated = false } = {}) {
   const lines = ['Work, in order (re-triage after every merge; stop when this is empty):'];
   if (work.length === 0) lines.push('  nothing an agent may take on');
-  for (const w of work) lines.push(`  #${w.number} [${w.rank}] ${w.title}`);
+  for (const w of work) lines.push(`  #${w.number} [${w.rank}] ${w.title}${w.attempts ? ` (${w.attempts} failed attempt recorded: a second one makes it human)` : ''}`);
   if (notReady.length) {
     lines.push('Not ready (complete the issue before briefing):');
     for (const n of notReady) lines.push(`  #${n.number} ${n.reason}: ${n.title}`);
@@ -290,10 +312,23 @@ export function permissionLookup(run = gh) {
   };
 }
 
+/**
+ * `attemptsOf` for the CLI: how many comments on an issue start with
+ * `ATTEMPT_MARKER`, counted inside `--jq` so no comment text is read. Pages
+ * print one count each; they are summed. A failed lookup throws.
+ */
+export function attemptLookup(run = gh) {
+  return (number) => {
+    const jq = `[.[] | select(.body | startswith("${ATTEMPT_MARKER}"))] | length`;
+    const out = run(['api', '--paginate', `repos/{owner}/{repo}/issues/${number}/comments?per_page=100`, '--jq', jq]);
+    return out.split('\n').filter(Boolean).reduce((sum, n) => sum + Number(n), 0);
+  };
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
     const { issues, pullRequests, truncated } = fetchOpen();
-    const plan = triage(issues, pullRequests, permissionLookup());
+    const plan = triage(issues, pullRequests, permissionLookup(), attemptLookup());
     process.stdout.write(
       process.argv.includes('--json') ? JSON.stringify({ ...plan, truncated }, null, 2) + '\n' : render(plan, { truncated }),
     );

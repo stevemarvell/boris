@@ -1,9 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  ATTEMPT_MARKER,
   FETCH_LIMIT,
   MAX_PAGES,
   PAGE_SIZE,
+  attemptLookup,
   claimedIssues,
   fetchOpen,
   openDependencies,
@@ -14,6 +17,7 @@ import {
   trusted,
 } from '../triage.mjs';
 
+const hasJq = (process.env.PATH ?? '').split(':').some((d) => existsSync(`${d}/jq`));
 const OWNER = 'owner';
 const READY = '## Acceptance criteria\n\n- **Given** a\n- **Then** b\n\n## Details to complete\n\nNone\n';
 const issue = (number: number, labels: string[], body = READY, login = OWNER, association = 'OWNER') => ({
@@ -457,5 +461,55 @@ describe('triage not ready', () => {
   it('JSON output carries a notReady array', () => {
     const plan = JSON.parse(JSON.stringify(triage([issue(1, [], '')], [])));
     expect(plan.notReady).toEqual([{ number: 1, title: 'issue 1', reason: 'no acceptance criteria' }]);
+  });
+});
+
+describe('recorded attempts (#395)', () => {
+  const attemptsOf = (counts: Record<number, number>) => (n: number) => counts[n] ?? 0;
+
+  it('0 recorded attempts: picked, no note', () => {
+    const plan = triage([issue(1, ['medium'])], [], undefined, attemptsOf({}));
+    expect(plan.work.map((w) => [w.number, w.attempts])).toEqual([[1, 0]]);
+    expect(render(plan)).not.toContain('failed attempt');
+  });
+
+  it('1 recorded attempt: still picked, and the plan says a second makes it human', () => {
+    const plan = triage([issue(1, ['medium'])], [], undefined, attemptsOf({ 1: 1 }));
+    expect(plan.work.map((w) => w.number)).toEqual([1]);
+    expect(render(plan)).toContain('1 failed attempt recorded');
+  });
+
+  it('2 recorded attempts: listed under Skip even when no label was applied', () => {
+    const plan = triage([issue(1, ['medium']), issue(2, [])], [], undefined, attemptsOf({ 1: 2 }));
+    expect(plan.work.map((w) => w.number)).toEqual([2]);
+    expect(plan.skip).toEqual([expect.objectContaining({ number: 1, reason: expect.stringContaining('2 failed attempts') })]);
+  });
+
+  it('reads the count only for an issue that is otherwise workable', () => {
+    const asked: number[] = [];
+    triage([issue(1, ['human']), issue(2, [], ''), issue(3, [])], [], undefined, (n) => (asked.push(n), 0));
+    expect(asked).toEqual([3]);
+  });
+
+  it('attemptLookup sums the per-page counts of marked comments, in the jq and not the process', () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => (calls.push(args), '1\n1\n0\n');
+    const call = () => calls[0]!;
+    expect(attemptLookup(run)(7)).toBe(2);
+    expect(call()).toContain('--paginate');
+    expect(call().join(' ')).toContain('issues/7/comments');
+    expect(call()[call().indexOf('--jq') + 1]).toContain(ATTEMPT_MARKER);
+  });
+
+  it.skipIf(!hasJq)('the real jq filter counts only comments that start with the marker', { timeout: 15_000 }, () => {
+    let filter = '';
+    attemptLookup((args) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0'))(1);
+    const comments = [
+      { body: `${ATTEMPT_MARKER}\nimplementer ended with no PR` },
+      { body: `quoting ${ATTEMPT_MARKER} mid-text` },
+      { body: 'unrelated' },
+      { body: `${ATTEMPT_MARKER}\nsecond` },
+    ];
+    expect(execFileSync('jq', [filter], { input: JSON.stringify(comments), encoding: 'utf8' }).trim()).toBe('2');
   });
 });
