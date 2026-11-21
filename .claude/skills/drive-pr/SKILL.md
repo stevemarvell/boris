@@ -271,6 +271,10 @@ One round is: read every open finding from step 2, then for each one:
   the reply to the finding. Write the body in the sections of `.github/ISSUE_TEMPLATE/story.md` (persona, story, Given/When/Then with unhappy paths, each **Then** stated positively, details to complete (for a `human` issue its instructions: numbered steps, exact values, what to comment back), tech notes, testing notes, references), with any `Depends on #<n>` lines last. Write the body with a quoted heredoc, as for
   replies below: it quotes the implementer's report. A reply alone is not enough to clear
   step 4's merge gate.
+- **Medium findings that only tighten a test or reword docs are not fixed
+  here.** Record them in one hardening issue per area (create it if absent,
+  else comment on it with the finding and the PR), reply to each linking it,
+  and merge without a fix round.
 - **Reply to every finding, fixed or not**, with what was done or why not:
   - Inline finding → reply in its own thread
     (`add_reply_to_pull_request_comment`, or
@@ -297,8 +301,8 @@ The implementer runs `npm run verify` before it pushes (its own ceiling is
 the 3 attempts `.claude/commands/ship.md` declares — this step does not get
 a separate budget for that); the driver confirms it from the checks.
 
-**Round 2 exists only if round 1 left something unresolved** — a finding
-still disputed, a fix that did not turn `verify` green, or new findings
+**Round 2 exists only for a `high` or `critical` finding that round 1 left
+unresolved** — a finding still disputed, a fix that did not turn `verify` green, or new findings
 posted by a `re-review` the driver asked for after round 1 (the reviews do
 not re-run on a push). Redo the same procedure once more.
 
@@ -316,10 +320,10 @@ at again unless the driver asks. A workflow cannot ask for it (a label added
 with `GITHUB_TOKEN` starts no run); the coordinator's own token can. Ask when
 **either** holds:
 
-- a fix round (step 3) changed code in response to a `high` or `critical`
-  finding, or touched a control (anything meant to *prevent* something: a
-  header, a permission, a gate, a filter; SOP 3), since a control's fix is what
-  a passing test does not prove; or
+- a fix round (step 3) changed code or a control (anything meant to *prevent*
+  something: a header, a permission, a gate, a filter; SOP 3), since a
+  control's fix is what a passing test does not prove. A text-only fix (a test
+  tightened, docs reworded) never asks; or
 - the diff since the last review touches `.github/` or any path
   `scripts/review-scope.mjs` sends to the security review (everything that is
   not plain Markdown outside `.claude/` and `.github/`).
@@ -368,9 +372,8 @@ result:
   from the API, which truncates, and is only a fallback here because `git diff`
   does not.
 - **`touches .github/workflows/: true`**: the review action refuses a pull
-  request that edits workflows, so a label would buy nothing. Run
-  `security-checker` and `code-checker` by hand instead, as the `delegate`
-  skill says, and reply to what they find.
+  request that edits workflows, so a label would buy nothing. Run one combined
+  hand review instead, as the `delegate` skill says, and reply to what it finds.
 - **A pull request authored by `dependabot[bot]`**: do not add the label (its
   runs have no review credential, `docs/data-governance.md`). Run the checkers
   by hand.
@@ -424,6 +427,7 @@ then, so delete the leftover directory once that process exits.
 
 ### 5. On hitting a ceiling: stop, comment, report
 
+On a usage limit, follow `delegate` ("On a usage limit") instead of retrying.
 Whichever step's ceiling was hit (step 1's poll, step 3's rounds, or
 `verify`'s own 3 attempts inside step 3):
 

@@ -103,7 +103,9 @@ counterpart to `drive-pr`, which runs a known recipe.
    merge has changed the state: the issue is closed, a smoke failure may have
    opened a new one, and a dependency may have cleared. The next pick comes
    from the new plan, not from the first one.
-5. **Stop at three.** After three issues have been worked, stop, even if
+5. **On a usage limit, stop starting work.** Follow `delegate` ("On a usage
+   limit"): report what is in flight, schedule one resume after the reset.
+6. **Stop at three.** After three issues have been worked, stop, even if
    the plan still has more. Report what was done and what the plan says is
    next.
 
