@@ -276,7 +276,9 @@ One round is: read every open finding from step 2, then for each one:
   those get a fix round. Record the rest in one hardening issue per area. The
   area is the top-level path the finding is on (`scripts`, `.claude`, `docs`,
   `apps/<app>`). Find it with
-  `gh api -X GET search/issues -f q='repo:{owner}/{repo} is:issue is:open in:title "Hardening: <area>"'`.
+  `gh api 'repos/{owner}/{repo}/issues?state=open&per_page=100' --paginate --jq '.[] | select(.pull_request == null and (.title | startswith("Hardening: <area>"))) | .number'`
+  (the REST list, not search: `gh api` fills `{owner}/{repo}` only in the
+  endpoint, and search lags new issues).
   If none, create `Hardening: <area>` in the story template, labelled
   `medium`; else comment on it with the finding as a Given/When/Then line and
   the PR. Reply to each finding linking it. That issue backs the reply, so it
@@ -329,7 +331,8 @@ with `GITHUB_TOKEN` starts no run); the coordinator's own token can. Ask when
 - a fix round (step 3) changed code or a control (anything meant to *prevent*
   something: a header, a permission, a gate, a filter; SOP 3), since a
   control's fix is what a passing test does not prove. A text-only fix (a test
-  tightened, docs reworded) never asks; or
+  tightened, docs reworded) does not ask on this bullet alone; the next
+  bullet still can; or
 - the diff since the last review touches `.github/` or any path
   `scripts/review-scope.mjs` sends to the security review (everything that is
   not plain Markdown outside `.claude/` and `.github/`).
