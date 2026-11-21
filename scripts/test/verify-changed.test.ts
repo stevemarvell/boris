@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { APP_CHECK_DRIVERS } from '../../.claude/hooks/verify-on-stop.mjs';
-import { FULL, commandsFor, unionChanged } from '../verify-changed.mjs';
+import { FULL, commandsFor, planFrom, unionChanged } from '../verify-changed.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -64,6 +64,21 @@ describe('unionChanged', () => {
 
   it('is empty when nothing changed', () => {
     expect(unionChanged('', '')).toEqual([]);
+  });
+});
+
+describe('planFrom', () => {
+  it('falls back to the full verify with a warning when listing changed files throws', () => {
+    const { commands, warning } = planFrom(() => {
+      throw new Error("fatal: bad revision 'origin/develop...HEAD'\nmore");
+    }, fixture);
+    expect(commands).toEqual([FULL]);
+    expect(warning).toContain("bad revision 'origin/develop...HEAD'");
+    expect(warning).not.toContain('\n');
+  });
+
+  it('plans normally, without a warning, when listing works', () => {
+    expect(planFrom(() => ['apps/api/x.py'], fixture)).toEqual({ commands: [API], warning: null });
   });
 });
 

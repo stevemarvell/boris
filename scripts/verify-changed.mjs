@@ -46,8 +46,22 @@ export function changedFiles() {
   );
 }
 
+/**
+ * The plan from `getChanged()`; if git fails (no `origin/develop`, not a
+ * repository), the full `verify` and a one-line warning rather than a throw.
+ */
+export function planFrom(getChanged, project) {
+  try {
+    return { commands: commandsFor(getChanged(), project), warning: null };
+  } catch (err) {
+    const why = String(err?.message ?? err).split('\n')[0];
+    return { commands: [FULL], warning: `verify:changed: cannot list changed files (${why}); running the full verify` };
+  }
+}
+
 function main() {
-  const commands = commandsFor(changedFiles(), loadProject());
+  const { commands, warning } = planFrom(changedFiles, loadProject());
+  if (warning) console.warn(warning);
   console.log(`verify:changed plan:\n${commands.map((c) => `  ${c}`).join('\n')}`);
   for (const command of commands) {
     try {
