@@ -30,6 +30,10 @@ const KNOWN_READS: Record<string, string> = {
   'apps/web/vite.config.ts': "const { name: APP_NAME } = JSON.parse(readFileSync(join(REPO_ROOT, 'project.json'), 'utf8'));",
   'apps/web/scripts/build-docs.mjs': "return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).name;",
 };
+// Tests are never build inputs, so a test (JS/TS or pytest) may read project.json
+// freely. Only the files a build can see are scanned.
+const isTestFile = (path: string) =>
+  /\.(test|spec)\.[jt]sx?$/.test(path) || /(^|[\\/])(test_[^\\/]*|[^\\/]*_test|conftest)\.py$/.test(path);
 const HASH_COMMENT = /\.(py|sh|ya?ml)$/;
 
 // What is left of a line once its comment text is removed. Only real comments
@@ -56,7 +60,7 @@ describe('apps read nothing but `name` from project.json', () => {
     .map((app) => join(ROOT, 'apps', app))
     .filter((dir) => statSync(dir).isDirectory())
     .flatMap((dir) => [...files(dir)])
-    .filter((path) => !/\.(test|spec)\.[jt]sx?$/.test(path))
+    .filter((path) => !isTestFile(path))
     .flatMap((path) =>
       readFileSync(path, 'utf8')
         .split('\n')
@@ -64,6 +68,17 @@ describe('apps read nothing but `name` from project.json', () => {
         .filter((line) => isRead(path, line))
         .map((line) => ({ file: relative(ROOT, path).split(sep).join('/'), line })),
     );
+
+  it('exempts JS/TS and pytest test files, and only those', () => {
+    for (const f of ['a.test.ts', 'a.spec.tsx', 'apps/api/tests/test_cors.py', 'apps/api/tests/cors_test.py', 'apps/api/tests/conftest.py', 'C:\\x\\test_a.py']) {
+      expect(isTestFile(f), f).toBe(true);
+    }
+    for (const f of ['apps/api/main.py', 'apps/api/app/config.py', 'apps/api/contest.py', 'apps/api/latest.py', 'apps/api/testing.py', 'apps/api/conftest.py.bak', 'a.ts']) {
+      expect(isTestFile(f), f).toBe(false);
+    }
+    // a non-test Python file that reads project.json is still scanned, and caught
+    expect(isTestFile('apps/api/app/config.py') || !isRead('apps/api/app/config.py', "json.load(open('../../project.json'))")).toBe(false);
+  });
 
   it('skips whole-line comments only', () => {
     expect(isRead('a.ts', '// see project.json')).toBe(false);
