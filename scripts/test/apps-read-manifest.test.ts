@@ -30,10 +30,13 @@ const KNOWN_READS: Record<string, string> = {
   'apps/web/vite.config.ts': "const { name: APP_NAME } = JSON.parse(readFileSync(join(REPO_ROOT, 'project.json'), 'utf8'));",
   'apps/web/scripts/build-docs.mjs': "return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')).name;",
 };
-// Tests are never build inputs, so a test (JS/TS or pytest) may read project.json
-// freely. Only the files a build can see are scanned.
+// Tests are never build inputs, so a JS/TS test (*.test.*, *.spec.*) or a pytest
+// file (test_*.py, *_test.py, conftest.py) may read project.json freely. A pytest
+// file is exempt only inside a `tests` directory: a file merely named test_*.py
+// among the app's own code (apps/api/app/test_utils.py) could be a build input.
 const isTestFile = (path: string) =>
-  /\.(test|spec)\.[jt]sx?$/.test(path) || /(^|[\\/])(test_[^\\/]*|[^\\/]*_test|conftest)\.py$/.test(path);
+  /\.(test|spec)\.[jt]sx?$/.test(path) ||
+  (/(^|[\\/])tests[\\/]/.test(path) && /(^|[\\/])(test_[^\\/]*|[^\\/]*_test|conftest)\.py$/.test(path));
 const HASH_COMMENT = /\.(py|sh|ya?ml)$/;
 
 // What is left of a line once its comment text is removed. Only real comments
@@ -70,14 +73,16 @@ describe('apps read nothing but `name` from project.json', () => {
     );
 
   it('exempts JS/TS and pytest test files, and only those', () => {
-    for (const f of ['a.test.ts', 'a.spec.tsx', 'apps/api/tests/test_cors.py', 'apps/api/tests/cors_test.py', 'apps/api/tests/conftest.py', 'C:\\x\\test_a.py']) {
+    for (const f of ['a.test.ts', 'a.spec.tsx', 'apps/api/tests/test_cors.py', 'apps/api/tests/cors_test.py', 'apps/api/tests/conftest.py', 'C:\\x\\tests\\test_a.py', 'apps/api/tests/unit/conftest.py']) {
       expect(isTestFile(f), f).toBe(true);
     }
-    for (const f of ['apps/api/main.py', 'apps/api/app/config.py', 'apps/api/contest.py', 'apps/api/latest.py', 'apps/api/testing.py', 'apps/api/conftest.py.bak', 'a.ts']) {
+    for (const f of ['apps/api/main.py', 'apps/api/app/test_utils.py', 'apps/api/app/conftest.py', 'apps/api/app/x_test.py', 'apps/api/app/config.py', 'apps/api/contest.py', 'apps/api/latest.py', 'apps/api/testing.py', 'apps/api/conftest.py.bak', 'a.ts']) {
       expect(isTestFile(f), f).toBe(false);
     }
     // a non-test Python file that reads project.json is still scanned, and caught
-    expect(isTestFile('apps/api/app/config.py') || !isRead('apps/api/app/config.py', "json.load(open('../../project.json'))")).toBe(false);
+    const f = 'apps/api/app/config.py';
+    expect(isTestFile(f)).toBe(false);
+    expect(isRead(f, "json.load(open('../../project.json'))")).toBe(true);
   });
 
   it('skips whole-line comments only', () => {
