@@ -16,7 +16,7 @@ coordinator's procedure. All GitHub calls are REST (`gh api` or the MCP tools):
 1. `git fetch origin`; if `origin/main` has nothing `origin/develop` lacks, stop:
    nothing to release.
 2. `node scripts/release.mjs plan` prints the next tag and the notes (every
-   pull request merged into `develop` since the last tag, with links).
+   pull request behind what `develop` has and `main` lacks, with links).
 3. Open a pull request `develop` into `main`, titled `Release <tag>`, with the
    notes as the body (`create_pull_request`, base `main`). If one is open
    already, update its body instead of opening a second.
@@ -24,7 +24,8 @@ coordinator's procedure. All GitHub calls are REST (`gh api` or the MCP tools):
 ## Wait for go
 
 `node scripts/release.mjs go --pr <n>` exits 0 only when the owner's login
-commented `go`, or the owner merged it. A `go` from anyone else is ignored.
+commented `go` after the head's latest commit, or the owner merged it (a new
+commit after `go` voids it). A `go` from anyone else is ignored.
 Exit 1: leave the pull request open and report "release #<n> waiting for the
 owner". Never merge it yourself without a `go`. Do not assign or label
 anything for this: the owner's comment is the gate.
@@ -32,7 +33,8 @@ anything for this: the owner's comment is the gate.
 ## Merge, tag, confirm
 
 1. Merge with a **merge commit** (`merge_pull_request`, `merge_method: merge`),
-   not squash.
+   not squash, passing `sha` = the head `release.mjs go` printed, so GitHub
+   refuses it if the head moved after the owner's `go`.
 2. `node scripts/release.mjs tag --pr <n>` tags the merge commit
    `vYYYY.MM.DD` (`-2`, `-3` for more that day) and creates the GitHub Release
    with the same notes.

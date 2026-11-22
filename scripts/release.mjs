@@ -9,7 +9,7 @@
 //     node scripts/release.mjs go     --pr <n> [--repo o/n]              # exit 0 iff the owner said go or merged it
 //     node scripts/release.mjs tag    --pr <n> [--repo o/n] [--date ...]  # tag the merge commit and create the GitHub Release
 // Nothing here merges: the merge of a release pull request stays with the
-// coordinator, after `go`. Ceiling: one page walk of PAGE_LIMIT pages of 100.
+// coordinator, after `go`, passing the head `sha` `go` prints. Ceiling: PAGE_LIMIT pages of 100 per walk.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -61,14 +61,22 @@ export function releaseNotes(pulls, { since = null, branch = 'develop' } = {}) {
 
 /**
  * Whether the owner has released: a comment `go` (case-insensitive, trimmed,
- * optional trailing full stop) whose author login is `owner`, or the owner
- * having merged the pull request. Author login only: a stranger's `go`, or a
- * bot's, is ignored, and so is a comment that merely contains the word.
+ * optional trailing full stop) whose author login is `owner` and which was
+ * posted after `after` (the pull request head's latest commit date), or the
+ * owner having merged the pull request. Author login only: a stranger's `go`,
+ * a bot's, a `go` posted before the head last moved, and a comment that merely
+ * contains the word are all ignored.
  */
-export function ownerSaidGo({ owner, comments, mergedBy = null }) {
+export function ownerSaidGo({ owner, comments, mergedBy = null, after = null }) {
   const me = String(owner).toLowerCase();
   if (mergedBy && String(mergedBy).toLowerCase() === me) return true;
-  return comments.some((c) => String(c.user?.login ?? '').toLowerCase() === me && /^go\.?$/i.test(String(c.body ?? '').trim()));
+  const afterMs = after ? Date.parse(after) : -Infinity;
+  return comments.some(
+    (c) =>
+      String(c.user?.login ?? '').toLowerCase() === me &&
+      /^go\.?$/i.test(String(c.body ?? '').trim()) &&
+      Date.parse(c.created_at ?? '') > afterMs,
+  );
 }
 
 async function api(run, route, args = []) {
@@ -87,25 +95,39 @@ async function pages(run, route) {
   throw new Error(`release: ${route} has more than ${PAGE_LIMIT * 100} entries; stopping at the declared ceiling`);
 }
 
-/** The next tag and the notes for a release cut now. */
-export async function plan({ run, repo, date }) {
-  const tags = (await pages(run, `repos/${repo}/tags`)).map((t) => t.name);
-  const last = latestTag(tags);
-  let since = null;
-  if (last) {
-    const commit = await api(run, `repos/${repo}/commits/${last}`);
-    since = commit.commit.committer.date;
+/**
+ * Every commit `develop` has that `main` lacks, by the REST compare endpoint,
+ * paged. Ceiling: PAGE_LIMIT pages of 100.
+ */
+async function unreleasedCommits(run, repo) {
+  const shas = [];
+  for (let page = 1; page <= PAGE_LIMIT; page++) {
+    const body = await api(run, `repos/${repo}/compare/main...develop?per_page=100&page=${page}`);
+    const batch = body.commits ?? [];
+    shas.push(...batch.map((c) => c.sha));
+    if (shas.length >= (body.total_commits ?? 0) || batch.length === 0) return shas;
   }
-  const pulls = await pages(run, `repos/${repo}/pulls?state=closed&base=develop&sort=updated&direction=desc`);
-  return { tag: nextTag(tags, date), since, last, notes: releaseNotes(pulls, { since }) };
+  throw new Error(`release: develop is more than ${PAGE_LIMIT * 100} commits ahead of main; stopping at the declared ceiling`);
 }
 
-/** True when the owner (the repository's owner login) has said go or merged the pull request. */
+/** The next tag and the notes for a release cut now: the pull requests behind what develop has that main lacks, so one merged while a release pull request is open waits for the next release. */
+export async function plan({ run, repo, date }) {
+  const tags = (await pages(run, `repos/${repo}/tags`)).map((t) => t.name);
+  const byNumber = new Map();
+  for (const sha of await unreleasedCommits(run, repo)) {
+    for (const p of await api(run, `repos/${repo}/commits/${sha}/pulls`)) byNumber.set(p.number, p);
+  }
+  return { tag: nextTag(tags, date), last: latestTag(tags), notes: releaseNotes([...byNumber.values()]) };
+}
+
+/** `{ given, sha }`: whether the owner has said go (after the head's last commit) or merged it, and the head `sha` the merge must pass so GitHub refuses it if the head moved. */
 export async function goGiven({ run, repo, pr }) {
   const owner = repo.split('/')[0];
   const pull = await api(run, `repos/${repo}/pulls/${pr}`);
+  const head = await api(run, `repos/${repo}/commits/${pull.head.sha}`);
   const comments = await pages(run, `repos/${repo}/issues/${pr}/comments`);
-  return ownerSaidGo({ owner, comments, mergedBy: pull.merged ? pull.merged_by?.login : null });
+  const given = ownerSaidGo({ owner, comments, mergedBy: pull.merged ? pull.merged_by?.login : null, after: head.commit.committer.date });
+  return { given, sha: pull.head.sha };
 }
 
 /** Tag the merge commit of a merged release pull request and create the GitHub Release with the pull request's body as notes. */
@@ -139,8 +161,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if ((command === 'go' || command === 'tag') && !/^\d+$/.test(pr ?? '')) throw new Error('release: --pr <number> is required');
   if (command === 'plan') console.log(JSON.stringify(await plan({ run: exec, repo, date }), null, 2));
   else if (command === 'go') {
-    const given = await goGiven({ run: exec, repo, pr });
-    console.log(given ? 'go given' : 'waiting for the owner: no go from the owner and not merged by them');
+    const { given, sha } = await goGiven({ run: exec, repo, pr });
+    console.log(given ? `go given; merge with sha=${sha}` : 'waiting for the owner: no go from the owner since the last commit, and not merged by them');
     process.exit(given ? 0 : 1);
   } else if (command === 'tag') console.log(JSON.stringify(await tagRelease({ run: exec, repo, pr, date }), null, 2));
   else throw new Error('usage: release.mjs plan|go|tag [--repo o/n] [--pr n] [--date YYYY-MM-DD]');

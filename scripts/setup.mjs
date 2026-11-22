@@ -1083,14 +1083,19 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
     await git(['branch', 'main']);
     const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop', 'main']);
     if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
-    // develop is the default branch (feature pull requests target it); the first push may have made main the default.
-    const defaulted = await run('gh', ['api', repoRoute(target), '-X', 'PATCH', '-f', 'default_branch=develop']);
-    if (defaulted.status !== 0) throw new Error(`setting develop as the default branch failed: ${reason(defaulted)}`);
   } catch (error) {
     throw new Error(
       `${error.message}\n${dir} is built and verified. ${target} may exist but be empty; a rerun accepts an empty repository, ` +
         `but --dir must be empty or absent, so remove ${dir} first.`,
     );
+  }
+
+  // develop is the default branch (feature pull requests target it); the first
+  // push may have made main the default. Outside the try above for the same
+  // reason as the pin below: the push has succeeded, so "rerun" would be wrong.
+  const defaulted = await run('gh', ['api', repoRoute(target), '-X', 'PATCH', '-f', 'default_branch=develop']);
+  if (defaulted.status !== 0) {
+    log(`\nWarning: setting develop as the default branch failed (${reason(defaulted)}); set develop as the default branch by hand: ${target} on GitHub, Settings, Branches.`);
   }
 
   // Two remotes (origin and the fetch-only base) make gh ask which repository

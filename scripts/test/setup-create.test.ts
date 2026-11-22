@@ -321,6 +321,14 @@ describe('create', () => {
       expect(failing.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: failDir });
     });
 
+    it('if setting develop as the default branch fails, warns the owner to do it by hand and carries on to the check, with no rebuild advice', async () => {
+      const w = world({ 'gh api repos/o/n -X PATCH': fail('HTTP 403') });
+      const dir = freshDir();
+      await expect(create(python(dir), w)).resolves.toBe(0);
+      expect(w.lines.some((l) => l.includes('set develop as the default branch by hand') && l.includes('HTTP 403'))).toBe(true);
+      expect(w.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: dir });
+    });
+
     it('locks a python-only product with npm 11 before the first commit, and leaves a node-react one to its own lockfile', async () => {
       const pythonOnly = world();
       await create(python(freshDir()), pythonOnly);
