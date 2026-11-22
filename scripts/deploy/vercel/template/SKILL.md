@@ -75,7 +75,7 @@ docs/data-governance.md, before the first pull request that deploys this app
 closes**). Run it by hand (`gh workflow run preview-prune -f
 dry_run=false`) to delete every preview whose branch no longer exists; the
 default `dry_run=true` only lists them. Its preview modes never delete a
-production deployment or a production-branch build, whatever they are asked.
+production deployment or a build of `productionBranch` or of `develop`, whatever they are asked.
 
 Production history is trimmed the same way: every merge makes a production
 deployment and Vercel keeps them all, so each close (and each manual run)
