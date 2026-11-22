@@ -516,12 +516,18 @@ describe('scripts/smoke.mjs as a process', () => {
   });
 
   // Timeout: spawns node; 30 s.
-  it('fails on an unreadable SMOKE_PROJECT_JSON rather than falling back to the repository project.json', { timeout: 30_000 }, async () => {
-    const result = await new Promise<number>((done) =>
-      execFile('node', ['scripts/smoke.mjs'], { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: '/nonexistent/project.json', GITHUB_REF: 'refs/heads/develop' } }, (error) =>
-        done(error ? ((error as { code?: number }).code ?? 1) : 0),
+  it('fails naming SMOKE_PROJECT_JSON and its path when unreadable, rather than falling back to the repository project.json', { timeout: 30_000 }, async () => {
+    const missing = '/nonexistent/project.json';
+    const result = await new Promise<{ code: number; err: string }>((done) =>
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: missing, GITHUB_REF: 'refs/heads/develop', GITHUB_EVENT_NAME: 'push', GITHUB_SHA: '' } },
+        (error, _stdout, stderr) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, err: stderr }),
       ),
     );
-    expect(result).not.toBe(0);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain('SMOKE_PROJECT_JSON');
+    expect(result.err).toContain(missing);
   });
 });
