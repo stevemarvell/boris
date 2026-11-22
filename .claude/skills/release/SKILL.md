@@ -1,6 +1,6 @@
 ---
 name: release
-description: How the coordinator releases a product built from boris - cut a Release pull request from develop to main, wait for the owner's go, merge with a merge commit, tag and create the GitHub Release, confirm production smoke; plus the hotfix, back-merge and rollback routes. Use when asked to "release", "cut a release", "ship develop to production", "hotfix", or "roll back".
+description: How the coordinator releases a product built from this base - cut a Release pull request from develop to main, wait for the owner's go, merge with a merge commit, tag and create the GitHub Release, confirm production smoke; plus the hotfix, back-merge and rollback routes. Use when asked to "release", "cut a release", "ship develop to production", "hotfix", or "roll back".
 ---
 
 # Releasing

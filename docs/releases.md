@@ -1,7 +1,7 @@
 # Releases
 
 How a change gets from a branch to production, in every product built from
-boris. One scheme, so a release, a hotfix and a rollback work the same way
+this base. One scheme, so a release, a hotfix and a rollback work the same way
 everywhere. The coordinator follows it with the `release` skill
 (`.claude/skills/release/SKILL.md`); the mechanical parts are in
 `scripts/release.mjs`.
