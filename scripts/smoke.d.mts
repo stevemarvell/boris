@@ -35,6 +35,5 @@ export declare function isCommitSha(value: unknown): boolean;
 
 export declare function branchOfRef(ref: string | undefined): string | null;
 export declare function notProductionBranch(args: { project: Project; ref: string | undefined; eventName: string | undefined }): string | null;
-export declare function branchAlias(deploy: { project: string; team: string }, branch: string): string;
 export declare function isStagingPush(options: { project: Project; ref: string | undefined; eventName: string | undefined }): boolean;
 export declare function stagingProject(project: Project): Project;

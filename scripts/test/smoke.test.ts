@@ -7,8 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
-import { buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
-import { GATE_ATTEMPTS, appUrls, branchAlias, isStagingPush, stagingProject, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
+import { branchAlias, buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
+import { GATE_ATTEMPTS, appUrls, isStagingPush, stagingProject, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
   name: 'thing',

@@ -44,7 +44,7 @@
 // product whose `develop` is a staging preview has no production deployment
 // for that commit to wait for. See notProductionBranch. That push is instead
 // smoked against staging: when productionBranch is `main`, a push to `develop`
-// checks each app's `<project>-git-develop-<team>.vercel.app` alias (same gate,
+// checks each app's branch alias (the provider derives it) (same gate,
 // same app checks). See isStagingPush, stagingProject; docs/releases.md.
 //
 // Usage (smoke.yml runs it with a full-history checkout, fetch-depth: 0):
@@ -128,11 +128,6 @@ export function notProductionBranch({ project, ref, eventName }) {
   return `not the production branch (${ref}); nothing to smoke`;
 }
 
-/** The Vercel branch alias of `branch` for an app: `<project>-git-<branch>-<team>.vercel.app`. */
-export function branchAlias({ project, team }, branch) {
-  return `https://${project}-git-${branch}-${team}.vercel.app`;
-}
-
 /** Whether this run is a push to `develop` while production is published from `main`: the staging case. */
 export function isStagingPush({ project, ref, eventName }) {
   return eventName === 'push' && branchOfRef(ref) === 'develop' && productionBranch(project) === 'main';
@@ -142,7 +137,7 @@ export function isStagingPush({ project, ref, eventName }) {
 export function stagingProject(project) {
   const apps = Object.fromEntries(
     Object.entries(project.apps).map(([name, app]) =>
-      app.deploy ? [name, { ...app, deploy: { ...app.deploy, url: branchAlias(app.deploy, 'develop') } }] : [name, app],
+      app.deploy ? [name, { ...app, deploy: { ...app.deploy, url: provider(app.deploy.provider).branchAlias(app.deploy, 'develop') } }] : [name, app],
     ),
   );
   return { ...project, apps };
