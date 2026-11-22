@@ -107,6 +107,10 @@ describe('ownerSteps', () => {
     expect(steps.some((s) => s.includes('VERCEL_TOKEN'))).toBe(true);
     expect(steps.some((s) => s.includes('data-governance.md'))).toBe(true);
   });
+
+  it('says to set Production Branch to main', () => {
+    expect(ownerSteps({ app: 'api', team: 't', project: 'p' }).some((s) => s.includes('Set Production Branch to `main`'))).toBe(true);
+  });
 });
 
 describe('addDeploy', () => {
