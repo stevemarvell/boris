@@ -185,7 +185,9 @@ export async function smoke({ project, sha, fetchJson, git, sleep, run, log, gat
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const loaded = loadProject();
+  // SMOKE_PROJECT_JSON points the process at another project.json (the process tests use it, so they do not
+  // depend on the repository running them); unset, it is the repository's own.
+  const loaded = process.env.SMOKE_PROJECT_JSON ? loadProject(process.env.SMOKE_PROJECT_JSON) : loadProject();
   const target = { project: loaded, ref: process.env.GITHUB_REF, eventName: process.env.GITHUB_EVENT_NAME };
   // A push to develop when main is production is staging: check the develop alias instead of skipping.
   const staging = isStagingPush(target);
