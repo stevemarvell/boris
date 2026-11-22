@@ -32,3 +32,6 @@ export declare function smoke(options: {
 }): Promise<Result>;
 export declare function runGit(args: string[], cwd?: string): { status: number; stdout: string };
 export declare function isCommitSha(value: unknown): boolean;
+
+export declare function branchOfRef(ref: string | undefined): string | null;
+export declare function notProductionBranch(args: { project: Project; ref: string | undefined; eventName: string | undefined }): string | null;

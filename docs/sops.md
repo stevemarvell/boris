@@ -118,7 +118,10 @@ what a push or a merge starts is a spending decision and is written down here.
   both once more and the workflow removes it when they finish. When the driver
   adds it is defined in `drive-pr` step 4 and nowhere else. Nothing adds the
   label by itself, so no review loop can run unattended.
-- **`smoke` runs on every push to `develop`** and, once an app deploys, on a
+- **`smoke` runs on every push to `develop` and `main`**, and checks only a
+  push to the production branch (`productionBranch` in `project.json`, default
+  `develop`); a push to the other exits 0 with "not the production branch ...
+  nothing to smoke". Once an app deploys it also runs on a
   schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
 - **A deployed app rebuilds only for what it reads.** Its `reads` and
   `ignores`, `scripts/project.mjs` and the provider's ignore script are

@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
 import { buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
-import { GATE_ATTEMPTS, appUrls, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
+import { GATE_ATTEMPTS, appUrls, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
   name: 'thing',
@@ -409,5 +409,55 @@ describe('runGit, the production wrapper', () => {
     git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'c']);
     const later = git(['rev-parse', 'HEAD']).stdout.trim();
     expect(buildIsEquivalent({ git, project: project(), name: 'back', deployedSha: deployed, sha: later })).toBe(false);
+  });
+});
+
+describe('notProductionBranch', () => {
+  const main = { ...project(), productionBranch: 'main' };
+  it('defaults to develop: a push to develop runs, a push to main is skipped', () => {
+    expect(notProductionBranch({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBeNull();
+    expect(notProductionBranch({ project: project(), ref: 'refs/heads/main', eventName: 'push' })).toBe(
+      'not the production branch (refs/heads/main); nothing to smoke',
+    );
+  });
+  it('with productionBranch main: main runs, develop and tags are skipped', () => {
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toMatch(/^not the production branch \(refs\/heads\/develop\); nothing to smoke$/);
+    expect(notProductionBranch({ project: main, ref: 'refs/tags/main', eventName: 'push' })).toMatch(/not the production branch/);
+  });
+  it('never skips an uptime check or a manual dispatch, nor a run with no ref', () => {
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'schedule' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'workflow_dispatch' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: undefined, eventName: 'push' })).toBeNull();
+  });
+  it('branchOfRef reads only branch refs', () => {
+    expect(branchOfRef('refs/heads/release/1')).toBe('release/1');
+    expect(branchOfRef('refs/tags/v1')).toBeNull();
+    expect(branchOfRef(undefined)).toBeNull();
+  });
+});
+
+describe('scripts/smoke.mjs as a process', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const run = (ref: string, event = 'push') =>
+    new Promise<{ code: number; out: string }>((done) => {
+      // Run against the committed project.json (nothing deployed), with productionBranch absent: develop.
+      execFile('node', ['scripts/smoke.mjs'], { cwd: root, env: { ...process.env, GITHUB_REF: ref, GITHUB_EVENT_NAME: event, GITHUB_SHA: '' } }, (error, stdout) =>
+        done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, out: stdout }),
+      );
+    });
+
+  // Timeout: spawns node; 30 s.
+  it('exits 0 with a one-line message on a push to another branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main');
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe('not the production branch (refs/heads/main); nothing to smoke');
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('goes on to smoke on a push to the production branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/develop');
+    expect(result.out).not.toMatch(/not the production branch/);
+    expect(result.out).toMatch(/nothing is deployed|no commit|every deployed/);
   });
 });

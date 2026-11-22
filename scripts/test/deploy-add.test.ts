@@ -415,7 +415,7 @@ describe('the scheduled smoke run (#254)', () => {
       expect(text).not.toMatch(/^\s*-?\s*cron:/m);
     }
     // The triggers that cost nothing while nothing is deployed stay either way.
-    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop\]/m);
+    expect(text).toMatch(/^ {2}push:\n {4}branches: \[develop, main\]/m);
     expect(text).toMatch(/^ {2}workflow_dispatch:/m);
   });
 
