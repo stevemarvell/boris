@@ -71,14 +71,8 @@ function isContainedPath(path) {
 /** The branch whose merge publishes to production when project.json does not say. */
 export const DEFAULT_PRODUCTION_BRANCH = 'develop';
 
-/** Whether `name` is a valid git branch name (git check-ref-format rules, for a short name). */
-export function isBranchName(name) {
-  if (typeof name !== 'string' || name === '' || name === '@') return false;
-  if (/[\x00-\x20\x7f~^:?*[\\]/.test(name)) return false;
-  if (name.includes('..') || name.includes('@{') || name.includes('//')) return false;
-  if (name.startsWith('/') || name.endsWith('/') || name.endsWith('.') || name.startsWith('-')) return false;
-  return name.split('/').every((part) => !part.startsWith('.') && !part.endsWith('.lock'));
-}
+/** The only branches that may publish production: the ones smoke.yml triggers on. */
+export const PRODUCTION_BRANCHES = ['develop', 'main'];
 
 /** The branch a merge to publishes production from: `productionBranch`, else `develop`. */
 export function productionBranch(project) {
@@ -99,8 +93,8 @@ export function validate(project) {
   // means `develop`, so a product that never set it is unchanged. A product
   // whose `develop` is staging (a preview) and whose `main` is production says
   // "main"; smoke.yml then runs on both, and smoke.mjs checks only that branch.
-  if (project.productionBranch !== undefined && !isBranchName(project.productionBranch)) {
-    fail('"productionBranch" must be a git branch name, such as "main"');
+  if (project.productionBranch !== undefined && !PRODUCTION_BRANCHES.includes(project.productionBranch)) {
+    fail(`"productionBranch" must be one of ${PRODUCTION_BRANCHES.join(', ')} (smoke.yml triggers on those two)`);
   }
   // Which base commit a product was assembled from (`setup create` writes it,
   // the sync-ai-layer skill moves it, `setup check` measures from it). Optional:

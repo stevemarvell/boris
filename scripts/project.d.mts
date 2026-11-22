@@ -50,5 +50,5 @@ export declare function verifiedPaths(project: Project): string[];
 export declare function cli(argv: string[], project?: Project): string[];
 
 export declare const DEFAULT_PRODUCTION_BRANCH: string;
-export declare function isBranchName(name: unknown): boolean;
 export declare function productionBranch(project: Project): string;
+export declare const PRODUCTION_BRANCHES: string[];
