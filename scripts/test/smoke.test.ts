@@ -7,8 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
-import { buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
-import { GATE_ATTEMPTS, appUrls, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
+import { branchAlias, buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
+import { GATE_ATTEMPTS, appUrls, isStagingPush, stagingProject, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
   name: 'thing',
@@ -434,6 +434,32 @@ describe('notProductionBranch', () => {
     expect(branchOfRef('refs/heads/release/1')).toBe('release/1');
     expect(branchOfRef('refs/tags/v1')).toBeNull();
     expect(branchOfRef(undefined)).toBeNull();
+  });
+});
+
+describe('staging smoke', () => {
+  const main = { ...project(), productionBranch: 'main' } as Project;
+  it('a push to develop is staging only when main is the production branch', () => {
+    expect(isStagingPush({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toBe(true);
+    expect(isStagingPush({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBe(false);
+    expect(isStagingPush({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBe(false);
+    expect(isStagingPush({ project: main, ref: 'refs/heads/develop', eventName: 'schedule' })).toBe(false);
+  });
+  it('derives the develop alias per app from project and team', () => {
+    expect(branchAlias({ project: 'thing-back', team: 't' }, 'develop')).toBe('https://thing-back-git-develop-t.vercel.app');
+    const staged = stagingProject(main);
+    expect(staged.apps.back!.deploy!.url).toBe('https://thing-back-git-develop-t.vercel.app');
+    expect(staged.apps.front!.deploy!.url).toBe('https://thing-front-git-develop-t.vercel.app');
+    expect(staged.apps.tool!.deploy).toBeUndefined();
+    expect(main.apps.back!.deploy!.url).toBe('https://back.example'); // the input is not mutated
+  });
+  it('smoke gates and checks the staging URLs, not production', async () => {
+    const { fetchJson, asked } = server({ 'https://thing-back-git-develop-t.vercel.app/health': [NEW], 'https://thing-front-git-develop-t.vercel.app/version.json': [NEW] });
+    const urls: Record<string, string>[] = [];
+    const result = await smoke({ project: stagingProject(main), sha: NEW, fetchJson, git: gitSays(1), sleep: noSleep, run: (_s, u) => (urls.push(u), 0), log: quiet });
+    expect(result.ok).toBe(true);
+    expect(asked.every((u) => u.includes('-git-develop-t.vercel.app'))).toBe(true);
+    expect(urls[0]!.BACK).toBe('https://thing-back-git-develop-t.vercel.app');
   });
 });
 

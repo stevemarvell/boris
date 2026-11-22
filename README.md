@@ -368,6 +368,7 @@ flowchart LR
 | [`apps/CLAUDE.md`](apps/CLAUDE.md) | The application's layout and deployments; each starter's own rules are in its `CLAUDE.md`. |
 | [`catalogue.json`](catalogue.json) | The engine, starters and providers a product is assembled from. |
 | [`docs/sops.md`](docs/sops.md) | How agent work is run, including every loop's declared limit. |
+| [`docs/releases.md`](docs/releases.md) | The branching strategy and how a change is released, hotfixed and rolled back. |
 | [`docs/data-governance.md`](docs/data-governance.md) | What is exposed, why, and what would change that. |
 | [`docs/adoption.md`](docs/adoption.md) | The adoption ladder being climbed. |
 

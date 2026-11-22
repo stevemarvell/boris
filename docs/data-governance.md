@@ -19,6 +19,13 @@ what voids that" applies the same three questions to the credentials the
 review jobs carry, because that posture has the same shape and the same need
 for a written trigger.
 
+A product that sets `productionBranch: "main"` (`docs/releases.md`) builds
+production from `main` only. Its `develop` is then a standing staging URL, the
+`-git-develop-` branch alias of each app: public like every URL here, serving
+code that is merged but not yet released, and smoke-checked by CI after each
+merge. Staging uses the product's preview resources, not production's. The
+prune above protects both the production branch's and `develop`'s builds.
+
 ---
 
 ## What is public
@@ -256,13 +263,15 @@ job — their branch cannot rewrite it or run in it. What bounds it instead is
 `scripts/deploy/vercel/vercel-prune.mjs` itself, reviewed on its way into
 `develop`: the
 preview modes refuse production deployments and anything built from `develop`
-per deployment, whatever the query returned, and refuse an empty live-branch
+or the production branch per deployment, whatever the query returned, and refuse an empty live-branch
 list rather than read it as "every preview is stale"; the `history` mode never
 deletes the deployment an app's alias points at, and deletes nothing if it
 cannot find it.
 
 Old production deployments are recoverable the same way: each is a build of
-a commit on `develop`, which is never rewritten, so any of them can be rebuilt.
+a commit on the production branch (`productionBranch` in `project.json`; `main`
+where set, else `develop`), which is never rewritten, so any of them can be
+rebuilt.
 What the close-time run deletes is recoverable: a preview is a build of a
 commit, and GitHub keeps every pull request's head at `refs/pull/<n>/head`, so
 that preview can be rebuilt. That is why it runs unattended. The backlog run
