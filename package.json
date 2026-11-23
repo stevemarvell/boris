@@ -11,6 +11,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "verify": "npm run verify:harness && npm run verify:apps",
+    "verify:changed": "node scripts/verify-changed.mjs",
     "verify:harness": "tsc -p scripts/test && eslint --config scripts/test/eslint.config.mjs scripts/test && vitest run --root scripts/test",
     "verify:apps": "node scripts/verify-apps.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
@@ -25,7 +26,8 @@
     "eslint": "10.13.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.1",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "yaml": "2.8.3"
   },
   "overrides": {
     "minimatch": "11.0.4"

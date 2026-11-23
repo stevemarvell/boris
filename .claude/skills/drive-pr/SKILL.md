@@ -96,6 +96,99 @@ done
 not start fixing findings against checks that never finished. Go straight to
 step 5.
 
+#### When CI does not run
+
+If the account's Actions allowance is spent, GitHub refuses every job before a
+runner starts (this happened 2026-11-11 to 2026-11-15: `verify` failed in 3 to
+10 seconds, and #321 merged against it in silence). A red check is then not a
+finding about the code. Tell the two apart by whether any runner was assigned.
+A refused job has `conclusion: failure`, `runner_id: 0`, an empty
+`runner_name` and no steps; a job that ran had a runner, however fast it
+failed (so a pull request cannot fake this by failing its own `verify` early).
+A check run's id is its job id: read each failed GitHub Actions check's job
+and pass the array to the helper. Only Actions check runs count; a Vercel or
+other app's check has no Actions job. If no Actions check run failed, this path
+does not apply.
+
+```bash
+# <ids>: the failed Actions check runs' ids.
+ids=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs?per_page=100" --jq \
+  '.check_runs[] | select(.app.slug=="github-actions" and .conclusion!="success" and .conclusion!="skipped" and .conclusion!="neutral") | .id')
+# Collect their jobs into one JSON array.
+{ echo '['; sep=; for id in $ids; do echo "$sep"; gh api "repos/{owner}/{repo}/actions/jobs/$id"; sep=,; done; echo ']'; } \
+  | node scripts/ci-health.mjs      # prints true or false; exit 2 on unreadable input
+```
+
+`ciDidNotRun` (`scripts/ci-health.mjs`) is true when there is at least one job,
+every one is `completed` with conclusion `failure`, and none was ever assigned a
+runner. One success, one failure that had a runner, or one unfinished job makes
+it false, and the red check is an ordinary red check (step 2 onward, as before).
+Duration is not used, and logs are not fetched.
+
+When it is true, classify it as **CI did not run**. The local path is an
+allowlist, because the branch's code runs as the coordinator's user and can
+read files outside the empty `HOME` below (`docs/data-governance.md`, "What CI
+holds"). A pull request is eligible only if all of these hold, read over
+REST (`gh pr view` is GraphQL, which cloud sessions refuse):
+
+```bash
+gh api repos/{owner}/{repo}/pulls/<n> -q '.user.login, .head.repo.full_name'
+gh api repos/{owner}/{repo}/pulls/<n>/files --paginate -q '.[] | .filename, (.previous_filename // empty)'
+```
+
+- the first line (`user.login`) is the repository owner's login;
+- the second (`head.repo.full_name`) is this repository, not a fork;
+- no path printed (a file's name, or the old name of a renamed one) starts
+  with `.github/workflows/`.
+
+If the file list cannot be read completely (an error, a page missing, or
+3,000 or more files, where the endpoint stops without an error), the pull
+request waits for CI. The allowlist checks who opened the pull request,
+not who wrote its commits, so it assumes one writer, the owner's own agents; a
+second writer with push access voids it (`docs/data-governance.md`).
+
+Anything else (a stranger, a fork, `dependabot[bot]`, a workflow change)
+waits for CI; say so on the pull request and stop. Otherwise:
+
+1. **Verify locally.** In a clean worktree on the pull request's head, run
+   `npm run verify`, with `TEST_DATABASE_URL` set when
+   `node scripts/project.mjs toolchains` prints `postgres=true`. The run
+   executes the branch's code, so give it an allowlisted environment, not the
+   coordinator's: `env -i PATH="$PATH" HOME="$(mktemp -d)"
+   PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}" npm run verify`
+   (plus `TEST_DATABASE_URL=...` when needed; both expand in the
+   coordinator's shell before `env` clears it). The coordinator's own
+   `PLAYWRIGHT_BROWSERS_PATH` is used when set; `$HOME/.cache/ms-playwright` is
+   only the Linux default (on macOS it is `~/Library/Caches/ms-playwright`). It passes exactly three
+   variables: `PATH` to find node, npm and git; a fresh empty `HOME`, so no
+   credential files, npm or git config are readable; and
+   `PLAYWRIGHT_BROWSERS_PATH`, because the web e2e suite's Chromium lives
+   under the real home and an empty one makes it fail with "Looks like
+   Playwright was just installed" (run without it, develop at f044425 failed
+   6 e2e tests; with it, all of `verify` exited 0). It covers every suite
+   `npm run verify` covers. No token or secret is passed.
+   Start the `postgres` service the machine has, or the image pinned in
+   `.github/workflows/verify.yml`. If neither is available, say so in the
+   comment below and **merge is refused**.
+2. **Record it on the pull request.** Comment, headed
+   `CI did not run: verified locally at <full head sha>`, with the last 20
+   lines of that run (`add_issue_comment`; body from a quoted heredoc, as in
+   step 3).
+3. **Open one issue for the outage**, unless an open issue titled
+   `CI is not running` exists: labelled `critical`, `human` and
+   `do not automate`, assigned to the owner, in the story template's sections,
+   stating the first failing run's URL and asking the owner to read the Actions
+   usage page.
+4. **Red local `verify`**: the pull request stays open and the findings go to
+   an implementer under step 3's two-round ceiling. **Green**: step 4's merge
+   condition "verify is green" is met by that local run, and only under this
+   rule. "Verify is green" here is self-attested by the coordinator, not
+   mechanically observed: this is discipline, as SOP 1 describes, and nothing
+   stops a false claim. Just before merging, re-read the pull request's head
+   sha from the API and merge only if it equals the sha you verified (the sha
+   you ran `git rev-parse HEAD` on, not the one in your own comment); a push
+   since means verify again.
+
 ### 2. Read both automated reviews
 
 `claude-code-review.yml` posts two kinds of comment, both authored by
@@ -124,6 +217,30 @@ matching that shape as answered already — nothing to fix, nothing to reply
 to. Everything else — a numbered/bulleted finding, an inline comment — is a
 finding to work in step 3.
 
+**The reviews run once per pull request**, when it is opened, reopened or
+marked ready, and again only when the `re-review` label is added (step 4).
+They do not re-run on a push. So after a fix round the original comments are
+still there and nothing new has been posted, and the driver has to tell a
+fresh finding from one already answered. **A finding is answered when a reply
+from this driver or its implementer already sits under it**: an inline comment
+whose thread has a reply posted by someone other than `claude[bot]`, or a
+top-level verdict comment that a later pull-request comment references (or
+that step 3 resolved). A `claude[bot]` comment with no such reply is fresh.
+List the inline ones still open with:
+
+```bash
+# A reply carries in_reply_to_id; a finding is open while nothing replies to it.
+gh api repos/{owner}/{repo}/pulls/<n>/comments --paginate \
+  --jq '[.[] | select(.in_reply_to_id != null) | .in_reply_to_id] as $answered
+        | .[] | select(.user.login=="claude[bot]" and .in_reply_to_id == null
+                       and ([.id] | inside($answered) | not))
+        | {id, path, line, body}'
+```
+
+Anything that comes back is open. A top-level verdict comment has no thread, so
+read the pull request comments in order: one that follows your reply is a new
+review, one that precedes it is old.
+
 ### 3. Fix real findings and reply — ceiling: 2 rounds (SOP 1, "sending an agent back for rework")
 
 One round is: read every open finding from step 2, then for each one:
@@ -151,9 +268,21 @@ One round is: read every open finding from step 2, then for each one:
   repos/{owner}/{repo}/issues -f title=… -F body=@<file> -f 'labels[]=<rank>'
   -f 'labels[]=human' -f 'labels[]=do not automate' -f 'assignees[]=<login>'`),
   rank it, label it `human` + `do not automate`, assign it, and link it in
-  the reply to the finding. Write the body in the sections of `.github/ISSUE_TEMPLATE/story.md` (persona, story, Given/When/Then with unhappy paths, tech notes, testing notes, references), with any `Depends on #<n>` lines last. Write the body with a quoted heredoc, as for
+  the reply to the finding. Write the body in the sections of `.github/ISSUE_TEMPLATE/story.md` (persona, story, Given/When/Then with unhappy paths, each **Then** stated positively, details to complete (for a `human` issue its instructions: numbered steps, exact values, what to comment back), tech notes, testing notes, references), with any `Depends on #<n>` lines last. Write the body with a quoted heredoc, as for
   replies below: it quotes the implementer's report. A reply alone is not enough to clear
   step 4's merge gate.
+- **Medium findings that only tighten a test or reword docs are not fixed
+  here**, unless `security-checker` raised them about a control (SOP 3):
+  those get a fix round. Record the rest in one hardening issue per area. The
+  area is the top-level path the finding is on (`scripts`, `.claude`, `docs`,
+  `apps/<app>`). Find it with
+  `gh api 'repos/{owner}/{repo}/issues?state=open&per_page=100' --paginate --jq '.[] | select(.pull_request == null and (.title | startswith("Hardening: <area>"))) | .number'`
+  (the REST list, not search: `gh api` fills `{owner}/{repo}` only in the
+  endpoint, and search lags new issues).
+  If none, create `Hardening: <area>` in the story template, labelled
+  `medium`; else comment on it with the finding as a Given/When/Then line and
+  the PR. Reply to each finding linking it. That issue backs the reply, so it
+  clears step 4's merge gate. Triage ranks it like any `medium` issue.
 - **Reply to every finding, fixed or not**, with what was done or why not:
   - Inline finding → reply in its own thread
     (`add_reply_to_pull_request_comment`, or
@@ -167,6 +296,9 @@ One round is: read every open finding from step 2, then for each one:
     <<'MD'`), never by interpolating into a double-quoted `--body "…"`:
     replies quote CI and review output, and `$(…)` or a backtick in that text
     would be executed by the shell.
+- **Whether to ask for a re-review is decided once, in step 4** ("Re-review
+  before merging"). Do not add the label here; note whether this round changed
+  code or a control, because step 4 asks.
 - Send one brief per round covering every finding that reproduced, so the
   implementer pushes the round's fixes together and the branch never sits
   with a fix committed but unexplained. Reply to each finding once its fix
@@ -176,18 +308,96 @@ The implementer runs `npm run verify` before it pushes (its own ceiling is
 the 3 attempts `.claude/commands/ship.md` declares — this step does not get
 a separate budget for that); the driver confirms it from the checks.
 
-**Round 2 exists only if round 1 left something unresolved** — a finding
-still disputed, a fix that did not turn `verify` green, or new findings
-posted against the round-1 push (the reviews re-run on `synchronize`). Redo
-the same procedure once more.
+**Round 2 exists only for** a fix that did not turn `verify` green (whatever
+the finding's rank), or a `high` or `critical` finding that round 1 left
+unresolved: still disputed, or newly posted by a `re-review` the driver asked
+for after round 1 (the reviews do not re-run on a push). Redo the same
+procedure once more.
 
 **Ceiling hit** (something is still unresolved after round 2): stop. Do not
 attempt a third round, do not merge with an unanswered finding. Go to step 5.
 
 ### 4. Merge and prune
 
-Merge only when **both** are true, checked, not assumed:
+#### Re-review before merging
 
+This is the one place the condition for `re-review` is defined; everything else
+points here. The reviews run once per pull request and never re-run on a push,
+so a fix, or a pull request opened harmlessly and extended later, is not looked
+at again unless the driver asks. A workflow cannot ask for it (a label added
+with `GITHUB_TOKEN` starts no run); the coordinator's own token can. Ask when
+**either** holds:
+
+- a fix round (step 3) changed code or a control (anything meant to *prevent*
+  something: a header, a permission, a gate, a filter; SOP 3), since a
+  control's fix is what a passing test does not prove. A text-only fix (a test
+  tightened, docs reworded) does not ask on this bullet alone; the next
+  bullet still can; or
+- the diff since the last review touches `.github/` or any path
+  `scripts/review-scope.mjs` sends to the security review (everything that is
+  not plain Markdown outside `.claude/` and `.github/`).
+
+Otherwise reply to the findings and merge when `verify` is green. Work it out
+with one block (`$BRANCH` is the pull request's head branch, `<n>` its number):
+
+```bash
+BRANCH=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.ref)
+HEAD=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)
+LAST=$(node scripts/last-reviewed.mjs "$BRANCH"); code=$?
+echo "last reviewed: $LAST (exit $code)"
+if [ "$code" = 0 ] && [ "$LAST" != "$HEAD" ]; then
+  # The file list comes from git, not the API: `compare` lists 30 files by
+  # default and `gh api --paginate` does not work through the cloud proxy.
+  if git fetch -q origin "$LAST" "$HEAD" && git cat-file -e "$LAST^{commit}"; then
+    # --no-renames: a rename otherwise prints only its new path, so moving
+    # a security-relevant file to a .md path would look like prose.
+    git diff --name-only --no-renames "$LAST...$HEAD" | node scripts/review-scope.mjs --since
+  else
+    echo "re-review: needed (cannot fetch $LAST, probably force-pushed away)"
+  fi
+fi
+```
+
+`last-reviewed.mjs` counts a `claude-code-review.yml` run only if every review
+job that ran succeeded and its `Check a review was actually produced` step
+succeeded (one review skipped by scope is fine; one failed or cancelled is not;
+a Dependabot run that skips every step and ends green is not). A failed run, a
+cancelled one and a label-only run in which everything was skipped are not
+"reviewed". Read the
+result:
+
+- **exit 2** (`gh` failed): an API error is not "no runs". Retry once; if it
+  still fails, do not guess; stop and report.
+- **exit 3, `none`, or exit 4, `pending`**: no review has finished, so the
+  initial review is queued, running or has never worked. **Wait for the initial
+  review** (step 1) and do not add the label. If it never arrives, run the
+  checkers by hand (below).
+- **exit 0 and `LAST` equals `HEAD`**: nothing changed since a review; only the
+  fix-round condition above can still ask.
+- **`re-review: needed`**, or `LAST` could not be fetched (a force-push removed
+  it, so nothing is known about what changed): ask. An empty or unreadable diff
+  also counts as needed. `review-scope.mjs --since` also treats a list of 300
+  or more names as needed; that guard (`COMPARE_FILE_CAP`) is for a list taken
+  from the API, which truncates, and is only a fallback here because `git diff`
+  does not.
+- **`touches .github/workflows/: true`**: the review action refuses a pull
+  request that edits workflows, so a label would buy nothing. Run one combined
+  hand review instead, as the `delegate` skill says, and reply to what it finds.
+- **A pull request authored by `dependabot[bot]`**: do not add the label (its
+  runs have no review credential, `docs/data-governance.md`). Run the checkers
+  by hand.
+
+To ask, delete the label and then add it: `gh api -X DELETE
+repos/{owner}/{repo}/issues/<n>/labels/re-review` (a 404 is fine), then `gh api
+-X POST repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=re-review'`. A
+cancelled run can leave the label on, and GitHub sends `labeled` only when a
+label is *added*, so a stuck one would swallow the request. The workflow runs
+both reviews once and removes the label when they finish; wait for the review
+checks (step 1) and read them (step 2) before merging. A label costs about 5.6
+billed minutes (scope, both reviews, and the `clear re-review` job, which bills
+at least a minute).
+
+Merge only when **both** are true, checked, not assumed:
 - `npm run verify` is green on the branch's current head.
 - Every finding from step 2 has a reply posted in step 3 (or needed none),
   and every one that needs a person has its own `human` issue linked in
@@ -226,6 +436,7 @@ then, so delete the leftover directory once that process exits.
 
 ### 5. On hitting a ceiling: stop, comment, report
 
+On a usage limit, follow `delegate` ("On a usage limit") instead of retrying.
 Whichever step's ceiling was hit (step 1's poll, step 3's rounds, or
 `verify`'s own 3 attempts inside step 3):
 
@@ -312,6 +523,9 @@ As a maintainer, I want the smoke failure after merging #<n> fixed, so that the 
 - **Given** the smoke workflow still fails
 - **When** the failing step is read
 - **Then** this issue stays open with the new log
+
+## Details to complete
+None. The failing step's log tail is under Tech notes.
 
 ## Tech notes
 Failing step's log tail:" \

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assemble, loadCatalogue } from '../assemble.mjs';
 import { ROOT } from '../project.mjs';
-import { BASE_REMOTE, add, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
+import { BASE_REMOTE, add, alignPins, checkChoices, checkOwner, create, withoutCredentials, type Run, type Spawn } from '../setup.mjs';
 
 describe('checkChoices', () => {
   const catalogue = loadCatalogue();
@@ -271,6 +271,7 @@ describe('create', () => {
       const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
       expect(written.name).toBe('n');
       expect(written.engine).toEqual({ commit: SHA });
+      expect(written.productionBranch).toBe('main');
       expect(Object.keys(written.apps)).toEqual(['api']);
       expect(existsSync(join(dir, 'apps/api/pyproject.toml'))).toBe(true);
       expect(existsSync(join(dir, 'apps/web'))).toBe(false);
@@ -291,7 +292,8 @@ describe('create', () => {
         at(`git -C ${dir} remote set-url --push ${BASE_REMOTE} DISABLED`),
         at('gh api user/repos -X POST -f name=n -F private=true'),
         at(`git -C ${dir} remote add origin git@github.com:o/n.git`),
-        at(`git -C ${dir} push -u origin develop`),
+        at(`git -C ${dir} push -u origin develop main`),
+        at('gh api repos/o/n -X PATCH -f default_branch=develop'),
         at('spawn gh repo set-default o/n'),
         at('spawn node scripts/setup.mjs check --repo o/n'),
       ];
@@ -308,7 +310,7 @@ describe('create', () => {
       const w = world();
       await create(python(dir), w);
       expect(w.spawned).toContainEqual({ key: 'gh repo set-default o/n', cwd: dir });
-      const push = w.timeline.findIndex((e) => e.includes('push -u origin develop'));
+      const push = w.timeline.findIndex((e) => e.includes('push -u origin develop main'));
       const pin = w.timeline.indexOf('spawn gh repo set-default o/n');
       expect(pin).toBeGreaterThan(push);
 
@@ -317,6 +319,14 @@ describe('create', () => {
       await expect(create(python(failDir), failing)).resolves.toBe(0);
       expect(failing.lines.some((l) => l.includes('`gh repo set-default o/n`') && l.includes(failDir))).toBe(true);
       expect(failing.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: failDir });
+    });
+
+    it('if setting develop as the default branch fails, warns the owner to do it by hand and carries on to the check, with no rebuild advice', async () => {
+      const w = world({ 'gh api repos/o/n -X PATCH': fail('HTTP 403') });
+      const dir = freshDir();
+      await expect(create(python(dir), w)).resolves.toBe(0);
+      expect(w.lines.some((l) => l.includes('set develop as the default branch by hand') && l.includes('HTTP 403'))).toBe(true);
+      expect(w.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: dir });
     });
 
     it('locks a python-only product with npm 11 before the first commit, and leaves a node-react one to its own lockfile', async () => {
@@ -524,6 +534,9 @@ describe('create', () => {
     expect(git('config', '--get', `remote.${BASE_REMOTE}.pushurl`)).toBe('DISABLED');
     expect(git('config', '--get', 'remote.origin.url')).toBe('git@github.com:o/n.git');
     expect(JSON.parse(git('show', 'HEAD:project.json')).engine).toEqual({ commit: SHA });
+    expect(JSON.parse(git('show', 'HEAD:project.json')).productionBranch).toBe('main');
+    // main and develop both exist, at the one commit
+    expect(git('rev-parse', 'main')).toBe(git('rev-parse', 'develop'));
     expect(git('status', '--porcelain')).toBe('');
     // The base's own files stay behind.
     expect(git('ls-files', 'catalogue.json', 'docs/adoption.md', 'scripts/assemble.mjs')).toBe('scripts/assemble.mjs');
@@ -713,5 +726,77 @@ describe('add, inside a product', () => {
     expect(lines.join('\n')).toMatch(/Left as they are.*CLAUDE\.md/);
     expect(existsSync(join(dir, 'apps/web'))).toBe(true);
     expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).workspaces).toBeDefined();
+  });
+
+  // Dependabot-style bump of the product's root package.json, committed.
+  const bumpRoot = (dir: string) => {
+    const file = join(dir, 'package.json');
+    const manifest = JSON.parse(readFileSync(file, 'utf8'));
+    manifest.devDependencies.eslint = '10.14.0';
+    manifest.devDependencies.vitest = '5.1.0';
+    writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'dependabot');
+    return manifest;
+  };
+
+  it('merges workspaces and scripts into a root package.json Dependabot has bumped', { timeout: 120_000 }, async () => {
+    const base = fakeBase();
+    const dir = product(base);
+    const bumped = bumpRoot(dir);
+    expect(bumped.workspaces).toBeUndefined();
+    const result = await add({ starters: ['node-react', 'python-fastapi'] }, { root: dir, ...quiet });
+    expect(result.kept).toEqual([]);
+    const expected = join(scratch(), 'expected');
+    assemble({ root: base.dir, target: expected, name: 'widgets', starters: ['node-react', 'python-fastapi'], engineCommit: base.sha });
+    const want = JSON.parse(readFileSync(join(expected, 'package.json'), 'utf8'));
+    const got = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    expect(got.workspaces).toEqual(want.workspaces);
+    expect(got.scripts).toEqual(want.scripts);
+    // Differs from the bumped file only by those two keys: the bumped versions stay.
+    const without = (m: Record<string, unknown>) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== 'workspaces' && k !== 'scripts'));
+    expect(without(got)).toEqual(without(bumped));
+    expect(got.devDependencies.eslint).toBe('10.14.0');
+  });
+
+  it("aligns a new starter's shared tooling pins with the bumped root", { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    bumpRoot(dir);
+    await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    const web = JSON.parse(readFileSync(join(dir, 'apps/web/package.json'), 'utf8'));
+    const pins = { ...web.dependencies, ...web.devDependencies };
+    expect(pins.eslint).toBe('10.14.0');
+    expect(pins.vitest).toBe('5.1.0');
+  });
+
+  it('leaves a root package.json that is not JSON as it is, and says so', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    writeFileSync(join(dir, 'package.json'), 'not json {\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'broken');
+    const lines: string[] = [];
+    const result = await add({ starters: ['node-react'] }, { root: dir, log: (l: string) => lines.push(l), spawn: () => ({ status: 0 }) });
+    expect(result.kept).toEqual(['package.json']);
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe('not json {\n');
+    expect(lines.join('\n')).toMatch(/package\.json was left as it is.*"workspaces".*apps\/web.*scripts.*dev, build/s);
+  });
+
+  it('leaves a root package.json whose scripts is not an object, instead of throwing', { timeout: 120_000 }, async () => {
+    const dir = product(fakeBase());
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    manifest.scripts = 'nope';
+    const text = `${JSON.stringify(manifest, null, 2)}\n`;
+    writeFileSync(join(dir, 'package.json'), text);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'odd scripts');
+    const result = await add({ starters: ['node-react'] }, { root: dir, ...quiet });
+    expect(result.kept).toEqual(['package.json']);
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(text);
+  });
+
+  it('aligns nothing, and does not throw, when the root manifest parses to a non-object', () => {
+    const starter = '{"devDependencies":{"eslint":"10.13.0"}}\n';
+    for (const root of ['null', '"x"', '[]']) expect(alignPins(starter, root)).toBe(starter);
+    expect(alignPins('null', '{}')).toBe('null');
   });
 });

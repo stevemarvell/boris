@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apps, loadProject, type Project } from '../project.mjs';
-import { GATE_ATTEMPTS, appUrls, gateForEvent, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
+import { branchAlias, buildIsEquivalent } from '../deploy/vercel/smoke.mjs';
+import { GATE_ATTEMPTS, appUrls, isDevelopPush, developProject, branchOfRef, notProductionBranch, gateForEvent, isCommitSha, runGit, smoke, waitForCommit, type FetchJson, type Git } from '../smoke.mjs';
 
 const project = (): Project => ({
   name: 'thing',
@@ -44,7 +45,9 @@ function server(answers: Record<string, (string | Error)[]>) {
 
 const noSleep = async () => {};
 const quiet = () => {};
-const gitSays = (status: number): Git => () => ({ status });
+const gitSays = (status: number): Git => () => ({ status, stdout: '' });
+const OLD = 'a'.repeat(40);
+const NEW = 'b'.repeat(40);
 
 describe('appUrls', () => {
   it('names each deployed app upper-cased, and leaves undeployed ones out', () => {
@@ -53,10 +56,10 @@ describe('appUrls', () => {
 });
 
 describe('waitForCommit', () => {
-  const base = { project: project(), name: 'back', sha: 'new', sleep: noSleep, log: quiet };
+  const base = { project: project(), name: 'back', sha: NEW, sleep: noSleep, log: quiet };
 
   it('passes when the app reports this commit', async () => {
-    const { fetchJson } = server({ 'https://back.example/health': ['new'] });
+    const { fetchJson } = server({ 'https://back.example/health': [NEW] });
     expect((await waitForCommit({ ...base, fetchJson, git: gitSays(1) })).ok).toBe(true);
   });
 
@@ -64,26 +67,26 @@ describe('waitForCommit', () => {
     const calls: string[][] = [];
     const git: Git = (args) => {
       calls.push(args);
-      return { status: 0 };
+      return { status: 0, stdout: '' };
     };
-    const { fetchJson } = server({ 'https://back.example/health': ['old'] });
+    const { fetchJson } = server({ 'https://back.example/health': [OLD] });
     const result = await waitForCommit({ ...base, fetchJson, git });
     expect(result.ok).toBe(true);
     expect(result.reason).toMatch(/skipped/);
     // Asked with the ignore step's own pathspecs, so the two cannot disagree.
-    expect(calls[0]!.slice(0, 5)).toEqual(['diff', '--quiet', 'old', 'new', '--']);
+    expect(calls[0]!.slice(0, 6)).toEqual(['diff', '--quiet', '--end-of-options', OLD, NEW, '--']);
     expect(calls[0]).toContain('apps/back');
   });
 
   it('waits through a stale build and a cold start until the new one appears', async () => {
-    const { fetchJson, asked } = server({ 'https://back.example/health': ['old', new Error('502'), 'new'] });
+    const { fetchJson, asked } = server({ 'https://back.example/health': [OLD, new Error('502'), NEW] });
     const result = await waitForCommit({ ...base, fetchJson, git: gitSays(1) });
     expect(result.ok).toBe(true);
     expect(asked).toHaveLength(3);
   });
 
   it('fails at the ceiling rather than waiting forever', async () => {
-    const { fetchJson, asked } = server({ 'https://back.example/health': ['old'] });
+    const { fetchJson, asked } = server({ 'https://back.example/health': [OLD] });
     const result = await waitForCommit({ ...base, fetchJson, git: gitSays(1), attempts: 3 });
     expect(result.ok).toBe(false);
     expect(asked).toHaveLength(3);
@@ -96,14 +99,14 @@ describe('waitForCommit', () => {
 });
 
 describe('smoke', () => {
-  const answers = () => ({ 'https://back.example/health': ['new'], 'https://front.example/version.json': ['new'] });
+  const answers = () => ({ 'https://back.example/health': [NEW], 'https://front.example/version.json': [NEW] });
 
   it('gates every deployed app and runs the checks each one owns, with every URL', async () => {
     const ran: [string, Record<string, string>][] = [];
     const { fetchJson, asked } = server(answers());
     const result = await smoke({
       project: project(),
-      sha: 'new',
+      sha: NEW,
       fetchJson,
       git: gitSays(1),
       sleep: noSleep,
@@ -119,7 +122,7 @@ describe('smoke', () => {
     const { fetchJson, asked } = server(answers());
     const result = await smoke({
       project: project(),
-      sha: 'new',
+      sha: NEW,
       fetchJson,
       git: gitSays(1),
       sleep: noSleep,
@@ -133,10 +136,10 @@ describe('smoke', () => {
 
   it('does not run an app whose gate failed', async () => {
     let ran = 0;
-    const { fetchJson } = server({ 'https://back.example/health': ['old'] });
+    const { fetchJson } = server({ 'https://back.example/health': [OLD] });
     const result = await smoke({
       project: project(),
-      sha: 'new',
+      sha: NEW,
       fetchJson,
       git: gitSays(1),
       sleep: noSleep,
@@ -158,7 +161,7 @@ describe('smoke', () => {
     const engineOnly: Project = { name: 'thing', engine: { commit: 'a'.repeat(40) }, apps: {} };
     const undeployed: Project = { name: 'thing', apps: { tool: project().apps.tool! } };
     for (const p of [engineOnly, undeployed]) {
-      for (const [sha, gate] of [[undefined, true], ['new', true], [undefined, false]] as const) {
+      for (const [sha, gate] of [[undefined, true], [NEW, true], [undefined, false]] as const) {
         const { fetchJson, asked } = server({});
         const result = await smoke({ project: p, sha, gate, fetchJson, git: gitSays(1), sleep: noSleep, run: () => 1, log: quiet });
         expect(result, `${sha} ${gate}`).toEqual({ ok: true, reason: 'nothing is deployed (no app has a deploy block): nothing to check' });
@@ -177,7 +180,7 @@ describe('smoke', () => {
   it('skips the freshness gate when gate is false, checking whatever is currently deployed', async () => {
     const ran: [string, Record<string, string>][] = [];
     // The old commit would fail waitForCommit's gate; gate: false never calls it.
-    const { fetchJson, asked } = server({ 'https://back.example/health': ['old'], 'https://front.example/version.json': ['old'] });
+    const { fetchJson, asked } = server({ 'https://back.example/health': [OLD], 'https://front.example/version.json': [OLD] });
     const result = await smoke({
       project: project(),
       sha: undefined,
@@ -195,7 +198,7 @@ describe('smoke', () => {
   });
 
   it('fails an app whose commit endpoint reports nothing, even with gate: false', async () => {
-    const { fetchJson } = server({ 'https://front.example/version.json': ['new'] }); // back answers nothing
+    const { fetchJson } = server({ 'https://front.example/version.json': [NEW] }); // back answers nothing
     const result = await smoke({
       project: project(),
       sha: undefined,
@@ -349,4 +352,182 @@ describe.skipIf(!existsSync(resolve(dirname(fileURLToPath(import.meta.url)), '..
       expect(result.output).toMatch(/step-0\.html did not render its heading/);
     },
   );
+});
+
+describe('a reported commit reaches git as a revision', () => {
+  const rejected = async (value: string) => {
+    expect(isCommitSha(value)).toBe(false);
+    const calls: string[][] = [];
+    const git: Git = (args) => {
+      calls.push(args);
+      return { status: 0, stdout: '' };
+    };
+    const { fetchJson, asked } = server({ 'https://back.example/health': [value] });
+    const result = await waitForCommit({ project: project(), name: 'back', sha: NEW, sleep: noSleep, log: quiet, fetchJson, git, attempts: 3 });
+    // An unknown deployment: the gate keeps polling and never runs git on it.
+    expect(result.ok).toBe(false);
+    expect(asked).toHaveLength(3);
+    expect(calls).toEqual([]);
+  };
+
+  it('rejects a value that starts with --', () => rejected('--output=/tmp/x'));
+  it('rejects a value with spaces', () => rejected('a'.repeat(20) + ' ' + 'b'.repeat(19)));
+  it('rejects a short sha', () => rejected('abc1234'));
+  it('rejects an uppercase sha', () => rejected('A'.repeat(40)));
+
+  it('accepts a full lowercase sha', () => {
+    expect(isCommitSha('0123456789abcdef0123456789abcdef01234567')).toBe(true);
+  });
+});
+
+// The production git runner against a real repository: an engine-only manifest
+// change must read as equivalent through it, which needs its stdout.
+describe('runGit, the production wrapper', () => {
+  let repo = '';
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  // Timeout: spawns git in a real repository; 30 s.
+  it('lets the smoke gate see an engine-only manifest change as equivalent', { timeout: 30_000 }, () => {
+    repo = mkdtempSync(join(tmpdir(), 'smoke-rungit-'));
+    const git = (args: string[]) => runGit(args, repo);
+    const write = (engine: string) => {
+      mkdirSync(join(repo, 'apps/back'), { recursive: true });
+      writeFileSync(join(repo, 'apps/back/x'), 'o');
+      writeFileSync(join(repo, 'project.json'), JSON.stringify({ ...project(), engine: { commit: engine } }, null, 2));
+      git(['add', '-A']);
+      git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'c']);
+      return git(['rev-parse', 'HEAD']).stdout.trim();
+    };
+    git(['init', '-q']);
+    const deployed = write('1'.repeat(40));
+    const head = write('2'.repeat(40));
+    expect(git(['rev-parse', 'HEAD']).stdout).toMatch(/^[0-9a-f]{40}\n$/);
+    expect(buildIsEquivalent({ git, project: project(), name: 'back', deployedSha: deployed, sha: head })).toBe(true);
+    // And a change to the app itself is still not equivalent.
+    writeFileSync(join(repo, 'apps/back/x'), 'changed');
+    git(['add', '-A']);
+    git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'c']);
+    const later = git(['rev-parse', 'HEAD']).stdout.trim();
+    expect(buildIsEquivalent({ git, project: project(), name: 'back', deployedSha: deployed, sha: later })).toBe(false);
+  });
+});
+
+describe('notProductionBranch', () => {
+  const main = { ...project(), productionBranch: 'main' };
+  it('defaults to develop: a push to develop runs, a push to main is skipped', () => {
+    expect(notProductionBranch({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBeNull();
+    expect(notProductionBranch({ project: project(), ref: 'refs/heads/main', eventName: 'push' })).toBe(
+      'not the production branch (refs/heads/main); nothing to smoke',
+    );
+  });
+  it('with productionBranch main: main runs, develop and tags are skipped', () => {
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toMatch(/^not the production branch \(refs\/heads\/develop\); nothing to smoke$/);
+    expect(notProductionBranch({ project: main, ref: 'refs/tags/main', eventName: 'push' })).toMatch(/not the production branch/);
+  });
+  it('never skips an uptime check or a manual dispatch, nor a run with no ref', () => {
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'schedule' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: 'refs/heads/develop', eventName: 'workflow_dispatch' })).toBeNull();
+    expect(notProductionBranch({ project: main, ref: undefined, eventName: 'push' })).toBeNull();
+  });
+  it('branchOfRef reads only branch refs', () => {
+    expect(branchOfRef('refs/heads/release/1')).toBe('release/1');
+    expect(branchOfRef('refs/tags/v1')).toBeNull();
+    expect(branchOfRef(undefined)).toBeNull();
+  });
+});
+
+describe('develop smoke', () => {
+  const main = { ...project(), productionBranch: 'main' } as Project;
+  it('a push to develop is the develop preview only when main is the production branch', () => {
+    expect(isDevelopPush({ project: main, ref: 'refs/heads/develop', eventName: 'push' })).toBe(true);
+    expect(isDevelopPush({ project: project(), ref: 'refs/heads/develop', eventName: 'push' })).toBe(false);
+    expect(isDevelopPush({ project: main, ref: 'refs/heads/main', eventName: 'push' })).toBe(false);
+    expect(isDevelopPush({ project: main, ref: 'refs/heads/develop', eventName: 'schedule' })).toBe(false);
+  });
+  it('derives the develop alias per app from project and team', () => {
+    expect(branchAlias({ project: 'thing-back', team: 't' }, 'develop')).toBe('https://thing-back-git-develop-t.vercel.app');
+    const developed = developProject(main);
+    expect(developed.apps.back!.deploy!.url).toBe('https://thing-back-git-develop-t.vercel.app');
+    expect(developed.apps.front!.deploy!.url).toBe('https://thing-front-git-develop-t.vercel.app');
+    expect(developed.apps.tool!.deploy).toBeUndefined();
+    expect(main.apps.back!.deploy!.url).toBe('https://back.example'); // the input is not mutated
+  });
+  it('smoke gates and checks the develop alias URLs, not production', async () => {
+    const { fetchJson, asked } = server({ 'https://thing-back-git-develop-t.vercel.app/health': [NEW], 'https://thing-front-git-develop-t.vercel.app/version.json': [NEW] });
+    const urls: Record<string, string>[] = [];
+    const result = await smoke({ project: developProject(main), sha: NEW, fetchJson, git: gitSays(1), sleep: noSleep, run: (_s, u) => (urls.push(u), 0), log: quiet });
+    expect(result.ok).toBe(true);
+    expect(asked.every((u) => u.includes('-git-develop-t.vercel.app'))).toBe(true);
+    expect(urls[0]!.BACK).toBe('https://thing-back-git-develop-t.vercel.app');
+  });
+});
+
+describe('scripts/smoke.mjs as a process', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  // Runs against a project.json written for the case (nothing deployed), never the repository's own, so the
+  // answer holds in every product whatever its productionBranch or deployed apps.
+  const run = (ref: string, manifest: object, event = 'push') =>
+    new Promise<{ code: number; out: string }>((done) => {
+      const dir = mkdtempSync(join(tmpdir(), 'smoke-proc-'));
+      dirs.push(dir);
+      const file = join(dir, 'project.json');
+      writeFileSync(file, JSON.stringify(manifest));
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: file, GITHUB_REF: ref, GITHUB_EVENT_NAME: event, GITHUB_SHA: '' } },
+        (error, stdout) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, out: stdout }),
+      );
+    });
+  const bare = { name: 'thing', apps: { svc: { path: 'apps/svc', toolchain: 'python', reads: ['apps/svc'] } } };
+  const onMain = { ...bare, productionBranch: 'main' };
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch absent, exits 0 with a one-line message on a push to another branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main', bare);
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe('not the production branch (refs/heads/main); nothing to smoke');
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch absent, goes on to smoke on a push to develop', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/develop', bare);
+    expect(result.out).not.toMatch(/not the production branch/);
+    expect(result.out).toMatch(/nothing is deployed/);
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch main, skips a push to a feature branch', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/feature-x', onMain);
+    expect(result.code).toBe(0);
+    expect(result.out.trim()).toBe('not the production branch (refs/heads/feature-x); nothing to smoke');
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('with productionBranch main, goes on to smoke on a push to main', { timeout: 30_000 }, async () => {
+    const result = await run('refs/heads/main', onMain);
+    expect(result.out).not.toMatch(/not the production branch/);
+    expect(result.out).toMatch(/nothing is deployed/);
+  });
+
+  // Timeout: spawns node; 30 s.
+  it('fails naming SMOKE_PROJECT_JSON and its path when unreadable, rather than falling back to the repository project.json', { timeout: 30_000 }, async () => {
+    const missing = '/nonexistent/project.json';
+    const result = await new Promise<{ code: number; err: string }>((done) =>
+      execFile(
+        'node',
+        ['scripts/smoke.mjs'],
+        { cwd: root, env: { ...process.env, SMOKE_PROJECT_JSON: missing, GITHUB_REF: 'refs/heads/develop', GITHUB_EVENT_NAME: 'push', GITHUB_SHA: '' } },
+        (error, _stdout, stderr) => done({ code: error ? ((error as { code?: number }).code ?? 1) : 0, err: stderr }),
+      ),
+    );
+    expect(result.code).toBe(1);
+    expect(result.err).toContain('SMOKE_PROJECT_JSON');
+    expect(result.err).toContain(missing);
+  });
 });

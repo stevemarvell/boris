@@ -70,22 +70,29 @@ changing anything.
 
 ## When the work needs a person
 
-If the task turns out to need a person (a dashboard behind a login, money,
-a credential, or a decision the plan or the issue leaves open), stop
-there. Open no pull request and push nothing half-done. Report what you
-found and what remains, leading with that. Labelling the issue `human` is
-the coordinator's job, from your report (`docs/sops.md` SOP 2).
+If the task turns out to need a person (work nobody can get back, a
+dashboard behind a login, money, a credential, or an action reaching a
+third party), stop there. Open no pull request and push nothing half-done.
+Report what you found and what remains, leading with that. Labelling the
+issue `human` is the coordinator's job, from your report (`docs/sops.md`
+SOP 2).
+
+A decision the issue leaves open is yours: pick the option you would
+recommend, do it, and list it under "Decisions made" in the pull request
+body with the reason (SOP 6).
 
 ## Finishing
 
-- `npm run verify` green, in full.
+- `npm run verify:changed` green (the checks for what you changed; CI runs the
+  full `npm run verify`). A diff it cannot map runs the full one itself.
 - Commit and push. For new work, open a pull request with the GitHub MCP
   tool `create_pull_request` (base `develop`); the fallback is `gh api -X POST
   repos/{owner}/{repo}/pulls -f title=… -F body=@<file> -f head=<branch> -f
   base=develop`. Not `gh pr create`: it is GraphQL, which Claude Code cloud
   sessions refuse (#225). When continuing an existing pull request,
   push to its branch and open nothing.
-- When the task is an issue, check your work against its Given/When/Then
+- When the task is an issue, read its **Details to complete** as the inputs
+  and decisions already made, and check your work against its Given/When/Then
   scenarios, one test per scenario. Any issue you describe in your report
   uses the sections of `.github/ISSUE_TEMPLATE/story.md`, `Depends on #<n>`
   lines last.

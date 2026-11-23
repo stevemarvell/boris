@@ -17,10 +17,14 @@
 // (smoke, preview-prune, the ignore step) skips it. `npm run deploy:add`
 // (scripts/deploy/add.mjs) is how a `deploy` block gets added.
 //
+// Services are opt-in per app: `"services": ["postgres"]` asks CI for a real
+// Postgres (verify.yml starts one and exports TEST_DATABASE_URL). An app that
+// declares none costs nothing. Known services are in SERVICES below.
+//
 // CLI, for workflows and shells:
 //
 //     node scripts/project.mjs apps [toolchain]   # app paths, one per line
-//     node scripts/project.mjs toolchains         # node=true / python=false / e2e=true, for $GITHUB_OUTPUT
+//     node scripts/project.mjs toolchains         # node=true / python=false / e2e=true / postgres=false, for $GITHUB_OUTPUT
 //     node scripts/project.mjs --has-deploy       # true/false; exit 0 iff true
 import { readFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
@@ -35,6 +39,9 @@ export const MANIFEST = join(ROOT, 'project.json');
 export const HARNESS_CODE = ['scripts', '.claude/hooks', '.claude/statusline.mjs', 'project.json', 'catalogue.json'];
 
 const TOOLCHAINS = new Set(['python', 'node']);
+
+// Backing services an app may ask CI to provide. Only `postgres` for now.
+const SERVICES = new Set(['postgres']);
 
 // Every deploy provider this layer knows, and the ignore script each one's
 // build-skip decision lives behind. scripts/deploy/index.mjs is the registry
@@ -61,6 +68,17 @@ function isContainedPath(path) {
   return typeof path === 'string' && path !== '' && inside('.', path);
 }
 
+/** The branch whose merge publishes to production when project.json does not say. */
+export const DEFAULT_PRODUCTION_BRANCH = 'develop';
+
+/** The only branches that may publish production: the ones smoke.yml triggers on. */
+export const PRODUCTION_BRANCHES = ['develop', 'main'];
+
+/** The branch a merge to publishes production from: `productionBranch`, else `develop`. */
+export function productionBranch(project) {
+  return project.productionBranch ?? DEFAULT_PRODUCTION_BRANCH;
+}
+
 /** The files deploy:add records a template hash for: the only keys `deploy.templateHashes` may hold. */
 export const TEMPLATE_HASH_KEYS = ['vercelJson', 'skill'];
 
@@ -71,6 +89,13 @@ export function validate(project) {
   };
   if (!project || typeof project !== 'object') fail('is not an object');
   if (typeof project.name !== 'string' || !project.name) fail('"name" must be a non-empty string');
+  // Optional: the branch a merge to which is deployed to production. Absent
+  // means `develop`, so a product that never set it is unchanged. A product
+  // whose `develop` is a preview and whose `main` is production says
+  // "main"; smoke.yml then runs on both, and smoke.mjs checks only that branch.
+  if (project.productionBranch !== undefined && !PRODUCTION_BRANCHES.includes(project.productionBranch)) {
+    fail(`"productionBranch" must be one of ${PRODUCTION_BRANCHES.join(', ')} (smoke.yml triggers on those two)`);
+  }
   // Which base commit a product was assembled from (`setup create` writes it,
   // the sync-ai-layer skill moves it, `setup check` measures from it). Optional:
   // the base itself is the engine and has no commit to record.
@@ -96,6 +121,12 @@ export function validate(project) {
     if (!TOOLCHAINS.has(app.toolchain)) fail(`${at}.toolchain must be one of ${[...TOOLCHAINS].join(', ')}`);
     if (!Array.isArray(app.reads) || app.reads.length === 0) fail(`${at}.reads must list at least one path`);
     if (app.ignores !== undefined && !Array.isArray(app.ignores)) fail(`${at}.ignores must be a list`);
+    if (app.services !== undefined) {
+      if (!Array.isArray(app.services)) fail(`${at}.services must be a list`);
+      for (const service of app.services) {
+        if (!SERVICES.has(service)) fail(`${at}.services has unknown service ${JSON.stringify(service)} (expected ${[...SERVICES].join(', ')})`);
+      }
+    }
     if (app.verify !== undefined && !(Array.isArray(app.verify) && app.verify.every((c) => typeof c === 'string' && c.trim()))) {
       fail(`${at}.verify must be a list of commands`);
     }
@@ -164,6 +195,11 @@ export function hasE2e(project) {
   return apps(project).some(([, app]) => (app.verify ?? []).some((command) => /(?<![a-z0-9])(e2e|playwright)(?![a-z0-9])/i.test(command)));
 }
 
+/** Whether any app declares the service in its `services` list. */
+export function hasService(project, service) {
+  return apps(project).some(([, app]) => (app.services ?? []).includes(service));
+}
+
 /** The app whose directory holds `relativePath`, or null. The deepest path wins. */
 export function appFor(project, relativePath) {
   const path = relativePath.replace(/\\/g, '/');
@@ -177,11 +213,13 @@ export function appFor(project, relativePath) {
 }
 
 /**
- * Git pathspecs for what a build of `name` reads. The manifest and this
- * module are always included: a change to either can change what a build
- * decides, so it rebuilds everything rather than guess. A deployed app's own
- * provider ignore script is included too — not for an undeployed app, which
- * has no ignore step to be wrong about.
+ * Git pathspecs for what a build of `name` reads. This module is always
+ * included: a change to it can change what a build decides, so it rebuilds
+ * everything rather than guess. A deployed app's own provider ignore script is
+ * included too — not for an undeployed app, which has no ignore step to be
+ * wrong about. `project.json` is deliberately NOT a pathspec: every engine sync
+ * bumps `engine.commit` in it, and a plain pathspec would rebuild every app for
+ * that. It is compared by `buildInputsChanged` below, minus the `engine` block and other apps' entries.
  */
 export function buildPathspecs(project, name) {
   const app = project.apps[name];
@@ -189,11 +227,69 @@ export function buildPathspecs(project, name) {
   const ignoreScript = app.deploy ? PROVIDER_IGNORE_SCRIPTS[app.deploy.provider] : undefined;
   return [
     ...app.reads,
-    'project.json',
     'scripts/project.mjs',
     ...(ignoreScript ? [ignoreScript] : []),
     ...(app.ignores ?? []).map((path) => (path.includes('*') ? `:(exclude,glob)${path}` : `:(exclude)${path}`)),
   ];
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]));
+}
+
+/**
+ * project.json as of `rev`, reduced to what can change `name`'s build: the
+ * parsed manifest without its `engine` block and `$comment`, and with every
+ * other app's entry dropped. Anything else — the top-level `name`, a key added
+ * later, this app's own entry — stays, so an unknown key fails closed. Returns
+ * undefined when it cannot be read or parsed or `name` is not in it.
+ */
+function relevantManifest(git, rev, name) {
+  const shown = git(['show', '--end-of-options', `${rev}:project.json`]);
+  if (shown.status !== 0) return undefined;
+  try {
+    const { engine: _engine, $comment: _comment, apps, ...rest } = JSON.parse(shown.stdout);
+    if (!apps || typeof apps !== 'object' || apps[name] === undefined) return undefined;
+    return { ...rest, apps: { [name]: apps[name] } };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The one question both the Vercel ignore step and the post-merge smoke
+ * freshness gate ask: did anything build `name` reads change between `base` and
+ * `head`? `git` runs a git command in the repository root and returns
+ * `{ status, stdout }`; `stdout` is required, since the manifest comparison
+ * reads `git show`. Answers `'unchanged'`, `'changed'` or `'failed'` (git
+ * itself errored); callers build on anything but `'unchanged'`. `base` and
+ * `head` follow `--end-of-options`, so a value that looks like a flag is a
+ * revision, never an option.
+ *
+ * Two parts. The app's pathspecs (`buildPathspecs`) are diffed as they are.
+ * `project.json` is diffed only when it differs at all, and then the manifest
+ * is compared with exactly two things removed: the `engine` block (every sync
+ * bumps its commit) and the other apps' entries. Every other difference
+ * builds. If either side cannot be read or parsed, it builds — fail open.
+ */
+export function buildInputsChanged({ git, project, name, base, head }) {
+  const pathspecs = buildPathspecs(project, name);
+  if (!pathspecs) return 'changed';
+  const paths = git(['diff', '--quiet', '--end-of-options', base, head, '--', ...pathspecs]);
+  if (paths.status === 1) return 'changed';
+  if (paths.status !== 0) return 'failed';
+  const manifest = git(['diff', '--quiet', '--end-of-options', base, head, '--', 'project.json']);
+  if (manifest.status === 0) return 'unchanged';
+  if (manifest.status !== 1) return 'failed';
+  const before = relevantManifest(git, base, name);
+  const after = relevantManifest(git, head, name);
+  if (before === undefined || after === undefined) return 'changed';
+  return deepEqual(before, after) ? 'unchanged' : 'changed';
 }
 
 /** Every path `verify` covers: each app's inputs and the AI layer's own code. */
@@ -210,11 +306,12 @@ export function verifiedPaths(project) {
 export function cli([command, ...args], project = loadProject()) {
   if (command === 'apps') return apps(project, args[0]).map(([, app]) => app.path);
   // One `<toolchain>=<true|false>` line per toolchain, whether any app uses it,
-  // then `e2e=<true|false>`: whether any app's verify runs an e2e command.
+  // then `e2e=<true|false>`: whether any app's verify runs an e2e command, then
+  // `postgres=<true|false>`: whether any app declares the postgres service.
   // Appended as-is to $GITHUB_OUTPUT, they are what verify.yml's later steps
   // gate on, so a product with no browser tests never installs a browser.
   if (command === 'toolchains') {
-    return [...[...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`), `e2e=${hasE2e(project)}`];
+    return [...[...TOOLCHAINS].sort().map((t) => `${t}=${apps(project, t).length > 0}`), `e2e=${hasE2e(project)}`, `postgres=${hasService(project, 'postgres')}`];
   }
   throw new Error('usage: project.mjs apps [toolchain] | toolchains | --has-deploy');
 }
