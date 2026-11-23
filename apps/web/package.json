@@ -14,7 +14,7 @@
     "prebuild": "node scripts/build-docs.mjs"
   },
   "dependencies": {
-    "@ionic/react": "9.0.12",
+    "@ionic/react": "9.0.13",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
