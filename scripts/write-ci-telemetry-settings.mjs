@@ -99,9 +99,19 @@ export function ciTelemetryEnv(env = process.env) {
   assertValidEndpoint(endpoint);
   assertValidAuthHeader(auth);
 
+  // Unlike the other values, the repository is spliced into a comma-separated
+  // key=value list, so "," or "=" would forge an extra attribute. assertClean
+  // alone only rejects control characters.
+  const repository = env.GITHUB_REPOSITORY || 'unknown';
+  assertClean(repository, 'GITHUB_REPOSITORY');
+  if (/[,=]/.test(repository)) {
+    throw new Error('GITHUB_REPOSITORY contains "," or "=", which would break OTEL_RESOURCE_ATTRIBUTES');
+  }
+
   const attributes = [
     'environment=ci',
     'ci_provider=github-actions',
+    `repository=${repository}`,
     `workflow=${env.CI_TELEMETRY_WORKFLOW || 'unknown'}`,
     `run_id=${env.GITHUB_RUN_ID || 'unknown'}`,
     `run_attempt=${env.GITHUB_RUN_ATTEMPT || 'unknown'}`,

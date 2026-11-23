@@ -42,7 +42,7 @@ sync. Repository-specific facts go in the sections outside this block. -->
 - **Every behaviour change ships with a test.** A bug fix means a test that
   fails before the fix. A new feature means the happy path and the error path.
   A change that ends up with *fewer* tests than its base says so in the pull
-  request body, in a line beginning `Removes tests:` — the `test census` check
+  request body, in a line beginning `Removes tests:` — the `pr checks` job
   counts both sides and goes red without one.
 
 - **Code is written by `implementer` agents.** The coordinating session — the
@@ -60,13 +60,16 @@ sync. Repository-specific facts go in the sections outside this block. -->
   asking; a green PR left open is work that looks finished and is not. Never
   commit or push directly to `develop`. Whether anything mechanical enforces
   these is a repository setting, recorded under *Repository settings* below,
-  not assumed.
+  not assumed. A product that publishes production from `main` releases by
+  `docs/releases.md` and the `release` skill.
 
 - **Decide and act; report after.** The test is **recoverability, not scope**:
   stop for work nobody can get back, for money, and for anything reaching a
   third party. Everything else is decided, done, and recorded in the pull
   request body where the reviewers read it. Recoverable is established by a
   command, not by eye. `docs/sops.md` SOP 6.
+  Stopping for one of these three means opening a human issue (SOP 2) and
+  stopping that thread; no turn ends with a question or an offer of further work.
 
 - **`docs/adoption.md` preserves the source wording.** It is a rendering of the
   original document, not a rewrite. Restructure the layout freely, but do not
@@ -83,8 +86,13 @@ sync. Repository-specific facts go in the sections outside this block. -->
 - **Issues are user stories.** Every issue, filed by a person or an agent,
   uses the sections of `.github/ISSUE_TEMPLATE/story.md` (GitHub's
   "New issue" button offers it): persona, story,
-  Given/When/Then acceptance criteria (unhappy paths included), tech notes,
-  testing notes, references, then its `Depends on #<n>` lines. The issue
+  Given/When/Then acceptance criteria (unhappy paths included), details to
+  complete, tech notes, testing notes, references, then its `Depends on #<n>`
+  lines. Each **Then** states what is true afterwards, in positive terms with
+  an observable result ("the API answers 401"), never what stops being true;
+  an unhappy path is stated as the outcome that happens instead. **Details to
+  complete** holds what the assignee needs so nothing is looked up or guessed
+  (for a `human` issue, its instructions; "None" if nothing is needed). The issue
   labelled `template` is the blank copy: nobody fills that one in, and triage
   never picks it.
 
@@ -131,11 +139,10 @@ sync. Repository-specific facts go in the sections outside this block. -->
 ## Running it
 
 **Editing dependencies needs npm 11.** npm 10 cannot resolve `vitest` 4's
-optional peer set — its arborist crashes with *"Cannot read properties of
+optional peer set: its arborist crashes with *"Cannot read properties of
 null (reading 'edgesOut')"* on `npm install`, `npm install --workspace` and
-`npm ci` alike. The committed lockfile is lockfileVersion 3 and `npm ci`
-reads it fine under npm 10, which is what CI runs; but if you change a
-dependency, do the lock step with `npx npm@11 install`.
+`npm ci`. The lockfile is version 3 and `npm ci` reads it fine under npm 10
+(what CI runs); to change a dependency, lock with `npx npm@11 install`.
 
 ```bash
 npm run verify                     # everything, about a minute
@@ -144,12 +151,17 @@ npm run verify:apps                # every app's own checks, from project.json
 node scripts/verify-apps.mjs web   # one app's: typecheck, eslint, vitest, build, e2e
 ```
 
-CI runs `verify` on every pull request and on pushes to `develop`; it is the
-one check the coordinator waits for before merging. A `smoke` workflow runs
+CI runs `verify` on every pull request and by hand (`workflow_dispatch`); it is
+the one check the coordinator waits for before merging. It does **not** run on
+a push to `develop`: nothing mechanical verifies a direct push, so "never push
+to `develop`" is discipline alone (SOP 1, "What CI runs, and when"). A `smoke` workflow runs
 after each merge: for each deployed app in `project.json`, it waits for the
 deployment to be this commit, then runs that app's own checks
-(`scripts/smoke.mjs`). Claude Code Review comments on every pull request; it
-is advisory.
+(`scripts/smoke.mjs`). Claude Code Review comments once per pull request, when it is opened or marked
+ready, and again only when the `re-review` label is added; it does not re-run
+on a push, and it is advisory. When the driver adds `re-review` is defined in
+`drive-pr` step 4.
+Merging on a local `verify` is allowed only when CI did not run (`drive-pr` step 1).
 
 ## Agents and skills
 
@@ -160,6 +172,7 @@ is advisory.
 | Take a pull request to merged | the `drive-pr` skill |
 | Isolate, and later clean up, an agent's checkout | the `worktrees` skill |
 | Verify, commit and open a PR | `/ship`; just verify: `/gate` |
+| Release `develop` to production, hotfix, roll back | the `release` skill; `docs/releases.md` |
 | Sync this block and `.claude/` with boris or a repository built from it | the `sync-ai-layer` skill |
 
 <!-- shared:end -->
@@ -168,10 +181,10 @@ is advisory.
 
 Checked with `gh api repos/stevemarvell/boris`, not assumed:
 
-- **Private, on GitHub's free plan.** Rulesets and branch protection return
-  403 ("Upgrade to GitHub Pro"), so nothing mechanical stops a push to
-  `develop` or a merge with `verify` red. Both rules above are discipline
-  here, the category SOP 1 gives the model-driven loops.
+- **Public, on GitHub's free plan since 2026-11-15.** Branch protection is
+  now available and is tracked in #340; until then nothing mechanical stops a
+  push to `develop` or a merge with `verify` red. Both rules above are
+  discipline, the category SOP 1 gives the model-driven loops.
 - **`delete_branch_on_merge` is on**, so GitHub deletes a merged branch.
 
 ## Deployments and documentation

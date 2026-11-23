@@ -96,6 +96,21 @@ it. An empty one is accepted, but one with any branch is refused.
    starter's eslint and vitest pins with the root's (`tooling.test.ts`
    fails until they match), then run `npx npm@11 install`.
 
+   **Cloud setup script.** To install the toolchains once when a Claude Code
+   cloud environment is built, rather than on every session start, save this as
+   the environment's setup script (it runs after the repositories are cloned
+   and before Claude starts). The directory is the repository's name; a
+   product's generated `README.md` carries the line with its own name filled
+   in. An agent saves it with
+   the cloud environment tools (`update_environment`). The `SessionStart` hook
+   stays as the fallback for an environment with no setup script, and skips
+   the install when `node_modules` and each Python `.venv` are current.
+
+   ```bash
+   if [ -d boris ]; then (cd boris && npm run bootstrap); fi
+   if [ -d boris ]; then node boris/scripts/user-telemetry-settings.mjs --repo boris; fi
+   ```
+
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
    Run `claude setup-token`, then set it on the new repository by name:
    the project has two remotes (`origin` and the fetch-only base), so `gh`
@@ -120,26 +135,24 @@ it. An empty one is accepted, but one with any branch is refused.
 3. **Run `check` until nothing is left for you.** From the new repository:
 
    ```bash
-   GH_REPO=<owner>/<project> node scripts/setup.mjs check   # --dry-run to change nothing, --skip-verify to skip the tests
+   node scripts/setup.mjs check   # --dry-run to change nothing, --skip-verify to skip the tests
    ```
-
-   `GH_REPO` is needed until #284 is fixed: with two remotes, `gh secret
-   list` fails with "multiple remotes detected", even after
-   `gh repo set-default`. `check` also files "Add CLAUDE_CODE_OAUTH_TOKEN"
-   when the secret is already set (#285); close that issue by hand.
 
    Every line is ✔ (already done), ✚ (fixed just now) or ✋ (yours, with the
    exact command or click-path). It exits 0 only when no ✋ remains. It can be
    re-run as often as you like and never duplicates anything. It:
    - creates the labels from [`labels.json`](labels.json);
    - turns on delete-branch-on-merge;
-   - protects `develop` if the repository is public. A private repository on
-     GitHub's free plan can't protect a branch, so "PRs only" is a rule
-     people follow there;
-   - files your own work as issues labelled `human` + `do not automate`:
-     the token above, Dependabot's first PR, rewriting the README and
-     `CLAUDE.md` around the product, and Telegram and Grafana, each optional
-     and in its own issue;
+   - protects `develop` if the repository is public. A free-plan repository
+     that is not public can't protect a branch (unverified), so "PRs only" is
+     a rule people follow there;
+   - files one issue for you, labelled `human` + `do not automate`: the token
+     above. Agent work is filed as ordinary issues, rank label only and
+     unassigned: merging Dependabot's first PR, and rewriting the README and
+     `CLAUDE.md` around the product. Telegram and Grafana are optional and
+     filed only when asked for, as `human` issues:
+     `node scripts/setup.mjs check --with telegram,grafana` (any other name
+     exits 2, naming the valid ones);
    - adds the story template issue, filed from `.github/ISSUE_TEMPLATE/story.md`,
      the same file GitHub's "New issue" button offers;
    - runs the name check, which fails if this base's name is left anywhere it
@@ -151,7 +164,8 @@ it. An empty one is accepted, but one with any branch is refused.
 
 4. **File the backlog.** Give every issue a rank label
    (`critical`/`high`/`medium`), a `Depends on #<n>` line where it has one,
-   and acceptance criteria. Triage is only as good as that data.
+   positive acceptance criteria, and details to complete. Triage is only as
+   good as that data.
 
 5. **Ship one small PR end to end** before trusting the loop. Check that both
    reviews post real verdicts rather than errors.
@@ -249,7 +263,7 @@ flowchart TB
 
 - the contract (`npm run verify`) and a stop hook that blocks an agent from
   ending its turn while `verify` is red, giving up after three attempts;
-- automatic code and security review on every pull request;
+- automatic code and security review once per pull request (and again on a `re-review` label), not on every push;
 - per-agent worktrees with their own ports;
 - an optional per-app `deploy` block, build skipping, post-merge smoke and
   preview cleanup for whichever apps actually have one;
@@ -289,10 +303,10 @@ Changing a dependency needs npm 11 for the lock step (`npx npm@11 install`);
 
 ```mermaid
 flowchart LR
-  issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>≤ 3 per run"]
+  issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>all workable"]
   triage --> pr["Pull request<br/>own worktree"]
   pr --> checks{"verify<br/>(merge gate)"}
-  pr -.-> reviews["code + security review,<br/>census, contention<br/>(advisory)"]
+  pr -.-> reviews["code + security review,<br/>pr checks<br/>(advisory)"]
   checks -- green --> merge[Merge to develop]
   merge --> deploy["deployed apps build,<br/>or skip unchanged ones<br/>(none, by default)"]
   deploy --> smoke["smoke: this commit?<br/>then the app's checks"]
@@ -304,11 +318,11 @@ flowchart LR
    `human` and `do not automate`.
 2. **Triage** (`node scripts/triage.mjs`) picks what an agent may take on:
    it skips issues a person owns, issues already in flight, and issues with
-   open dependencies, and takes at most three per run.
+   open dependencies, and lists all that are workable; the run re-triages after each merge until none are left.
 3. **A pull request**, written by an `implementer` agent in its own worktree.
    `verify` is the one check the coordinator waits for before merging;
-   nothing mechanical requires it on a free-plan private repository. The code review, security review, test census and cross-PR
-   conflict check comment on it but don't block it.
+   nothing mechanical requires it on a free-plan repository until branch protection lands (#340). The code review, security review and `pr checks` (test census and cross-PR
+   conflict check) comment on it but don't block it.
 4. **Merge deploys whatever has a `deploy` block.** By default nothing does
    — `npm run deploy:add` is what adds one — but a deployed app builds from
    `develop`, unless nothing it reads changed, in which case the build is
@@ -354,6 +368,7 @@ flowchart LR
 | [`apps/CLAUDE.md`](apps/CLAUDE.md) | The application's layout and deployments; each starter's own rules are in its `CLAUDE.md`. |
 | [`catalogue.json`](catalogue.json) | The engine, starters and providers a product is assembled from. |
 | [`docs/sops.md`](docs/sops.md) | How agent work is run, including every loop's declared limit. |
+| [`docs/releases.md`](docs/releases.md) | The branching strategy and how a change is released, hotfixed and rolled back. |
 | [`docs/data-governance.md`](docs/data-governance.md) | What is exposed, why, and what would change that. |
 | [`docs/adoption.md`](docs/adoption.md) | The adoption ladder being climbed. |
 

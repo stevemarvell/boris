@@ -43,7 +43,7 @@
 // cloud sessions refuse the one and have the other (#225). `gh secret list`
 // is REST already and stays.
 import { execFile, execSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -143,7 +143,7 @@ function refuseStrippedFlags(command, argv) {
         ? '--name <n> --owner <o> [--starter <s> ...]'
         : command === 'add'
           ? '--starter <s> [--starter <s> ...]'
-          : '[--skip-verify] [--dry-run] [--repo owner/name]'),
+          : '[--skip-verify] [--dry-run] [--repo owner/name] [--with <name>,...]'),
   );
 }
 
@@ -194,23 +194,43 @@ export function parseAddArgs(argv) {
   return opts;
 }
 
-/** `check`'s flags. Every one is optional. */
+/** An Error `main` turns into exit status 2 (a usage mistake caught before anything is done). */
+function usageError(message) {
+  return Object.assign(new Error(message), { exitCode: 2 });
+}
+
+/** `check`'s flags. Every one is optional. `--with` names optional integrations to file issues for. */
 export function parseCheckArgs(argv) {
   refuseStrippedFlags('check', argv);
-  const opts = { skipVerify: false, dryRun: false };
+  const opts = { skipVerify: false, dryRun: false, with: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (flag === '--skip-verify') {
+    if (flag === '--with') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw usageError('usage: --with needs a value');
+      const names = value.split(',').map((n) => n.trim()).filter(Boolean);
+      if (names.length === 0) throw usageError('usage: --with needs a value');
+      const valid = OPTIONAL_NAMES;
+      const unknown = names.filter((n) => !valid.includes(n));
+      if (unknown.length > 0) {
+        throw usageError(`usage: --with takes a comma-separated list of: ${valid.join(', ')}; got ${unknown.map((n) => JSON.stringify(n)).join(', ')}`);
+      }
+      for (const n of names) if (!opts.with.includes(n)) opts.with.push(n);
+      i++;
+    } else if (flag === '--skip-verify') {
       opts.skipVerify = true;
     } else if (flag === '--dry-run') {
       opts.dryRun = true;
     } else if (flag === '--repo') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error('usage: --repo needs a value');
+      if (!/^[\w.-]+\/[\w.-]+$/.test(value)) {
+        throw new Error(`usage: --repo must look like owner/name (letters, digits, "_", "." and "-" only), got ${JSON.stringify(value)}`);
+      }
       opts.repo = value;
       i++;
     } else {
-      throw new Error(`usage: check [--skip-verify] [--dry-run] [--repo owner/name]: unknown flag "${flag}"`);
+      throw new Error(`usage: check [--skip-verify] [--dry-run] [--repo owner/name] [--with <name>,...]: unknown flag "${flag}"`);
     }
   }
   return opts;
@@ -294,55 +314,177 @@ export function branchProtectionDecision({ isPrivate }) {
   };
 }
 
-// The owner issues `check` files, each matched by exact title so a re-run
-// never duplicates one. Every one carries `human` + `do not automate`
-// (docs/sops.md SOP 2) plus its own rank.
+/** An owner issue body in the sections of .github/ISSUE_TEMPLATE/story.md.
+ * Every owner issue is `human`, so Details to complete holds the instructions. */
+function ownerBody({ story, scenarios, details }) {
+  const blocks = scenarios
+    .map(([name, given, when, then]) => `**Scenario: ${name}**\n- **Given** ${given}\n- **When** ${when}\n- **Then** ${then}`)
+    .join('\n\n');
+  return (
+    '## Persona\n\nOwner of this repository.\n\n' +
+    `## Story\n\n${story}\n\n` +
+    `## Acceptance criteria\n\n${blocks}\n\n` +
+    `## Details to complete\n\n${details}\n\n` +
+    '## Tech notes\n\nNone. This is a task for the owner, not for an agent.\n\n' +
+    '## Testing notes\n\nThe checks under Acceptance criteria are the proof.\n\n' +
+    '## References\n\n- `docs/sops.md` SOP 2\n'
+  );
+}
+
+/** An agent issue body in the same sections. Nobody is asked to do anything:
+ * an agent picks it up, so Details to complete is written for one. */
+function agentBody({ story, scenarios, details, tech }) {
+  const blocks = scenarios
+    .map(([name, given, when, then]) => `**Scenario: ${name}**\n- **Given** ${given}\n- **When** ${when}\n- **Then** ${then}`)
+    .join('\n\n');
+  return (
+    '## Persona\n\nAn agent working this repository\'s backlog.\n\n' +
+    `## Story\n\n${story}\n\n` +
+    `## Acceptance criteria\n\n${blocks}\n\n` +
+    `## Details to complete\n\n${details}\n\n` +
+    `## Tech notes\n\n${tech}\n\n` +
+    '## Testing notes\n\nThe checks under Acceptance criteria are the proof.\n\n' +
+    '## References\n\n- `docs/sops.md` SOP 2\n'
+  );
+}
+
+// The issues `check` files, each matched by exact title so a re-run never
+// duplicates one. `owner: true` ones need a login, money or a credential: they
+// carry `human` + `do not automate` (docs/sops.md SOP 2), are assigned to the
+// owner, and an `optional` one is filed only when asked for with `--with
+// <name>`. `owner: false` ones are agent work: their rank label only, unassigned.
 export const OWNER_ISSUES = [
   {
     title: 'Add CLAUDE_CODE_OAUTH_TOKEN',
     rank: 'critical',
+    owner: true,
+    secret: 'CLAUDE_CODE_OAUTH_TOKEN', // not filed while this repository secret is set
     body: (repo) =>
-      `Run \`claude setup-token\`, then \`gh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${repo}\` with the value it prints. ` +
-      'Without this secret, both the code and security reviews error on every pull request — do this before the first one.',
+      ownerBody({
+        story:
+          'As the **owner**, I want the `CLAUDE_CODE_OAUTH_TOKEN` secret set on the repository, so that the code and security reviews post real verdicts on every pull request.',
+        scenarios: [
+          ['the secret is set', 'the token is saved as a repository secret', 'the next pull request is opened', 'both reviews post a verdict on it'],
+          ['the secret is missing', 'the secret is absent', 'a pull request that is not Dependabot\'s is opened', 'the review job logs the warning "Code review has no credential" and its assertion step fails'],
+        ],
+        details:
+          '1. In a terminal where you are logged in to Claude, generate a token. The command prints it; copy it from the terminal yourself.\n\n' +
+          '```bash\nclaude setup-token\n```\n\n' +
+          '2. Save it as the repository secret. The command prompts for the value: paste the token there yourself. It never goes in the repository, an issue or a chat.\n\n' +
+          `\`\`\`bash\ngh secret set CLAUDE_CODE_OAUTH_TOKEN -R ${repo}\n\`\`\`\n\n` +
+          '3. Check the name is listed (values are never shown).\n\n' +
+          `\`\`\`bash\ngh secret list -R ${repo}\n\`\`\`\n\n` +
+          '4. Comment on this issue "done" and close it. Do this before the first pull request.',
+      }),
   },
   {
     title: 'Optional: Telegram notifications',
     rank: 'medium',
-    body: () =>
-      'Set the `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` repository secrets to get a message when a pull request merges. ' +
-      'Skip this and merges are silent; nothing else here depends on it.',
+    owner: true,
+    optional: 'telegram',
+    body: (repo) =>
+      ownerBody({
+        story:
+          'As the **owner**, I want a Telegram message when a pull request merges, so that I see merges as they happen. Optional: skip it and merges are silent.',
+        scenarios: [
+          ['notifications are on', 'both secrets are set', 'a pull request merges', 'a Telegram message about that merge arrives in the chat'],
+          ['notifications are skipped', 'neither secret is set', 'a pull request merges', 'the job\'s log says "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set on this repository."'],
+        ],
+        details:
+          "1. These two steps happen in Telegram and are described in Telegram's own documentation, which this repository does not copy: https://core.telegram.org/bots. You need to come back with two values: the bot token and the chat id. The merge workflow (`.github/workflows/telegram-notify.yml`) posts to `https://api.telegram.org/bot<token>/sendMessage` with that `chat_id`.\n" +
+          '2. Save the bot token. The command prompts for the value: paste it yourself. It never goes in the repository, an issue or a chat.\n\n' +
+          `\`\`\`bash\ngh secret set TELEGRAM_BOT_TOKEN -R ${repo}\n\`\`\`\n\n` +
+          '3. Save the chat id the same way.\n\n' +
+          `\`\`\`bash\ngh secret set TELEGRAM_CHAT_ID -R ${repo}\n\`\`\`\n\n` +
+          '4. Comment on this issue "done" (or "skipped") and close it.',
+      }),
   },
   {
     title: 'Optional: Grafana CI telemetry',
     rank: 'medium',
-    body: () =>
-      'Set the `GRAFANA_CLOUD_OTLP_ENDPOINT` and `GRAFANA_CLOUD_OTLP_AUTH` repository secrets to send Claude Code '
-      + "CI usage to Grafana Cloud (telemetry/README.md). Skip this and CI telemetry goes nowhere; local sessions are unaffected.",
+    owner: true,
+    optional: 'grafana',
+    body: (repo) =>
+      ownerBody({
+        story:
+          'As the **owner**, I want Claude Code CI usage sent to Grafana Cloud (`telemetry/README.md`), so that I can see what CI spends. Optional: skip it and CI telemetry goes nowhere; local sessions are unaffected.',
+        scenarios: [
+          ['telemetry is on', 'both secrets are set', 'a CI job that runs Claude Code finishes', 'its usage appears in Grafana Cloud'],
+          ['telemetry is skipped', 'neither secret is set', 'a CI job finishes', 'both workflows run with telemetry off'],
+        ],
+        details:
+          '1. In the Grafana Cloud Portal, open your stack, then the **OpenTelemetry** tile, then Configure. Generate a token; it prints the `OTEL_*` variables ready-made.\n' +
+          '2. Install the **Claude Code** integration from Connections.\n' +
+          '3. Save the endpoint (the `OTEL_EXPORTER_OTLP_ENDPOINT` value, ending `/otlp`). The command prompts for the value: paste it yourself.\n\n' +
+          `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_ENDPOINT -R ${repo}\n\`\`\`\n\n` +
+          '4. Save the whole `OTEL_EXPORTER_OTLP_HEADERS` value, `Authorization=Basic <base64>`, at the prompt. The token never goes in the repository, an issue or a chat.\n\n' +
+          `\`\`\`bash\ngh secret set GRAFANA_CLOUD_OTLP_AUTH -R ${repo}\n\`\`\`\n\n` +
+          '5. Comment on this issue "done". The next CI run\'s review job log shows telemetry enabled, as `telemetry/README.md` ("Checking it actually arrives") describes. Comment "skipped" instead to leave it off.',
+      }),
   },
   {
     title: "Merge Dependabot's first PR",
     rank: 'high',
-    body: () =>
-      "Dependabot opens its first pull request once there is a dependency to bump. Review and merge it so the " +
-      'dependency-update loop is proven to work end to end, not just configured.',
+    owner: false,
+    body: (repo) =>
+      agentBody({
+        story:
+          "As an **agent**, I want Dependabot's first pull request reviewed and merged, so that the dependency-update loop is proven to work end to end, not just configured.",
+        scenarios: [
+          ['the first update merges', "Dependabot's pull request has a green `verify`", 'the agent merges it', 'the dependency version on `develop` is the bumped one'],
+          ['there is no pull request yet', 'there is no open Dependabot pull request', 'the agent lists the open pull requests by Dependabot', 'the list is empty, the agent comments "nothing to merge yet" once, and the issue is closed'],
+          ['the pull request changes more than a version bump', "the diff of Dependabot's pull request touches a file besides the manifest and lockfile, or adds or changes an install script", 'the agent reads the diff', 'the agent comments the finding once and the issue is handed to the owner with the `human` label'],
+        ],
+        details:
+          '1. List the open pull requests Dependabot has made.\n\n' +
+          `\`\`\`bash\ngh api --paginate "repos/${repo}/pulls?state=open" --jq '.[] | select(.user.login == "dependabot[bot]") | [.number, .title] | @tsv'\n\`\`\`\n\n` +
+          '2. If the list is empty, comment "nothing to merge yet" on this issue and close it as completed. Stop here.\n' +
+          '3. Open the first one and read the changelog link in its body. Read its diff: it may change only the dependency manifest and its lockfile, and may add or change no install script (`preinstall`, `install`, `postinstall`, `prepare`). If it changes anything else, comment what you found, add the labels `human` and `do not automate` with the REST add-labels endpoint, and stop: the owner decides.\n' +
+          '4. Wait for the `verify` check to be green. If it is red, comment that, add the same two labels, and stop.\n' +
+          '5. Merge it into `develop` with the GitHub MCP tool `merge_pull_request`.\n' +
+          '6. Comment on this issue with the pull request number, then close it.',
+        tech: 'Merge with `merge_pull_request` (REST); `gh pr merge` is GraphQL, which cloud sessions refuse.',
+      }),
   },
   {
     title: 'Rewrite README and CLAUDE.md around the product',
     rank: 'high',
-    body: () =>
-      "`setup create` writes a CLAUDE.md and README.md that carry the shared rules and a stub paragraph. The intro " +
-      'and the Layout still describe the starters it was assembled from, not the product. Rewrite them once this ' +
-      'repository has a real application; see CLAUDE.md\'s own rule that a shared file never names the ' +
-      'repository it sits in.',
+    owner: false,
+    body: (repo) =>
+      agentBody({
+        story:
+          `As an **agent**, I want the README and CLAUDE.md of ${repo} to describe the product, so that the intro and the Layout match the application that is really here.`,
+        scenarios: [
+          ['the files describe the product', 'the application exists', 'a reader opens README.md and CLAUDE.md', 'the intro says what the product is for and the Layout lists its real directories'],
+          ['the stub is gone', 'the rewrite is merged', 'the agent searches both files for the stub paragraph', 'the search output is empty'],
+        ],
+        details:
+          '1. Read `project.json` and each `apps/*/CLAUDE.md` to learn what the product is and what directories it has.\n' +
+          '2. Rewrite the intro and the Layout table of `README.md`, and the unshared sections of `CLAUDE.md` (the stub paragraph at the top and the Layout table), from what you read. Keep the shared rules block as it is: it is synced, and a shared file never names the repository it sits in.\n' +
+          '3. Check the stub is gone.\n\n' +
+          '```bash\ngrep -n "Replace this paragraph" CLAUDE.md README.md\n```\n\n' +
+          '4. Open a pull request against `develop` and drive it to merged.',
+        tech: 'Edit only `README.md` and the unshared sections of `CLAUDE.md`.',
+      }),
   },
 ];
 
 /** Which of OWNER_ISSUES don't already exist — open or closed, so a person
- * closing one by hand doesn't get it recreated — by exact title. */
-export function missingOwnerIssues(existingTitles) {
+ * closing one by hand doesn't get it recreated — by exact title. An issue
+ * that asks for a secret is also skipped while that secret is set. */
+export function missingOwnerIssues(existingTitles, { secretNames = new Set(), withOptional = [] } = {}) {
   const have = new Set(existingTitles);
-  return OWNER_ISSUES.filter((issue) => !have.has(issue.title));
+  const asked = new Set(withOptional);
+  return OWNER_ISSUES.filter(
+    (issue) =>
+      !have.has(issue.title) &&
+      !(issue.secret && secretNames.has(issue.secret)) &&
+      (!issue.optional || asked.has(issue.optional)),
+  );
 }
+
+/** The optional integrations `--with` may name. */
+export const OPTIONAL_NAMES = OWNER_ISSUES.filter((i) => i.optional).map((i) => i.optional);
 
 export const TEMPLATE_ISSUE_TITLE = 'Template: User story';
 
@@ -526,6 +668,7 @@ export async function runCheck({
   root = ROOT,
   dryRun = false,
   skipVerify = false,
+  withOptional = [],
   run = exec,
   fetchUrl = fetch,
   runVerify,
@@ -606,29 +749,40 @@ export async function runCheck({
 
   // Owner issues, deduplicated by title
   const allIssues = await listIssues(run, repo, 'all');
-  const missing = missingOwnerIssues(allIssues.map((i) => i.title));
+  const missing = missingOwnerIssues(
+    allIssues.map((i) => i.title),
+    { secretNames, withOptional },
+  );
+  // An optional integration nobody asked for is not filed; say how to ask.
+  const existingTitles = new Set(allIssues.map((i) => i.title));
+  for (const issue of OWNER_ISSUES) {
+    if (issue.optional && !withOptional.includes(issue.optional) && !existingTitles.has(issue.title)) {
+      results.push({ mark: MARK.info, text: `${issue.optional}: optional, no issue filed. To file one: node scripts/setup.mjs check --with ${issue.optional}` });
+    }
+  }
   let assignee; // the authenticated login, looked up once and only if an issue is actually filed
   for (const issue of missing) {
-    const label = [issue.rank, 'human', 'do not automate'];
+    const label = issue.owner ? [issue.rank, 'human', 'do not automate'] : [issue.rank];
+    const kind = issue.owner ? 'owner' : 'agent';
     if (dryRun) {
-      results.push({ mark: MARK.owner, text: `would file owner issue "${issue.title}"` });
+      results.push({ mark: issue.owner ? MARK.owner : MARK.info, text: `would file ${kind} issue "${issue.title}"` });
       continue;
     }
-    if (assignee === undefined) {
+    if (issue.owner && assignee === undefined) {
       // Owner issues must be assigned (SOP 2), so a failed lookup stops the run
       // rather than filing them unassigned and reporting them filed.
       const me = await run('gh', ['api', 'user', '--jq', '.login']);
       if (me.status !== 0 || !me.stdout.trim()) throw new Error(`gh api user failed: ${reason(me)}`);
       assignee = me.stdout.trim();
     }
-    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body(repo), labels: label, assignee }));
+    const created = await run('gh', createIssueArgs(repo, { title: issue.title, body: issue.body(repo), labels: label, assignee: issue.owner ? assignee : undefined }));
     results.push(
       created.status === 0
-        ? { mark: MARK.fixed, text: `filed owner issue "${issue.title}"` }
-        : { mark: MARK.owner, text: `could not file "${issue.title}" (${reason(created)}) — file it by hand, labelled human + do not automate` },
+        ? { mark: MARK.fixed, text: `filed ${kind} issue "${issue.title}"` }
+        : { mark: MARK.owner, text: `could not file "${issue.title}" (${reason(created)}) — file it by hand${issue.owner ? ', labelled human + do not automate' : ''}` },
     );
   }
-  if (missing.length === 0) results.push({ mark: MARK.done, text: 'every owner issue already exists' });
+  if (missing.length === 0) results.push({ mark: MARK.done, text: 'every issue already exists' });
 
   // Story template issue
   const openIssues = await listIssues(run, repo, 'open');
@@ -892,6 +1046,11 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
     if ((result.status ?? 1) !== 0) throw new Error(`setup create: ${what} failed in ${dir}`);
   };
 
+  // A product starts on the release scheme in docs/releases.md: `main` is
+  // production, `develop` is the default branch, built as a preview.
+  const manifestFile = join(dir, 'project.json');
+  const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
+  writeFileSync(manifestFile, `${JSON.stringify({ ...manifest, productionBranch: 'main' }, null, 2)}\n`);
   await git(['init', '-b', 'develop']);
   // package-lock.json belongs to the node-react starter, so a product without
   // it has none and `npm ci` cannot run: lock it now (npm 11, CLAUDE.md
@@ -920,13 +1079,23 @@ export async function create(opts, { run = exec, spawn = spawnTool, root = ROOT,
       if (created.status !== 0) throw new Error(`creating ${target} failed: ${reason(created)}`);
     }
     await git(['remote', 'add', 'origin', `git@github.com:${target}.git`]);
-    const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop']);
+    // main starts at the same commit as develop: nothing is released yet, and the first release PR carries everything.
+    await git(['branch', 'main']);
+    const push = await run('git', ['-C', dir, 'push', '-u', 'origin', 'develop', 'main']);
     if (push.status !== 0) throw new Error(`git push failed: ${reason(push)}`);
   } catch (error) {
     throw new Error(
       `${error.message}\n${dir} is built and verified. ${target} may exist but be empty; a rerun accepts an empty repository, ` +
         `but --dir must be empty or absent, so remove ${dir} first.`,
     );
+  }
+
+  // develop is the default branch (feature pull requests target it); the first
+  // push may have made main the default. Outside the try above for the same
+  // reason as the pin below: the push has succeeded, so "rerun" would be wrong.
+  const defaulted = await run('gh', ['api', repoRoute(target), '-X', 'PATCH', '-f', 'default_branch=develop']);
+  if (defaulted.status !== 0) {
+    log(`\nWarning: setting develop as the default branch failed (${reason(defaulted)}); set develop as the default branch by hand: ${target} on GitHub, Settings, Branches.`);
   }
 
   // Two remotes (origin and the fetch-only base) make gh ask which repository
@@ -995,6 +1164,59 @@ async function checkoutBase({ run, root, commit }) {
   return scratch;
 }
 
+const DEP_KEYS = ['dependencies', 'devDependencies'];
+
+/**
+ * `current` (a product's root package.json, which may have been bumped) with the
+ * `workspaces` and the scripts it lacks taken from `wanted`; nothing else changes.
+ * Undefined when `current` is not a JSON object, so the caller leaves it alone.
+ */
+export function mergePackageJson(current, wanted) {
+  let mine;
+  try {
+    mine = JSON.parse(current);
+  } catch {
+    return undefined;
+  }
+  if (mine === null || typeof mine !== 'object' || Array.isArray(mine)) return undefined;
+  const theirs = JSON.parse(wanted);
+  if (mine.workspaces === undefined && theirs.workspaces !== undefined) mine.workspaces = theirs.workspaces;
+  const wantsScripts = Object.entries(theirs.scripts ?? {});
+  // A scripts value that is not a plain object is the product's own business: leave the file.
+  if (mine.scripts !== undefined && (mine.scripts === null || typeof mine.scripts !== 'object' || Array.isArray(mine.scripts))) return undefined;
+  for (const [key, command] of wantsScripts) {
+    mine.scripts = mine.scripts ?? {};
+    if (!Object.hasOwn(mine.scripts, key)) mine.scripts[key] = command;
+  }
+  return `${JSON.stringify(mine, null, 2)}\n`;
+}
+
+/** A starter's package.json `text` with each dependency the root also declares set to the root's version. */
+export function alignPins(text, rootText) {
+  if (rootText === undefined) return text;
+  let root;
+  let manifest;
+  try {
+    root = JSON.parse(rootText);
+    manifest = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!isObject(root) || !isObject(manifest)) return text;
+  const pins = { ...root.dependencies, ...root.devDependencies };
+  let changed = false;
+  for (const key of DEP_KEYS) {
+    for (const name of Object.keys(manifest[key] ?? {})) {
+      if (Object.hasOwn(pins, name) && manifest[key][name] !== pins[name]) {
+        manifest[key][name] = pins[name];
+        changed = true;
+      }
+    }
+  }
+  return changed ? `${JSON.stringify(manifest, null, 2)}\n` : text;
+}
+
 /**
  * `add`, run inside a product: copies each starter's files from the base at
  * the product's `engine.commit` and adds its app to project.json, then
@@ -1061,7 +1283,23 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
       const was = before.entries.find((entry) => entry.to === path);
       if (next.content === was.content) continue; // the new app changes nothing in it
       const onDisk = existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : undefined;
-      (onDisk === was.content ? derived : kept).push(onDisk === was.content ? next : path);
+      if (onDisk === was.content) {
+        derived.push(next);
+        continue;
+      }
+      // A package.json the product (or Dependabot) has changed still needs the
+      // new workspaces and scripts: merge them in, keep everything else as it is.
+      const merged = path === 'package.json' && onDisk !== undefined ? mergePackageJson(onDisk, next.content) : undefined;
+      if (merged === undefined) kept.push(path);
+      else if (merged !== onDisk) derived.push({ ...next, content: merged });
+    }
+    // The root's pins win: a starter's shared tooling is aligned to them, so one copy installs.
+    const rootEntry = derived.find((entry) => entry.to === 'package.json') ?? { content: existsSync(join(root, 'package.json')) ? readFileSync(join(root, 'package.json'), 'utf8') : undefined };
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].to === 'package.json' || !/(^|\/)package\.json$/.test(entries[i].to) || entries[i].from === undefined) continue;
+      const text = readFileSync(join(base, ...entries[i].from.split('/')), 'utf8');
+      const aligned = alignPins(text, rootEntry.content);
+      if (aligned !== text) entries[i] = { to: entries[i].to, content: aligned, source: entries[i].source };
     }
 
     const merged = { ...current, apps: { ...current.apps } };
@@ -1069,7 +1307,7 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
     writeEntries(base, root, [...entries, ...derived, { to: 'project.json', content: `${JSON.stringify(merged, null, 2)}\n` }]);
     log(`Added ${opts.starters.join(' + ')} to ${root}, from ${BASE_REMOTE}@${short(commit)}: ${entries.length} files`);
     if (kept.length > 0) {
-      log(`Left as they are, because they were changed since they were generated: ${kept.join(', ')}. Bring in what the new app needs by hand (workspaces in package.json, the uv entry in dependabot.yml, the layout row in CLAUDE.md).`);
+      log(`Left as they are, because they were changed since they were generated: ${kept.join(', ')}. Bring in what the new app needs by hand (the uv entry in dependabot.yml, the layout row in CLAUDE.md).`);
     }
     // `npm ci` fails when the lockfile lacks a workspace package.json now names.
     // A starter's own lockfile written just now is already right for it.
@@ -1079,7 +1317,8 @@ export async function add(opts, { run = exec, spawn = spawnTool, root = ROOT, lo
       const locked = spawn('npx', ['npm@11', 'install'], { cwd: root, stdio: 'inherit' });
       if ((locked.status ?? 1) !== 0) throw new Error(`setup add: npx npm@11 install failed in ${root}; the starters are written, run it yourself before npm run bootstrap`);
     } else if (kept.includes('package.json')) {
-      log('package.json was left as it is: after adding the workspace by hand, run npx npm@11 install, or npm ci fails.');
+      const scripts = Object.keys(JSON.parse(wanted.entries.find((entry) => entry.to === 'package.json').content).scripts ?? {});
+      log(`package.json was left as it is: add by hand the "workspaces" the new app needs (${newApps.map((app) => wanted.project.apps[app].path).join(', ')}) and these scripts if missing: ${scripts.join(', ')}; then run npx npm@11 install, or npm ci fails.`);
     }
     log('Next: npm run bootstrap, then npm run verify.');
     return { added: newApps, kept };
@@ -1105,12 +1344,22 @@ export async function main(argv) {
     return 0;
   }
   if (command === 'check') {
-    const opts = parseCheckArgs(rest);
-    const result = await runCheck(opts);
+    let opts;
+    try {
+      opts = parseCheckArgs(rest);
+    } catch (error) {
+      if (error.exitCode === 2) {
+        console.error(error.message);
+        return 2;
+      }
+      throw error;
+    }
+    const { with: withOptional, ...checkOpts } = opts;
+    const result = await runCheck({ ...checkOpts, withOptional });
     process.stdout.write(result.lines.join('\n') + '\n');
     return result.exitCode;
   }
-  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | ${ADD_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name]`);
+  throw new Error(`usage: setup.mjs ${CREATE_USAGE} | ${ADD_USAGE} | check [--skip-verify] [--dry-run] [--repo owner/name] [--with <name>,...]`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

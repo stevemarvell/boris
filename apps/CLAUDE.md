@@ -14,6 +14,9 @@ are the base application's. The AI layer's rules — the loop,
 hold here too. The AI layer learns about this application only from
 `project.json`; swapping the application means editing `apps/`, `project.json`
 and this file.
+An app may declare `"services": ["postgres"]` in `project.json`; CI then starts
+a `postgres:16` container and exports `TEST_DATABASE_URL` before `verify`
+(`.github/workflows/verify.yml`). Apps that declare nothing cost nothing.
 
 ## Layout
 
@@ -30,7 +33,7 @@ Each app also gets a `deployment` skill in its own `.claude/skills/`, once
 - **Nothing here is deployed by default.** `npm run verify` is what keeps
   both shells green; there is no Vercel project building either until
   `npm run deploy:add -- vercel --app <app> ...` adds one. Once an app is
-  deployed, merging to `develop` publishes it — the approval path and the
+  deployed, merging to the production branch (`productionBranch` in `project.json`, default `develop`) publishes it — the approval path and the
   release path are the same.
 
 - **Neither shell serves data.** `docs/data-governance.md` describes an
