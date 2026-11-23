@@ -271,6 +271,7 @@ describe('create', () => {
       const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
       expect(written.name).toBe('n');
       expect(written.engine).toEqual({ commit: SHA });
+      expect(written.productionBranch).toBe('main');
       expect(Object.keys(written.apps)).toEqual(['api']);
       expect(existsSync(join(dir, 'apps/api/pyproject.toml'))).toBe(true);
       expect(existsSync(join(dir, 'apps/web'))).toBe(false);
@@ -291,7 +292,8 @@ describe('create', () => {
         at(`git -C ${dir} remote set-url --push ${BASE_REMOTE} DISABLED`),
         at('gh api user/repos -X POST -f name=n -F private=true'),
         at(`git -C ${dir} remote add origin git@github.com:o/n.git`),
-        at(`git -C ${dir} push -u origin develop`),
+        at(`git -C ${dir} push -u origin develop main`),
+        at('gh api repos/o/n -X PATCH -f default_branch=develop'),
         at('spawn gh repo set-default o/n'),
         at('spawn node scripts/setup.mjs check --repo o/n'),
       ];
@@ -308,7 +310,7 @@ describe('create', () => {
       const w = world();
       await create(python(dir), w);
       expect(w.spawned).toContainEqual({ key: 'gh repo set-default o/n', cwd: dir });
-      const push = w.timeline.findIndex((e) => e.includes('push -u origin develop'));
+      const push = w.timeline.findIndex((e) => e.includes('push -u origin develop main'));
       const pin = w.timeline.indexOf('spawn gh repo set-default o/n');
       expect(pin).toBeGreaterThan(push);
 
@@ -317,6 +319,14 @@ describe('create', () => {
       await expect(create(python(failDir), failing)).resolves.toBe(0);
       expect(failing.lines.some((l) => l.includes('`gh repo set-default o/n`') && l.includes(failDir))).toBe(true);
       expect(failing.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: failDir });
+    });
+
+    it('if setting develop as the default branch fails, warns the owner to do it by hand and carries on to the check, with no rebuild advice', async () => {
+      const w = world({ 'gh api repos/o/n -X PATCH': fail('HTTP 403') });
+      const dir = freshDir();
+      await expect(create(python(dir), w)).resolves.toBe(0);
+      expect(w.lines.some((l) => l.includes('set develop as the default branch by hand') && l.includes('HTTP 403'))).toBe(true);
+      expect(w.spawned).toContainEqual({ key: 'node scripts/setup.mjs check --repo o/n', cwd: dir });
     });
 
     it('locks a python-only product with npm 11 before the first commit, and leaves a node-react one to its own lockfile', async () => {
@@ -524,6 +534,9 @@ describe('create', () => {
     expect(git('config', '--get', `remote.${BASE_REMOTE}.pushurl`)).toBe('DISABLED');
     expect(git('config', '--get', 'remote.origin.url')).toBe('git@github.com:o/n.git');
     expect(JSON.parse(git('show', 'HEAD:project.json')).engine).toEqual({ commit: SHA });
+    expect(JSON.parse(git('show', 'HEAD:project.json')).productionBranch).toBe('main');
+    // main and develop both exist, at the one commit
+    expect(git('rev-parse', 'main')).toBe(git('rev-parse', 'develop'));
     expect(git('status', '--porcelain')).toBe('');
     // The base's own files stay behind.
     expect(git('ls-files', 'catalogue.json', 'docs/adoption.md', 'scripts/assemble.mjs')).toBe('scripts/assemble.mjs');

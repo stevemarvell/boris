@@ -1,10 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  ATTEMPT_MARKER,
   FETCH_LIMIT,
-  MAX_ISSUES_PER_RUN,
   MAX_PAGES,
   PAGE_SIZE,
+  attemptLookup,
+  trustedLogins,
   claimedIssues,
   fetchOpen,
   openDependencies,
@@ -15,6 +18,7 @@ import {
   trusted,
 } from '../triage.mjs';
 
+const hasJq = (process.env.PATH ?? '').split(':').some((d) => existsSync(`${d}/jq`));
 const OWNER = 'owner';
 const READY = '## Acceptance criteria\n\n- **Given** a\n- **Then** b\n\n## Details to complete\n\nNone\n';
 const issue = (number: number, labels: string[], body = READY, login = OWNER, association = 'OWNER') => ({
@@ -38,7 +42,6 @@ describe('triage', () => {
         issue(6, ['critical']),
       ],
       [],
-      Infinity,
     );
     expect(work.map((w) => w.number)).toEqual([6, 4, 3, 1, 5, 2]);
     expect(work.map((w) => w.rank)).toEqual(['critical', 'high', 'medium', 'medium', 'medium', 'unranked']);
@@ -97,23 +100,13 @@ describe('triage', () => {
   });
 });
 
-describe('the per-run ceiling', () => {
-  const many = [1, 2, 3, 4, 5].map((n) => issue(n, ['medium']));
-
-  it('takes at most MAX_ISSUES_PER_RUN, the highest ranked first', () => {
-    const { work } = triage([...many, issue(9, ['critical'])], []);
-    expect(work).toHaveLength(MAX_ISSUES_PER_RUN);
-    expect(work[0]!.number).toBe(9);
-  });
-
-  it('defers the rest in order rather than dropping them', () => {
-    const { work, deferred } = triage(many, []);
-    expect([...work, ...deferred].map((w) => w.number)).toEqual([1, 2, 3, 4, 5]);
-    expect(deferred.map((d) => d.number)).toEqual([4, 5]);
-  });
-
-  it('is three, the number docs/sops.md declares', () => {
-    expect(MAX_ISSUES_PER_RUN).toBe(3);
+describe('the run has no count limit', () => {
+  it('lists every workable issue, the highest ranked first', () => {
+    const many = Array.from({ length: 25 }, (_, i) => issue(i + 1, ['medium']));
+    const { work } = triage([...many, issue(99, ['critical'])], []);
+    expect(work).toHaveLength(26);
+    expect(work[0]!.number).toBe(99);
+    expect(work.slice(1).map((w) => w.number)).toEqual(many.map((m) => m.number));
   });
 });
 
@@ -122,9 +115,8 @@ describe('render', () => {
     expect(render(triage([issue(1, ['human'])], []))).toContain('nothing an agent may take on');
   });
 
-  it('lists deferred work and warns when a listing was truncated', () => {
+  it('warns when a listing was truncated', () => {
     const text = render(triage([1, 2, 3, 4].map((n) => issue(n, ['medium'])), []), { truncated: true });
-    expect(text).toContain('Deferred to the next run');
     expect(text).toContain('#4 [medium]');
     expect(text).toContain('WARNING');
   });
@@ -251,7 +243,7 @@ describe('trusted: only text written by the owner or someone with write access',
       throw new Error('must not be called');
     };
     for (const labels of [[], ['high']]) {
-      const { work } = triage([issue(1, labels, READY, 'someone', 'OWNER')], [], undefined, permissionOf);
+      const { work } = triage([issue(1, labels, READY, 'someone', 'OWNER')], [], permissionOf);
       expect(work.map((w) => w.number)).toEqual([1]);
     }
   });
@@ -261,7 +253,7 @@ describe('trusted: only text written by the owner or someone with write access',
       for (const permission of ['admin', 'maintain', 'write']) {
         const asked: string[] = [];
         const permissionOf = (login: string) => (asked.push(login), permission);
-        const { work } = triage([issue(1, [], READY, 'someone', association)], [], undefined, permissionOf);
+        const { work } = triage([issue(1, [], READY, 'someone', association)], [], permissionOf);
         expect(work.map((w) => w.number)).toEqual([1]);
         expect(asked).toEqual(['someone']);
       }
@@ -272,7 +264,7 @@ describe('trusted: only text written by the owner or someone with write access',
     for (const association of ['MEMBER', 'COLLABORATOR']) {
       for (const permission of ['read', 'triage', 'none']) {
         for (const labels of [[], ['critical']]) {
-          const result = triage([issue(1, labels, '', 'someone', association)], [], undefined, () => permission);
+          const result = triage([issue(1, labels, '', 'someone', association)], [], () => permission);
           expect(result.work).toEqual([]);
           expect(result.skip[0]).toMatchObject({ reason: held(association).reason, author: 'someone', association });
         }
@@ -285,7 +277,7 @@ describe('trusted: only text written by the owner or someone with write access',
       throw new Error('HTTP 404');
     };
     for (const association of ['MEMBER', 'COLLABORATOR']) {
-      expect(triage([issue(1, [], READY, 'someone', association)], [], undefined, boom).work).toEqual([]);
+      expect(triage([issue(1, [], READY, 'someone', association)], [], boom).work).toEqual([]);
       expect(triage([issue(1, [], READY, 'someone', association)], []).work).toEqual([]);
     }
   });
@@ -298,7 +290,7 @@ describe('trusted: only text written by the owner or someone with write access',
   it('holds a CONTRIBUTOR or NONE issue even with a rank label and a permissive lookup', () => {
     for (const association of ['CONTRIBUTOR', 'NONE', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR']) {
       for (const labels of [[], ['critical']]) {
-        const result = triage([issue(1, labels, '', 'stranger', association), issue(2, [])], [], undefined, () => 'admin');
+        const result = triage([issue(1, labels, '', 'stranger', association), issue(2, [])], [], () => 'admin');
         expect(result.work.map((w) => w.number)).toEqual([2]);
         expect(result.skip).toEqual([
           { number: 1, reason: held(association).reason, author: 'stranger', association },
@@ -454,13 +446,12 @@ describe('triage not ready', () => {
     expect(plan.notReady.map((n) => n.number)).toEqual([]);
   });
 
-  it('does not count not-ready issues against the ceiling', () => {
+  it('does not list not-ready issues as work', () => {
     const issues = [1, 2, 3, 4, 5].map((n) => issue(n, ['medium'], ''));
     issues.push(issue(6, []), issue(7, []));
-    const plan = triage(issues, [], 2);
+    const plan = triage(issues, []);
     expect(plan.notReady).toHaveLength(5);
     expect(plan.work.map((w) => w.number)).toEqual([6, 7]);
-    expect(plan.deferred).toEqual([]);
   });
 
   it('ranks an unranked ready issue last, as before', () => {
@@ -471,5 +462,87 @@ describe('triage not ready', () => {
   it('JSON output carries a notReady array', () => {
     const plan = JSON.parse(JSON.stringify(triage([issue(1, [], '')], [])));
     expect(plan.notReady).toEqual([{ number: 1, title: 'issue 1', reason: 'no acceptance criteria' }]);
+  });
+});
+
+describe('recorded attempts (#395)', () => {
+  const attemptsOf = (counts: Record<number, number>) => (n: number) => counts[n] ?? 0;
+
+  it('0 recorded attempts: picked, no note', () => {
+    const plan = triage([issue(1, ['medium'])], [], undefined, attemptsOf({}));
+    expect(plan.work.map((w) => [w.number, w.attempts])).toEqual([[1, 0]]);
+    expect(render(plan)).not.toContain('failed attempt');
+  });
+
+  it('1 recorded attempt: still picked, and the plan says a second makes it human', () => {
+    const plan = triage([issue(1, ['medium'])], [], undefined, attemptsOf({ 1: 1 }));
+    expect(plan.work.map((w) => w.number)).toEqual([1]);
+    expect(render(plan)).toContain('1 failed attempt recorded');
+  });
+
+  it('2 recorded attempts: listed under Skip even when no label was applied', () => {
+    const plan = triage([issue(1, ['medium']), issue(2, [])], [], undefined, attemptsOf({ 1: 2 }));
+    expect(plan.work.map((w) => w.number)).toEqual([2]);
+    expect(plan.skip).toEqual([expect.objectContaining({ number: 1, reason: expect.stringContaining('2 failed attempts') })]);
+  });
+
+  it('reads the count only for an issue that is otherwise workable', () => {
+    const asked: number[] = [];
+    triage([issue(1, ['human']), issue(2, [], ''), issue(3, [])], [], undefined, (n) => (asked.push(n), 0));
+    expect(asked).toEqual([3]);
+  });
+
+  it('attemptLookup sums the per-page counts of marked comments, in the jq and not the process', () => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => (calls.push(args), '1\n1\n0\n');
+    const call = () => calls[0]!;
+    expect(attemptLookup(run, [OWNER])(7)).toBe(2);
+    expect(call()).toContain('--paginate');
+    expect(call().join(' ')).toContain('issues/7/comments');
+    expect(call()[call().indexOf('--jq') + 1]).toContain(ATTEMPT_MARKER);
+  });
+
+  it.skipIf(!hasJq)('the real jq filter counts only comments that start with the marker', { timeout: 15_000 }, () => {
+    let filter = '';
+    attemptLookup(((args: string[]) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0')), [OWNER])(1);
+    const comments = [
+      { user: { login: OWNER }, body: `${ATTEMPT_MARKER}\nimplementer ended with no PR` },
+      { user: { login: OWNER }, body: `quoting ${ATTEMPT_MARKER} mid-text` },
+      { user: { login: OWNER }, body: 'unrelated' },
+      { user: { login: OWNER }, body: `${ATTEMPT_MARKER}\nsecond` },
+    ];
+    expect(execFileSync('jq', [filter], { input: JSON.stringify(comments), encoding: 'utf8' }).trim()).toBe('2');
+  });
+
+  it.skipIf(!hasJq)('a stranger\'s two markers do not count: the real jq leaves the issue workable', { timeout: 15_000 }, () => {
+    let filter = '';
+    attemptLookup(((args: string[]) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0')), [OWNER, 'session'])(1);
+    const mark = (login: string) => ({ user: { login }, body: `${ATTEMPT_MARKER}\nended with no PR` });
+    const count = (comments: unknown[]) =>
+      Number(execFileSync('jq', [filter], { input: JSON.stringify(comments), encoding: 'utf8' }).trim());
+    const stranger = count([mark('stranger'), mark('stranger')]);
+    expect(stranger).toBe(0);
+    expect(count([mark(OWNER), mark('session'), mark('stranger')])).toBe(2);
+    const plan = triage([issue(1, ['medium'])], [], undefined, () => stranger);
+    expect(plan.work.map((w) => w.number)).toEqual([1]);
+  });
+
+  it('attemptLookup refuses a login that could break out of the jq string', () => {
+    expect(() => attemptLookup(() => '', ['x" or true or "'])).toThrow('not a GitHub login');
+    expect(() => attemptLookup(() => '', [])).toThrow('not a GitHub login');
+  });
+
+  it('trustedLogins falls back to the owner alone when gh api user fails', () => {
+    const run = (args: string[]) => {
+      if (args[1] === 'user') throw new Error('gh api user failed: HTTP 403');
+      return 'owner\n';
+    };
+    expect(trustedLogins(run)).toEqual(['owner']);
+  });
+
+  it('trustedLogins adds the session login, once, when it differs', () => {
+    const run = (args: string[]) => (args[1] === 'user' ? 'session\n' : 'owner\n');
+    expect(trustedLogins(run)).toEqual(['owner', 'session']);
+    expect(trustedLogins((args) => (args[1] === 'user' ? 'owner\n' : 'owner\n'))).toEqual(['owner']);
   });
 });

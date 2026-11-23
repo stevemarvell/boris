@@ -41,11 +41,13 @@ so a loop under its attempt ceiling can still run long.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Implementer agents running at once | 3, on non-overlapping paths only, and no more than the remaining usage window can finish | `.claude/skills/delegate/SKILL.md` |
+| Agents running at once | 3 unless the owner sets another number for the run, on non-overlapping paths only; fewer as usage nears its limit, and none started that the remaining usage window cannot finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
-| Issues worked in one `work-backlog` run | 3, re-triaged after each merge | `scripts/triage.mjs`, `MAX_ISSUES_PER_RUN` |
+| Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
+| Pull requests parked at a `drive-pr` ceiling in one `work-backlog` run | No count; the run goes on to the next independent issue and reports each parked pull request | `.claude/skills/work-backlog/SKILL.md` (step 3), `scripts/parked.mjs` |
+| Failed attempts (no pull request) recorded on one issue by `work-backlog` | 2, counted from `<!-- backlog-attempt -->` comments on the issue, then it is labelled `human` and `do not automate` and triage lists it under Skip whatever its labels. Enforced in `scripts/triage.mjs` (tested), so a resumed run cannot lose the tally; writing the comment and label is the loop's discipline | `.claude/skills/work-backlog/SKILL.md` (steps 2 and 3), `scripts/triage.mjs` |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
@@ -56,6 +58,11 @@ progress is visible in the log, and running out is a specific failure rather
 than a timeout. That is what a bounded loop should look like.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 **Today: nothing mechanical, for the model-driven loops.** SOP 1 is a
 discipline that a session follows by reading it. Be honest about that rather
@@ -84,6 +91,9 @@ Three loops *are* mechanically bounded:
 
 ### What CI runs, and when
 
+The branch scheme (`main` production, `develop` a preview) and the release,
+hotfix and rollback procedures are `docs/releases.md`.
+
 Actions bills every job rounded up to a whole minute, on a free allowance, so
 what a push or a merge starts is a spending decision and is written down here.
 
@@ -111,7 +121,12 @@ what a push or a merge starts is a spending decision and is written down here.
   both once more and the workflow removes it when they finish. When the driver
   adds it is defined in `drive-pr` step 4 and nowhere else. Nothing adds the
   label by itself, so no review loop can run unattended.
-- **`smoke` runs on every push to `develop`** and, once an app deploys, on a
+- **`smoke` runs on every push to `develop` and `main`**, and checks the
+  production branch (`productionBranch` in `project.json`, default `develop`).
+  With `productionBranch: "main"`, a push to `develop` checks each app's
+  `<project>-git-develop-<team>.vercel.app` alias instead; any other
+  push exits 0 with "not the production branch ... nothing to smoke". How a
+  change reaches `main` is `docs/releases.md`. Once an app deploys it also runs on a
   schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
 - **A deployed app rebuilds only for what it reads.** Its `reads` and
   `ignores`, `scripts/project.mjs` and the provider's ignore script are
