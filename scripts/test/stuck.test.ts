@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -613,6 +613,23 @@ describe('find: a plain file in .claude/worktrees (#414)', () => {
       expect(renderFindings(findings)).toContain('stray file: .claude/worktrees/w.patch — delete it.');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a symlink to a file, and a dangling symlink, as stray too, and still scans a symlink to a directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stuck-worktrees-'));
+    const target = mkdtempSync(join(tmpdir(), 'stuck-target-'));
+    try {
+      writeFileSync(join(target, 'real.txt'), 'x');
+      symlinkSync(join(target, 'real.txt'), join(dir, 'link.patch'));
+      symlinkSync(join(target, 'missing'), join(dir, 'dangling'));
+      symlinkSync(target, join(dir, 'linked-dir'));
+      const findings = await find({ gh: fakeGh, git: fakeGit, worktreesDir: dir, gitStatus: async () => false });
+      expect([...findings.strayFiles!].sort()).toEqual(['.claude/worktrees/dangling', '.claude/worktrees/link.patch']);
+      expect(findings.untrackedWorktrees.map((w: { name: string }) => w.name)).toEqual(['linked-dir']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
     }
   });
 

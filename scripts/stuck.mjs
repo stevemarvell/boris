@@ -22,7 +22,7 @@
 // the same pattern scripts/labels.mjs uses for `gh` — so the tests make no
 // network calls and touch no real worktree.
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT } from './project.mjs';
@@ -355,12 +355,21 @@ function defaultReadDir(dir) {
   return readdirSync(dir);
 }
 
-/** The default listing of plain files directly in `dir`: `[]` when it does not exist. */
+/**
+ * The default listing of entries directly in `dir` that are not directories —
+ * plain files, FIFOs, sockets, symlinks to any of those, and dangling
+ * symlinks. A symlink is followed (`statSync`); one that cannot be resolved is
+ * stray too. `[]` when `dir` does not exist.
+ */
 function defaultReadFiles(dir) {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name);
+  return readdirSync(dir).filter((name) => {
+    try {
+      return !statSync(join(dir, name)).isDirectory();
+    } catch {
+      return true;
+    }
+  });
 }
 
 /**
