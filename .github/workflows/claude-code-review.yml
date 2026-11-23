@@ -324,6 +324,7 @@ jobs:
           # repository instead.
           claude_args: |
             --model sonnet
+            --permission-mode default
             --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
 
@@ -454,6 +455,7 @@ jobs:
             same thing.
           claude_args: |
             --model sonnet
+            --permission-mode default
             --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
 

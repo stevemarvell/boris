@@ -109,5 +109,6 @@ jobs:
           # comes from a trial recorded in the base repository.
           claude_args: |
             --model sonnet
+            --permission-mode acceptEdits
             --settings ${{ runner.temp }}/claude-ci-telemetry-settings.json
 
