@@ -123,13 +123,13 @@ describe('against the REST API', () => {
   });
 
   it('goGiven: a go, then a back-dated commit pushed after it, is not a go, and the new head sha is reported', async () => {
-    // The pushed commit's committer date (09:00) is earlier than the go (10:00): dates cannot tell, the sha can.
-    const moved = gh({
-      'pulls/7': { merged: false, head: { sha: 'fed9876abc' } },
-      'commits/fed9876abc': { commit: { committer: { date: '2026-11-22T09:00:00Z' } } },
-      'issues/7/comments': [{ user: { login: 'o' }, body: 'go abc1234', created_at: '2026-11-22T10:00:00Z' }],
-    });
-    expect(await goGiven({ run: moved.run, repo: 'o/n', pr: 7 })).toEqual({ given: false, sha: 'fed9876abc' });
+    // The same owner comment is valid while abc1234def is the head, and void once a commit
+    // (back-dated or not) makes fed9876abc the head: only the sha decides, dates are not read.
+    const comments = [{ user: { login: 'o' }, body: 'go abc1234', created_at: '2026-11-22T10:00:00Z' }];
+    const before = gh({ 'pulls/7': { merged: false, head: { sha: 'abc1234def' } }, 'issues/7/comments': comments });
+    expect(await goGiven({ run: before.run, repo: 'o/n', pr: 7 })).toEqual({ given: true, sha: 'abc1234def' });
+    const after = gh({ 'pulls/7': { merged: false, head: { sha: 'fed9876abc' } }, 'issues/7/comments': comments });
+    expect(await goGiven({ run: after.run, repo: 'o/n', pr: 7 })).toEqual({ given: false, sha: 'fed9876abc' });
   });
 
   it('goGiven: a go naming a mismatched sha is refused', async () => {
