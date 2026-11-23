@@ -83,41 +83,29 @@ and `mergeable_state` clear and checks register normally; resume the poll
 below.
 
 "Settled" is a fact read from each check run's `status` and `conclusion`, not
-a guess from reading output. Read them with `pull_request_read` and method
-`get_check_runs` (the head commit's check runs), or with `gh api`, which this
-loop does. The head is re-read on every attempt, because a fix pushed during
-the wait changes it:
+a guess from reading output. `scripts/wait-checks.mjs` reads them and waits,
+over REST only. It re-reads the head on every attempt, because a fix pushed
+during the wait changes it:
 
 ```bash
-for attempt in $(seq 1 40); do
-  sha=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha) || { echo "attempt $attempt: could not read the head"; sleep 30; continue; }
-  # A run that has not completed is "pending"; a completed one is "pass" for
-  # success, skipped or neutral, and "fail" for anything else.
-  if ! buckets=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs?per_page=100" --jq \
-      '[.check_runs[] | if .status != "completed" then "pending"
-        elif (.conclusion == "success" or .conclusion == "skipped" or .conclusion == "neutral") then "pass"
-        else "fail" end] | join(" ")' 2>&1); then
-    echo "attempt $attempt: gh failed: $buckets"; sleep 30; continue
-  fi
-  echo "attempt $attempt: $buckets"
-  # Right after a push GitHub has registered nothing yet: the list is empty.
-  # That means not yet settled.
-  case " $buckets " in
-    *" pending "*|"  ") sleep 30; continue;;
-  esac
-  break
-done
+node scripts/wait-checks.mjs <n>
 ```
 
-- Any `pending` bucket, an empty list, or a failed `gh` call means not
-  settled. These are the only states this loop treats as "keep waiting"; a
+It runs for up to 40 attempts 30 seconds apart (20 minutes), longer than a
+single command should block for: launch it with `run_in_background` and wait
+for it, rather than a foreground call that will itself be interrupted. It
+prints one line and exits with one of three codes:
+
+| Exit | Line | Meaning |
+| --- | --- | --- |
+| 0 | `checks: pass <sha>` | every check run completed with success, skipped or neutral: green |
+| 1 | `checks: fail <sha> <names of failed checks>` | at least one completed check had any other conclusion (a cancelled or timed-out run is a failure) |
+| 2 | `checks: pending after 40 attempts <sha>` | the ceiling, below |
+
+- A run that has not completed, an empty list (right after a push GitHub has
+  registered nothing yet) and a failed `gh` call all mean "keep waiting"; a
   failed call counts against the 40 attempts like any other.
-- Otherwise it is settled: all `pass` means green, and any `fail` means at
-  least one failed (a cancelled or timed-out run is a `fail`). Either way, stop polling and move to
-  step 2.
-- This runs longer than a single command should block for (40 × 30s = 20
-  minutes) — launch it with `run_in_background` and wait for it, rather than
-  a foreground call that will itself be interrupted.
+- On exit 0 or 1 stop polling and move to step 2.
 
 **Ceiling hit** (still pending after 40 attempts): stop. Do not merge, do
 not start fixing findings against checks that never finished. Go straight to
@@ -497,33 +485,27 @@ Once step 4 has merged, `smoke.yml` fires on the push to `develop`. Confirm
 it, rather than assuming the merge was fine because `verify` was:
 
 ```bash
-sha=$(gh api repos/{owner}/{repo}/pulls/<n> --jq .merge_commit_sha)
-for attempt in $(seq 1 30); do
-  # One call per attempt, filtered by gh's own --jq rather than a jq binary:
-  # jq is not installed on every machine this runs on, and without it every
-  # poll fails and the loop runs to its ceiling reporting nothing.
-  # An unfinished run's conclusion is "", not null, and `//` only replaces
-  # null: the empty field vanished and `read` shifted the run id into
-  # $conclusion. Every field is non-empty, so `read` always splits in three.
-  run=$(gh run list --workflow smoke --branch develop --commit "$sha" -L 1 \
-          --json databaseId,status,conclusion \
-          --jq '.[0] // {} | "\(.status // "not-registered") \(.conclusion | if . == null or . == "" then "-" else . end) \(.databaseId // "-")"')
-  read -r status conclusion id <<< "$run"
-  echo "attempt $attempt: status=$status conclusion=$conclusion run=$id"
-  [ "$status" = "completed" ] && break
-  sleep 30
-done
+node scripts/wait-smoke.mjs <n>
 ```
 
-- **Pinned to the merge commit.** `--commit "$sha"` selects the run for *this*
-  merge. Without it, the first poll can land before GitHub registers the new
-  run and read the previous merge's result as this one's. Until the run
-  appears, `status` is `not-registered`, which counts as not settled.
-- **Settled** means `status == "completed"`. Anything else after 30 attempts
-  (60 → wait, 30 × 30s = 15 minutes, matched to the workflow's own timeout)
-  is the ceiling: stop and report that `smoke` never finished, without
-  guessing at a result it never produced.
-- **On `conclusion != "success"`**, pull the failing step's log tail and open
+It runs for up to 30 attempts 30 seconds apart (15 minutes, matched to the
+workflow's own timeout), so launch it with `run_in_background` and wait for
+it. It prints one line and exits with one of three codes:
+
+| Exit | Line | Meaning |
+| --- | --- | --- |
+| 0 | `smoke: pass <sha> <run id>` | the `smoke` run for the merge commit completed with `success` |
+| 1 | `smoke: fail <sha> <run id>` | it completed with any other conclusion |
+| 2 | `smoke: pending after 30 attempts <sha>` | the ceiling: stop and report that `smoke` never finished, without guessing at a result it never produced |
+| 64 | `smoke: pull request #<n> is not merged` | nothing to wait on (or a usage error): stop and report |
+
+- **Pinned to the merge commit.** The script lists the `smoke` runs for the
+  merge commit's own sha, so a poll that lands before GitHub registers the
+  new run waits, rather than reading the previous merge's result as this
+  one's. A pull request that is not merged
+  exits 64, not 1, with `smoke: pull request #<n> is not merged` and no run
+  id: that is a precondition failure, not a smoke result; do not file an issue.
+- **On exit 1**, pull the failing step's log tail and open
   an issue from it — the record this project's `smoke`-after-merge row has no
   other mechanism for:
 
@@ -535,7 +517,7 @@ explicitly, since the command does not decide for you:
 
 ```bash
 labels=medium            # or: labels=critical,security  -- see above
-# $id is the run the loop above settled on -- no second query.
+id=<run id>             # the last field of the line wait-smoke.mjs printed
 gh run view "$id" --log-failed > /tmp/smoke-failure.log
 # The story template's sections (.github/ISSUE_TEMPLATE/story.md); the log tail is Tech notes.
 printf '%s\n\n```\n%s\n```\n\n%s\n' \

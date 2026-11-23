@@ -24,9 +24,9 @@ A pull request number `<n>`.
 
 ## What you do
 
-1. **Poll checks.** Run step 1 of `.claude/skills/drive-pr/SKILL.md` as written
-   (re-read the head each attempt, 40 attempts of 30s, `run_in_background`).
-   Settled is read from each check run's `status` and `conclusion`. Do not
+1. **Poll checks.** Run step 1 of `.claude/skills/drive-pr/SKILL.md` as written:
+   `node scripts/wait-checks.mjs <n>` with `run_in_background`. Its exit code
+   is the answer (0 pass, 1 fail, 2 still pending at 40 attempts). Do not
    improvise another loop. If checks never register, report `mergeable` and
    `mergeable_state` and stop; the coordinator sends an implementer to merge
    `develop`.
