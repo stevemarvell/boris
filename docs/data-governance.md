@@ -224,7 +224,11 @@ scratch files `open-prs.json` and `refs.txt` are written under `$RUNNER_TEMP`,
 so a pull request that tracks either as a symlink has nothing written through
 it, and the "Say which commit the scripts came from" step fails if
 `git -C base-scripts status --porcelain --ignored` prints anything, so the base-script
-checkout is exactly the base commit. The test asserts all three.
+checkout is exactly the base commit. The same step first fails unless
+`git -C base-scripts rev-parse --show-toplevel` is `$PWD/base-scripts` (#410): a
+`base-scripts/` with no `.git` of its own would otherwise make that `git status`
+report on the workspace repository. The test asserts all three, running the real
+guard lines against temporary repositories.
 
 What remains: the scripts are as trustworthy as the base branch, so a merge to
 `develop` that has not been reviewed still reaches this token on the next run.

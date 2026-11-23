@@ -113,8 +113,12 @@ jobs:
       - name: Say which commit the scripts came from
         # Fails when the checkout is not exactly the base commit (#373): any
         # modified, deleted or untracked path (or a failing `git status`) in it would mean something other
-        # than that commit's scripts is about to run with the token.
+        # than that commit's scripts is about to run with the token. It also
+        # fails when `base-scripts/` is not its own checkout (#410): without a
+        # `.git` of its own, git walks up to the workspace repository and the
+        # status below would report on that instead.
         run: |
+          top=$(git -C base-scripts rev-parse --show-toplevel) && test "$top" = "$PWD/base-scripts"
           echo "pr checks scripts run from base commit $(git -C base-scripts rev-parse HEAD)"
           dirty=$(git -C base-scripts status --porcelain --ignored) && test -z "$dirty"
 

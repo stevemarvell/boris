@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,7 @@ const SHELL_KEYWORDS = new Set(['{', '}', 'if', 'then', 'else', 'elif', 'fi', 'd
 const BASE_SCRIPTS = 'base-scripts/scripts/';
 const TOKEN = /GH_TOKEN|github\.token|secrets\./;
 // Plain shell variables the real workflow sets or exports.
-const ALLOWED_VARS = new Set(['BASE_SHA', 'dirty']);
+const ALLOWED_VARS = new Set(['BASE_SHA', 'dirty', 'top']);
 // Prefixed onto the one `git fetch` that authenticates through git's environment.
 const GIT_FETCH_VARS = new Set(['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']);
 // Env keys that change what a command resolves to or loads.
@@ -288,12 +288,12 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('rejects a branch command hidden after && among allowed ones', () => {
-    const v = violations(mutate('run: |\n          echo "pr checks scripts', 'run: |\n          echo hi && npm run x && echo "pr checks scripts'));
+    const v = violations(mutate('echo "pr checks scripts', 'echo hi && npm run x && echo "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
   });
 
   it('rejects a branch command inside $( )', () => {
-    const v = violations(mutate('run: |\n          echo "pr checks scripts', 'run: |\n          echo "$(npm run x)" "pr checks scripts'));
+    const v = violations(mutate('echo "pr checks scripts', 'echo "$(npm run x)" "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
   });
 
@@ -428,7 +428,7 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('counts a token interpolated into a run: as held', () => {
-    const t = mutate('run: |\n          echo "pr checks scripts', 'run: |\n          echo "${{ github.token }}" "pr checks scripts');
+    const t = mutate('echo "pr checks scripts', 'echo "${{ github.token }}" "pr checks scripts');
     expect(tokenHolders(t)).toContain('Say which commit the scripts came from');
     expect(tokenHolders(real)).not.toContain('Say which commit the scripts came from');
   });
@@ -514,6 +514,41 @@ describe('pr-checks.yml scratch files, trigger and base-scripts cleanliness (#37
       // git status itself failing (not a repository) must fail the guard too.
       rmSync(join(repo, '.git'), { recursive: true, force: true });
       expect(run().status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('the real guard fails when base-scripts has no .git of its own, and passes when it has one (#410)', { timeout: 30_000 }, () => {
+    const step = steps().find((s) => s.name === 'Say which commit the scripts came from');
+    const lines = (step?.run ?? '').split('\n');
+    const top = lines.find((l) => l.startsWith('top='));
+    const dirty = lines.find((l) => l.startsWith('dirty='));
+    expect(top).toBeDefined();
+    expect(dirty).toBeDefined();
+    const script = `${top ?? 'false'}\n${dirty ?? 'false'}`;
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'base-scripts-top-')));
+    try {
+      const git = (cwd: string, ...a: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, stdio: 'pipe' });
+      // The workspace repository with base-scripts/ tracked inside it and no .git
+      // of its own. The status check alone is clean here, so only the toplevel
+      // check can fail this.
+      git(dir, 'init', '-q');
+      mkdirSync(join(dir, 'base-scripts'));
+      writeFileSync(join(dir, 'base-scripts', 'a.txt'), 'x');
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'c');
+      const run = () => spawnSync('bash', ['-e', '-c', script], { cwd: dir });
+      expect(run().status).not.toBe(0);
+      // The same path as its own checkout passes.
+      rmSync(join(dir, 'base-scripts'), { recursive: true, force: true });
+      const nested = join(dir, 'base-scripts');
+      git(dir, 'init', '-q', nested);
+      writeFileSync(join(nested, 'a.txt'), 'x');
+      git(nested, 'add', 'a.txt');
+      git(nested, 'commit', '-q', '-m', 'c');
+      expect(run().status).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
