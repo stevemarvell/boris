@@ -62,8 +62,8 @@ export function releaseNotes(pulls, { since = null, branch = 'develop' } = {}) {
 /**
  * Whether the owner has released: a comment `go <sha>` (case-insensitive,
  * trimmed, optional trailing full stop) whose author login is `owner` and whose
- * `<sha>` is a prefix (7 or more hex characters) of `headSha`, the pull
- * request's current head; or the owner having merged the pull request. The go
+ * `<sha>` is the full 40-hex `headSha`, the pull request's current head
+ * (exact match, never a prefix: a short prefix can be ground); or the owner having merged the pull request. The go
  * is bound to the commit, not to a date: a commit pushed after it, whatever
  * committer date it carries, changes the head, so the old go names a sha that
  * is no longer the head. A bare `go`, a stranger's, a bot's, a sha for another
@@ -75,8 +75,8 @@ export function ownerSaidGo({ owner, comments, mergedBy = null, headSha = '' }) 
   const head = String(headSha).toLowerCase();
   return comments.some((c) => {
     if (String(c.user?.login ?? '').toLowerCase() !== me) return false;
-    const m = /^go\s+([0-9a-f]{7,40})\.?$/i.exec(String(c.body ?? '').trim());
-    return Boolean(m) && head.startsWith(m[1].toLowerCase());
+    const m = /^go\s+([0-9a-f]{40})\.?$/i.exec(String(c.body ?? '').trim());
+    return Boolean(m) && head === m[1].toLowerCase();
   });
 }
 
