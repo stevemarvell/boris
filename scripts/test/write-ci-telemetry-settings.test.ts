@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +66,37 @@ describe('ciTelemetryEnv', () => {
 
   it('rejects a repository containing a control character', () => {
     expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_REPOSITORY: 'a/b\nc' })).toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  it('rejects CI_TELEMETRY_WORKFLOW containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, CI_TELEMETRY_WORKFLOW: 'a,evil=1' })).toThrow(/CI_TELEMETRY_WORKFLOW/);
+  });
+
+  it('rejects CI_TELEMETRY_WORKFLOW containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, CI_TELEMETRY_WORKFLOW: 'a=b' })).toThrow(/CI_TELEMETRY_WORKFLOW/);
+  });
+
+  it('rejects GITHUB_RUN_ID containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ID: 'a,evil=1' })).toThrow(/GITHUB_RUN_ID/);
+  });
+
+  it('rejects GITHUB_RUN_ID containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ID: 'a=b' })).toThrow(/GITHUB_RUN_ID/);
+  });
+
+  it('rejects GITHUB_RUN_ATTEMPT containing a comma, which would forge an attribute', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ATTEMPT: 'a,evil=1' })).toThrow(/GITHUB_RUN_ATTEMPT/);
+  });
+
+  it('rejects GITHUB_RUN_ATTEMPT containing an equals sign', () => {
+    expect(() => ciTelemetryEnv({ ...CREDENTIAL, GITHUB_RUN_ATTEMPT: 'a=b' })).toThrow(/GITHUB_RUN_ATTEMPT/);
+  });
+
+  it('writes no settings file when a value is refused', () => {
+    expect(() =>
+      writeCiTelemetrySettings({ ...CREDENTIAL, GITHUB_RUN_ID: '1,x=2' }, settingsPath()),
+    ).toThrow(/GITHUB_RUN_ID/);
+    expect(existsSync(settingsPath())).toBe(false);
   });
 
   it('carries the temporality preference, which the action does not forward', () => {

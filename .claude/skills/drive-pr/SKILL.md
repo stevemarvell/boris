@@ -443,12 +443,15 @@ Whichever step's ceiling was hit (step 1's poll, step 3's rounds, or
 ```bash
 cat > /tmp/drive-pr-stopped.md <<'MD'
 drive-pr stopped: <which ceiling>, after <n> attempts/rounds.
+head: <full sha of the pull request's head commit>
 <what was still failing>
 <what is left to do>
 MD
 gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@/tmp/drive-pr-stopped.md
 ```
 
+The `head:` line is what `scripts/parked.mjs` reads: the pull request counts
+as parked only while its head is that SHA, so any later push un-parks it.
 The quoted heredoc is the point: the failure text is CI output, and it must
 reach the comment as text, not be expanded by the shell. (`add_issue_comment`
 posts the same comment without the shell.)
