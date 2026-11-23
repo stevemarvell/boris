@@ -105,7 +105,16 @@ describe("docs/sops-rules.md", () => {
     }
   });
 
+  // Whole references, so "#15" is not satisfied by "#153".
+  const refs = (text: string) => new Set(text.match(/#\d+\b/g) ?? []);
+  const missingRefs = (short: string, full: string) => [...refs(short)].filter((r) => !refs(full).has(r));
+
   it("every issue number the rules page cites is also in sops.md", () => {
-    for (const ref of new Set(rules.match(/#\d+\b/g))) expect(sops, `${ref} in sops-rules.md`).toContain(ref);
+    expect(missingRefs(rules, sops), "issue numbers in sops-rules.md but not sops.md").toEqual([]);
+  });
+
+  it("matches issue numbers whole: #15 is not satisfied by #153", () => {
+    expect(missingRefs("see #15", "decided in #153")).toEqual(["#15"]);
+    expect(missingRefs("see #153", "decided in #153")).toEqual([]);
   });
 });
