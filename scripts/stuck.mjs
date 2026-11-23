@@ -331,6 +331,7 @@ export function isEmpty(findings) {
   return (
     findings.orphanedBranches.length === 0 &&
     findings.untrackedWorktrees.length === 0 &&
+    (findings.strayFiles ?? []).length === 0 &&
     findings.mergedWorktrees.length === 0 &&
     findings.staleOrConflicting.length === 0 &&
     findings.noChecksRegistered.length === 0
@@ -344,10 +345,25 @@ async function defaultGitStatus(dir) {
   return result.stdout.trim().length > 0;
 }
 
-/** The default directory listing: `[]` for a directory that does not exist, never a thrown error. */
+/**
+ * The default directory listing: names of the sub-directories only, `[]` for a
+ * directory that does not exist, never a thrown error. Plain files are not
+ * listed here — scanning one as if it were a worktree is the ENOTDIR crash
+ * (#414); `defaultReadFiles` reports them instead.
+ */
 function defaultReadDir(dir) {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir);
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+}
+
+/** The default listing of plain files directly in `dir`: `[]` when it does not exist. */
+function defaultReadFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name);
 }
 
 /**
@@ -361,6 +377,7 @@ export async function find({
   develop = 'origin/develop',
   worktreesDir,
   readDir = defaultReadDir,
+  readFiles = defaultReadFiles,
   gitStatus = defaultGitStatus,
   sleep,
 } = {}) {
@@ -411,6 +428,9 @@ export async function find({
     untracked.push({ name, entryCount, hasChanges: hasChanges === null ? null : hasChanges === true });
   }
 
+  // Nothing should write a plain file into the worktrees folder (#414).
+  const strayFiles = readFiles(dir).map((name) => `.claude/worktrees/${name}`);
+
   const merged = mergedWorktrees(worktrees, prs);
 
   const openPrs = prs.filter((pr) => pr.state === 'OPEN');
@@ -425,6 +445,7 @@ export async function find({
   return {
     orphanedBranches: orphaned,
     untrackedWorktrees: untracked,
+    strayFiles,
     mergedWorktrees: merged,
     staleOrConflicting: stale,
     noChecksRegistered: noChecks,
@@ -450,6 +471,9 @@ export function renderFindings(findings) {
         ? `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${entries}, uncommitted changes: unknown — not a git checkout) — inspect before deleting.`
         : `untracked worktree folder: '.claude/worktrees/${w.name}' is not in \`git worktree list\` (${entries}, ${w.hasChanges ? 'with uncommitted changes' : 'no uncommitted changes'}) — inspect it, then remove the folder by hand.`,
     );
+  }
+  for (const path of findings.strayFiles ?? []) {
+    lines.push(`stray file: ${path} — delete it.`);
   }
   for (const w of findings.mergedWorktrees) {
     lines.push(
