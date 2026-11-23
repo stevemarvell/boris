@@ -15,7 +15,7 @@ The reason is cost and independence. An implementer runs on Sonnet in its own
 context; a coordinator writing code spends its own, larger context on it, and
 a coordinator that wrote the code is no longer checking it.
 
-`.claude/agents/` holds three roles. Each file is the agent's *standing*
+`.claude/agents/` holds four roles. Each file is the agent's *standing*
 instructions; it knows nothing about the task until the brief says so. The
 role file carries the rules, the brief carries the task, the spawn carries the
 model (each is pinned to Sonnet; pass `model` only for a deliberate trial;
@@ -26,6 +26,7 @@ the comparison behind that choice is recorded in the base repository).
 | `implementer` | One change end to end: code, tests, `verify`, pull request — or continues an existing pull request. Never merges. | yes, in its own worktree |
 | `code-checker` | Correctness and quality review of a diff or pull request. | nothing |
 | `security-checker` | Exposure review against `docs/data-governance.md`. | nothing |
+| `pr-watcher` | Polls a pull request's checks and reads its reviews for `drive-pr`; returns `clean`, `red`, `findings` or `ceiling` with the head SHA. Read-only tools. | nothing |
 
 CI runs both checkers once per pull request, when it is opened, reopened or
 marked ready, and again only when the `re-review` label is added; it does not

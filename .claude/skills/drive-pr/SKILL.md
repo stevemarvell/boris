@@ -23,6 +23,33 @@ replies and merges; it does not commit to the pull request's branch. Fixes
 in step 3 are committed and pushed by an `implementer` (the one exception is
 a docs-only pull request the driver opened itself).
 
+## Who does what
+
+The Opus coordinator's context is large, and every poll and every forwarded
+review re-sends it (SOP 4). So the mechanical half goes to the `pr-watcher`
+agent (`.claude/agents/pr-watcher.md`, pinned to Sonnet) and the coordinator
+keeps the judgement:
+
+| Step | `pr-watcher` (Sonnet) | Coordinator (Opus) |
+| --- | --- | --- |
+| 1. Poll | runs the loop, returns the head SHA and green or red | reads the result; classifies "CI did not run" |
+| 2. Read reviews | lists open findings as `id, file:line, severity, claim` | decides which are real |
+| 3. Fix and reply | no write tools except Bash, held to GET by instruction | reproduces each finding, briefs the implementer, posts replies and resolves threads, files issues |
+| 4. Merge | nothing | the re-review decision and the merge |
+| 5. Ceiling | reports `ceiling` | posts the stop comment |
+
+Spawn it with the pull request number and send nothing else. Its return is one
+of `clean <sha>` (go to step 4 in the next turn), `findings <sha>` (step 3),
+`red <sha>` (step 2's "CI did not run" test on the ids it lists, else step 3,
+with any findings it lists), or `ceiling <sha>` (step 5). Coordinator
+discipline, not a guard: a report that is none of those, or has no full head
+SHA, is not accepted; run the step yourself. Just before merging, re-read the
+head from the API. If it differs from the SHA the watcher returned, do not
+merge: spawn the watcher again for the new head. After an implementer pushes
+a fix, spawn it again too; do not poll in the coordinator.
+Steps 1 and 2 below are the procedure the agent runs; they stay here so there
+is one copy.
+
 ## The five steps
 
 ### 1. Poll checks until settled — ceiling: 40 polls × 30s
@@ -443,12 +470,15 @@ Whichever step's ceiling was hit (step 1's poll, step 3's rounds, or
 ```bash
 cat > /tmp/drive-pr-stopped.md <<'MD'
 drive-pr stopped: <which ceiling>, after <n> attempts/rounds.
+head: <full sha of the pull request's head commit>
 <what was still failing>
 <what is left to do>
 MD
 gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@/tmp/drive-pr-stopped.md
 ```
 
+The `head:` line is what `scripts/parked.mjs` reads: the pull request counts
+as parked only while its head is that SHA, so any later push un-parks it.
 The quoted heredoc is the point: the failure text is CI output, and it must
 reach the comment as text, not be expanded by the shell. (`add_issue_comment`
 posts the same comment without the shell.)

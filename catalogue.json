@@ -17,6 +17,7 @@
       ".github",
       ".gitignore",
       "docs/sops.md",
+      "docs/sops-rules.md",
       "docs/releases.md",
       "labels.json",
       "scripts",

@@ -27,6 +27,7 @@ const MARKDOWN = [
   { page: 'adoption.html', source: 'docs/adoption.md' },
   { page: 'data-governance.html', source: 'docs/data-governance.md' },
   { page: 'sops.html', source: 'docs/sops.md' },
+  { page: 'sops-rules.html', source: 'docs/sops-rules.md' },
 ];
 const STEP_ZERO = { page: 'step-0.html', source: 'index.html' };
 

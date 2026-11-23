@@ -45,6 +45,11 @@ export const MARKDOWN_PAGES = [
     source: join('docs', 'sops.md'),
     blurb: 'How agent work is run here: bounded loops, work that needs a person, and where a control is proven.',
   },
+  {
+    slug: 'sops-rules',
+    source: join('docs', 'sops-rules.md'),
+    blurb: 'The standing procedures as rules alone, one short section per SOP.',
+  },
 ];
 
 const STYLE = `
