@@ -13,8 +13,8 @@ task itself and the files you own.
 
 Read `CLAUDE.md` at the repository root. Its rules bind you, and it is the
 authority on this project's data model, deployment, and conventions. Read
-`docs/sops.md` too — the standing procedures, including the iteration ceiling
-you work under.
+`docs/sops-rules.md` too — the standing procedures, including the iteration
+ceiling you work under. Open `docs/sops.md` only for the SOP your task touches.
 
 You have your own git worktree. Run `npm run bootstrap` in it first. It
 installs both toolchains and the Playwright browser, takes a few minutes, and
