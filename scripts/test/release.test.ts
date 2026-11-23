@@ -45,16 +45,23 @@ describe('releaseNotes', () => {
 describe('ownerSaidGo', () => {
   const c = (login: string, body: string, created_at = '2026-11-22T10:00:00Z') => ({ user: { login }, body, created_at });
   it('accepts go from the owner, whatever the case or full stop', () => {
-    expect(ownerSaidGo({ owner: 'Steve', comments: [c('steve', ' Go. ')] })).toBe(true);
+    expect(ownerSaidGo({ owner: 'Steve', comments: [c('steve', ' Go abc1234. ')], headSha: 'abc1234ff' })).toBe(true);
   });
   it('ignores a stranger saying go, and the owner merely mentioning it', () => {
-    expect(ownerSaidGo({ owner: 'steve', comments: [c('mallory', 'go')] })).toBe(false);
-    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'not yet, no go'), c('steve', 'go ahead')] })).toBe(false);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('mallory', 'go abc1234')], headSha: 'abc1234ff' })).toBe(false);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'not yet, no go'), c('steve', 'go ahead')], headSha: 'abc1234ff' })).toBe(false);
   });
-  it('a go posted before the head last moved is not a go; one after it is', () => {
-    const comments = [c('steve', 'go', '2026-11-22T10:00:00Z')];
-    expect(ownerSaidGo({ owner: 'steve', comments, after: '2026-11-22T11:00:00Z' })).toBe(false);
-    expect(ownerSaidGo({ owner: 'steve', comments, after: '2026-11-22T09:00:00Z' })).toBe(true);
+  const head = 'abc1234def5678abc1234def5678abc1234def56';
+  it('accepts go <sha> naming the head, from 7 characters up to the whole sha', () => {
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'go abc1234')], headSha: head })).toBe(true);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'Go ABC1234DEF5678.')], headSha: head })).toBe(true);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', `go ${head}`)], headSha: head })).toBe(true);
+  });
+  it('refuses a sha that is not the head, one under 7 characters, and a bare go', () => {
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'go 1111111')], headSha: head })).toBe(false);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'go abc123')], headSha: head })).toBe(false);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('steve', 'go')], headSha: head })).toBe(false);
+    expect(ownerSaidGo({ owner: 'steve', comments: [c('mallory', 'go abc1234')], headSha: head })).toBe(false);
   });
   it('accepts the owner having merged it, not someone else', () => {
     expect(ownerSaidGo({ owner: 'steve', comments: [], mergedBy: 'steve' })).toBe(true);
@@ -107,21 +114,27 @@ describe('against the REST API', () => {
     expect(calls.filter((c) => c.includes('compare')).length).toBe(5);
   });
 
-  it('goGiven: a stranger go is ignored, the owner go after the head commit counts, and it names the head sha to merge', async () => {
-    const base = { 'pulls/7': { merged: false, head: { sha: 'h1' } }, 'commits/h1': { commit: { committer: { date: '2026-11-22T09:00:00Z' } } } };
-    const stranger = gh({ ...base, 'issues/7/comments': [{ user: { login: 'mallory' }, body: 'go', created_at: '2026-11-22T10:00:00Z' }] });
+  it('goGiven: a stranger go is ignored, the owner go <head sha> counts, and it names the head sha to merge', async () => {
+    const base = { 'pulls/7': { merged: false, head: { sha: 'abc1234def' } } };
+    const stranger = gh({ ...base, 'issues/7/comments': [{ user: { login: 'mallory' }, body: 'go abc1234', created_at: '2026-11-22T10:00:00Z' }] });
     expect((await goGiven({ run: stranger.run, repo: 'o/n', pr: 7 })).given).toBe(false);
-    const owner = gh({ ...base, 'issues/7/comments': [{ user: { login: 'o' }, body: 'go', created_at: '2026-11-22T10:00:00Z' }] });
-    expect(await goGiven({ run: owner.run, repo: 'o/n', pr: 7 })).toEqual({ given: true, sha: 'h1' });
+    const owner = gh({ ...base, 'issues/7/comments': [{ user: { login: 'o' }, body: 'go abc1234', created_at: '2026-11-22T10:00:00Z' }] });
+    expect(await goGiven({ run: owner.run, repo: 'o/n', pr: 7 })).toEqual({ given: true, sha: 'abc1234def' });
   });
 
-  it('goGiven: go, then a new commit, is not a go', async () => {
+  it('goGiven: a go, then a back-dated commit pushed after it, is not a go, and the new head sha is reported', async () => {
+    // The pushed commit's committer date (09:00) is earlier than the go (10:00): dates cannot tell, the sha can.
     const moved = gh({
-      'pulls/7': { merged: false, head: { sha: 'h2' } },
-      'commits/h2': { commit: { committer: { date: '2026-11-22T11:00:00Z' } } },
-      'issues/7/comments': [{ user: { login: 'o' }, body: 'go', created_at: '2026-11-22T10:00:00Z' }],
+      'pulls/7': { merged: false, head: { sha: 'fed9876abc' } },
+      'commits/fed9876abc': { commit: { committer: { date: '2026-11-22T09:00:00Z' } } },
+      'issues/7/comments': [{ user: { login: 'o' }, body: 'go abc1234', created_at: '2026-11-22T10:00:00Z' }],
     });
-    expect((await goGiven({ run: moved.run, repo: 'o/n', pr: 7 })).given).toBe(false);
+    expect(await goGiven({ run: moved.run, repo: 'o/n', pr: 7 })).toEqual({ given: false, sha: 'fed9876abc' });
+  });
+
+  it('goGiven: a go naming a mismatched sha is refused', async () => {
+    const wrong = gh({ 'pulls/7': { merged: false, head: { sha: 'abc1234def' } }, 'issues/7/comments': [{ user: { login: 'o' }, body: 'go 9999999' }] });
+    expect((await goGiven({ run: wrong.run, repo: 'o/n', pr: 7 })).given).toBe(false);
   });
 
   it('tagRelease: tags the merge commit by REST and creates the Release with the PR body; refuses an unmerged PR', async () => {
