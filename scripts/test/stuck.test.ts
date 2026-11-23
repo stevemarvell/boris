@@ -607,7 +607,8 @@ describe('find: a plain file in .claude/worktrees (#414)', () => {
       writeFileSync(join(dir, 'w.patch'), 'diff');
       const findings = await find({ gh: fakeGh, git: fakeGit, worktreesDir: dir, gitStatus: async () => false });
       expect(findings.strayFiles).toEqual(['.claude/worktrees/w.patch']);
-      expect(findings.untrackedWorktrees.map((w: { name: string }) => w.name)).toEqual(['agent-leftover']);
+      expect(findings.untrackedWorktrees).toEqual([{ name: 'agent-leftover', entryCount: 1, hasChanges: false }]);
+      expect(renderFindings(findings).join('\n')).toContain('(1 entry,');
       expect(isEmpty(findings)).toBe(false);
       expect(renderFindings(findings)).toContain('stray file: .claude/worktrees/w.patch — delete it.');
     } finally {

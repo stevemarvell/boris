@@ -346,16 +346,13 @@ async function defaultGitStatus(dir) {
 }
 
 /**
- * The default directory listing: names of the sub-directories only, `[]` for a
- * directory that does not exist, never a thrown error. Plain files are not
- * listed here — scanning one as if it were a worktree is the ENOTDIR crash
- * (#414); `defaultReadFiles` reports them instead.
+ * The default directory listing, every entry: `[]` for a directory that does
+ * not exist, never a thrown error. Also used to count an untracked folder's
+ * contents, so it must not filter.
  */
 function defaultReadDir(dir) {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name);
+  return readdirSync(dir);
 }
 
 /** The default listing of plain files directly in `dir`: `[]` when it does not exist. */
@@ -411,7 +408,10 @@ export async function find({
   const mainRoot = worktrees[0]?.path ?? ROOT;
   const dir = worktreesDir ?? join(mainRoot, '.claude', 'worktrees');
   const registeredPaths = worktrees.map((worktree) => worktree.path);
-  const diskNames = readDir(dir);
+  // Plain files are not worktree folders: scanning one is the ENOTDIR crash
+  // (#414). They are reported as strays below instead.
+  const files = new Set(readFiles(dir));
+  const diskNames = readDir(dir).filter((name) => !files.has(name));
   const untrackedNames = untrackedWorktreeFolders(diskNames, registeredPaths);
   const untracked = [];
   for (const name of untrackedNames) {
@@ -429,7 +429,7 @@ export async function find({
   }
 
   // Nothing should write a plain file into the worktrees folder (#414).
-  const strayFiles = readFiles(dir).map((name) => `.claude/worktrees/${name}`);
+  const strayFiles = [...files].map((name) => `.claude/worktrees/${name}`);
 
   const merged = mergedWorktrees(worktrees, prs);
 
