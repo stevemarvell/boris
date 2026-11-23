@@ -174,8 +174,9 @@ request waits for CI. The allowlist checks who opened the pull request,
 not who wrote its commits, so it assumes one writer, the owner's own agents; a
 second writer with push access voids it (`docs/data-governance.md`).
 
-Anything else (a stranger, a fork, `dependabot[bot]`, a workflow change)
-waits for CI; say so on the pull request and stop. Otherwise:
+Anything else (a stranger, a fork, a workflow change) waits for CI; say so on
+the pull request and stop. (A `dependabot[bot]` pull request is not the driver's
+to merge at all: `dependabot-merge.yml` does it on a green `verify`.) Otherwise:
 
 1. **Verify locally.** In a clean worktree on the pull request's head, run
    `npm run verify`, with `TEST_DATABASE_URL` set when
@@ -411,8 +412,9 @@ result:
   request that edits workflows, so a label would buy nothing. Run one combined
   hand review instead, as the `delegate` skill says, and reply to what it finds.
 - **A pull request authored by `dependabot[bot]`**: do not add the label (its
-  runs have no review credential, `docs/data-governance.md`). Run the checkers
-  by hand.
+  runs have no review credential, `docs/data-governance.md`). Do not run the
+  checkers by hand and do not merge it: `dependabot-merge.yml` squash-merges it
+  on a green `verify`, with no hand review (#422).
 
 To ask, delete the label and then add it: `gh api -X DELETE
 repos/{owner}/{repo}/issues/<n>/labels/re-review` (a 404 is fine), then `gh api

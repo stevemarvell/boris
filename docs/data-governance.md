@@ -140,10 +140,11 @@ Two things, and only one of them is written in the configuration:
   and the code and security reviews do not run on a `dependabot[bot]` pull
   request (unless that secret is added, below; the driver also does not add
   `re-review` to one, because whether a human-added label would get the
-  repository's secrets there has not been tested, and runs the checkers by hand). Each review job checks whether the token is available and, when it
+  repository's secrets there has not been tested; it is not hand-reviewed
+  either, and merges on a green `verify` through `dependabot-merge.yml`, #422). Each review job checks whether the token is available and, when it
   is empty and the author is `dependabot[bot]`, skips the review and ends green
   with a notice naming #244 (`.github/workflows/claude-code-review.yml`); those
-  pull requests are reviewed by hand. An empty token on any other pull request
+  pull requests are not reviewed (the owner's decision, #422). An empty token on any other pull request
   is not skipped: the review fails red with a warning, because a lost secret
   must not look like a pass. Adding the token as a Dependabot secret would
   start the Dependabot reviews with no workflow change, and would put the token
@@ -244,7 +245,8 @@ automated review of the later commits. A workflow cannot close that: a label
 added with `GITHUB_TOKEN` starts no workflow run. What closes it is the driver
 rule in `drive-pr` step 4 (which `work-backlog` applies before every merge): it
 defines when to add `re-review` with the coordinator's own token and wait for
-it, and what to do instead for a workflow edit or a Dependabot pull request.
+it, and what to do instead for a workflow edit or a Dependabot pull request (which is not reviewed or merged by the driver
+at all: `dependabot-merge.yml` merges it, below).
 The reviews are advisory, not required.
 The bound therefore holds while one person with write access drives merges and
 follows that rule; **a second writer, or unattended merging without the rule,
@@ -334,6 +336,46 @@ owner's own agents' pull requests: it excludes any that touch
 `.github/workflows/` and any by `dependabot[bot]`. It is bounded by one writer
 and own-agent pull requests only. A second writer, or a third-party pull
 request taking this path, voids it: close the path before either happens.
+
+## The Dependabot merge job
+
+`.github/workflows/dependabot-merge.yml` (#422) squash-merges a pull request
+into `develop` once `verify` has concluded success on its head. The owner's
+decision, 2026-11-23: every Dependabot update type, majors included, with no
+hand review. It is the one job that holds a **write** token
+(`contents: write`, `pull-requests: write`, nothing else), and it is triggered
+by `workflow_run` of `verify`, so it runs from the default branch's copy of the
+file, not the pull request's.
+
+Its bounds, each in the file:
+
+- It checks out nothing and runs no pull-request code; it reads the pull
+  request's author, base and head SHA through the API. A branch name is never
+  trusted, and event text reaches the shell through `env:` only.
+- It merges only when the run concluded `success`, was a `pull_request` run,
+  the pull request's author is `dependabot[bot]` and its base is `develop`.
+- The merge passes `sha: <run head_sha>`, so a head that moved after `verify`
+  started is refused by GitHub (409) and nothing merges.
+
+What this accepts, on the owner's word: **one write account** (the owner)
+plus this job; a merge needs a green `verify` on that exact head and nothing
+else; and **a dependency compromised upstream is accepted**, because no one
+reads the update before it lands. `verify` is the only gate. A second writer,
+or `verify` ceasing to cover what an update can break, voids this.
+
+Does `smoke` run after such a merge? **No.** `smoke.yml` listens on `push` to
+`develop` and `main`, and a push made with `GITHUB_TOKEN` starts no new
+workflow runs (GitHub's documented behaviour; not exercised here). So an
+auto-merged update is not smoke-checked by the merge, and `pr-checks.yml`'s
+`push` run on `develop` is skipped for it the same way. A manual `smoke` run (`workflow_dispatch`) covers it, and
+the next ordinary merge re-checks what is live. `smoke.yml` is unchanged.
+
+Not verified here: GitHub documents that workflows a Dependabot actor starts
+get a read-only `GITHUB_TOKEN`; whether that restriction also reaches a
+`workflow_run` workflow downstream of a Dependabot-triggered `verify` has not
+been observed. If the first real Dependabot pull request answers 403 on the
+merge call, that is why, and the job needs a different token, which is the
+owner's call (#422).
 
 ## What being public does, and does not do
 
