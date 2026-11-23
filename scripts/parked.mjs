@@ -45,7 +45,7 @@ export function isParked(stops, commitDates, headSha) {
   const recorded = stopHead(stop.body);
   if (recorded) {
     const head = String(headSha ?? '').toLowerCase();
-    return head && (head.startsWith(recorded) || recorded.startsWith(head)) ? stop : null;
+    return head && head.startsWith(recorded) ? stop : null;
   }
   const last = commitDates.reduce((a, b) => (b > a ? b : a), '');
   return stop.created_at > last ? stop : null;
@@ -76,9 +76,16 @@ export function listParked(run = gh, logins) {
 
 const escapeRe = (f) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Whether `text` names `file` as a whole path: bounded by start/space/backtick/quote/bracket before, end/space/backtick/quote/punctuation after. */
+/**
+ * Whether `text` names `file` as a whole path. Boundaries reject only what
+ * would make it part of a longer path or name (an alphanumeric, `.`, `/` or
+ * `-` before; an alphanumeric, `-` or `.`+alphanumeric after), so markdown emphasis,
+ * table pipes, quotes and punctuation all still match. A leading `./` is
+ * allowed explicitly.
+ */
 export function namesPath(text, file) {
-  return new RegExp(`(?:^|[\\s\`'"(\\[<])${escapeRe(file)}(?=$|[\\s\`'"()\\]>,.;:!?])`, 'm').test(text);
+  const before = '(?:(?<![A-Za-z0-9./-])|(?<=(?<![A-Za-z0-9./-])\\.\\/))';
+  return new RegExp(`${before}${escapeRe(file)}(?![A-Za-z0-9-]|\\.[A-Za-z0-9])`).test(text);
 }
 
 /** Parked pull requests an issue body collides with: it names one of their files as a whole path, or depends on an issue they claim. */

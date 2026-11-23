@@ -561,8 +561,14 @@ describe('recorded attempts (#395)', () => {
   });
 
   it('attempts by the configured login are counted in the jq', () => {
+    const loginRun = (args: string[]) => (args[1] === 'user' ? '' : 'owner\n');
+    const logins = trustedLogins(loginRun, { login: 'loop-bot[bot]', warn: () => {} });
     let filter = '';
-    attemptLookup(((args: string[]) => ((filter = args[args.indexOf('--jq') + 1] ?? ''), '0')), trustedLogins((a) => (a[1] === 'user' ? 'x'.repeat(0) + '\n' : 'owner\n'), { login: 'loop-bot[bot]', warn: () => {} }))(1);
+    const commentsRun = (args: string[]) => {
+      filter = args[args.indexOf('--jq') + 1] ?? '';
+      return '0';
+    };
+    attemptLookup(commentsRun, logins)(1);
     expect(filter).toContain('.user.login == "loop-bot[bot]"');
     expect(filter).toContain('.user.login == "owner"');
   });

@@ -32,7 +32,11 @@ describe('isParked by head SHA', () => {
   const stop = { created_at: '2026-01-02T00:00:00Z', body: `drive-pr stopped: 2 fix rounds\nhead: ${sha}` };
   it('is parked while the head is the recorded SHA', () => {
     expect(isParked([stop], ['2026-01-01T00:00:00Z'], sha)).toBe(stop);
-    expect(isParked([stop], ['2026-01-01T00:00:00Z'], sha.slice(0, 7))).toBe(stop);
+  });
+  it('a 7-char head in the comment matches the full head, and not a different full head', () => {
+    const short = { created_at: '2026-01-02T00:00:00Z', body: 'drive-pr stopped\nhead: abcdef1' };
+    expect(isParked([short], [], 'abcdef1' + '0'.repeat(33))).toBe(short);
+    expect(isParked([short], [], 'abcdef2' + '0'.repeat(33))).toBeNull();
   });
   it('a push after the stop un-parks, even with commit dates older than the stop', () => {
     expect(isParked([stop], ['2025-12-01T00:00:00Z'], 'b'.repeat(40))).toBeNull();
@@ -109,6 +113,12 @@ describe('listParked', () => {
     expect(overlaps('see project.json, then', parked)).toEqual([30]);
     expect(overlaps('see (project.json)', parked)).toEqual([30]);
     expect(overlaps('project.jsonl', parked)).toEqual([]);
+    expect(overlaps('**project.json**', parked)).toEqual([30]);
+    expect(overlaps('_project.json_', parked)).toEqual([30]);
+    expect(overlaps('| project.json |', parked)).toEqual([30]);
+    expect(overlaps('|project.json|', parked)).toEqual([30]);
+    expect(overlaps('./project.json', parked)).toEqual([30]);
+    expect(overlaps('../project.json', parked)).toEqual([]);
   });
 
   it('says so when more than the cap of pull requests are open', () => {
