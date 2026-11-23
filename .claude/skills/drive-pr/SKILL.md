@@ -34,16 +34,19 @@ keeps the judgement:
 | --- | --- | --- |
 | 1. Poll | runs the loop, returns the head SHA and green or red | reads the result; classifies "CI did not run" |
 | 2. Read reviews | lists open findings as `id, file:line, severity, claim` | decides which are real |
-| 3. Fix and reply | posts the reply text it is handed, resolves threads it is told to | reproduces each finding, briefs the implementer, writes replies, files issues |
+| 3. Fix and reply | nothing (read-only tools) | reproduces each finding, briefs the implementer, posts replies and resolves threads, files issues |
 | 4. Merge | nothing | the re-review decision and the merge |
 | 5. Ceiling | reports `ceiling` | posts the stop comment |
 
 Spawn it with the pull request number and send nothing else. Its return is one
-of `clean <sha>` (go to step 4 in the next turn), `findings <sha>` (step 3), or
-`ceiling <sha>` (step 5). A report that is none of those, or has no full head
-SHA, is not accepted: run the step yourself. Merge only against the SHA it
-returned, re-read from the API just before merging. After an implementer pushes
-a fix, spawn it again for the new head; do not poll in the coordinator.
+of `clean <sha>` (go to step 4 in the next turn), `findings <sha>` (step 3),
+`red <sha>` (step 2's "CI did not run" test on the ids it lists, else step 3,
+with any findings it lists), or `ceiling <sha>` (step 5). Coordinator
+discipline, not a guard: a report that is none of those, or has no full head
+SHA, is not accepted; run the step yourself. Just before merging, re-read the
+head from the API. If it differs from the SHA the watcher returned, do not
+merge: spawn the watcher again for the new head. After an implementer pushes
+a fix, spawn it again too; do not poll in the coordinator.
 Steps 1 and 2 below are the procedure the agent runs; they stay here so there
 is one copy.
 
