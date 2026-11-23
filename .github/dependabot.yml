@@ -31,6 +31,7 @@ version: 2
 #         gets no uv entry (#236).
 #
 # scripts/test/dependabot.test.ts holds this file to project.json.
+
 updates:
   - package-ecosystem: github-actions
     directory: /
