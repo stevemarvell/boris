@@ -31,7 +31,21 @@ const CATALOGUE = JSON.parse(
   readFileSync(join(ROOT, "catalogue.json"), "utf8"),
 ) as { engine: { paths: string[] } };
 const ENGINE = CATALOGUE.engine.paths.flatMap(walk).map((p) => p.replace(/\\/g, "/"));
-const CLAIM = /serves? no (real )?data/i;
+// Wordings covered: a verb of serving, storing or holding followed within 20
+// characters by a bare negation of nothing, or of (real) data; and a negated
+// verb of the same three followed within 20 characters by data. That takes in
+// the spellings the SOPs used plus their obvious rewordings (the fixtures below
+// list one of each). The pattern is a tripwire, not the rule: the
+// security-checker rubric remains the rule, and a reviewer reading the diff
+// catches what a new wording slips past.
+// Assembled from pieces so neither the source nor the fixtures spell out a
+// claim and trip the scan below.
+const VERB = "(serve|store|hold)s?";
+const NIL = "(" + "noth" + "ing|(no|not) (real )?data)";
+const CLAIM = new RegExp(
+  `\\b${VERB}\\b.{0,20}\\b${NIL}\\b|\\bnot ${VERB}\\b.{0,20}\\bdata\\b`,
+  "i",
+);
 
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 const flat = (p: string) => read(p).replace(/\s+/g, " ");
@@ -60,6 +74,27 @@ describe("engine files make no claim about what is served", () => {
     expect(CLAIM.test(`the deployed apps serve ${no} data at all`)).toBe(true);
     expect(CLAIM.test(`because the apps serve ${no} real data.`)).toBe(true);
     expect(CLAIM.test("a site that serves data")).toBe(false);
+  });
+
+  it("the pattern catches a negated verb before data", () => {
+    expect(CLAIM.test(["the apps do", "not", "serve real data"].join(" "))).toBe(true);
+  });
+
+  it("the pattern catches a verb followed by a bare negation", () => {
+    expect(CLAIM.test(`the site serves ${"noth" + "ing"}`)).toBe(true);
+  });
+
+  it("the pattern catches store followed by a negated noun", () => {
+    expect(CLAIM.test(["the app stores", "no", "data"].join(" "))).toBe(true);
+  });
+
+  it("the pattern catches hold followed by a negated qualified noun", () => {
+    expect(CLAIM.test(["the database holds", "no", "real data"].join(" "))).toBe(true);
+  });
+
+  it("the pattern leaves ordinary sentences alone", () => {
+    expect(CLAIM.test("the app stores data in Postgres")).toBe(false);
+    expect(CLAIM.test("a document that states nothing is served or stored")).toBe(false);
   });
 
   it("the sops point at data-governance for what is served", () => {

@@ -33,7 +33,7 @@ Each app also gets a `deployment` skill in its own `.claude/skills/`, once
 - **Nothing here is deployed by default.** `npm run verify` is what keeps
   both shells green; there is no Vercel project building either until
   `npm run deploy:add -- vercel --app <app> ...` adds one. Once an app is
-  deployed, merging to `develop` publishes it — the approval path and the
+  deployed, merging to the production branch (`productionBranch` in `project.json`, default `develop`) publishes it — the approval path and the
   release path are the same.
 
 - **Neither shell serves data.** `docs/data-governance.md` describes an

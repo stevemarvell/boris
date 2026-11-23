@@ -108,6 +108,7 @@ it. An empty one is accepted, but one with any branch is refused.
 
    ```bash
    if [ -d boris ]; then (cd boris && npm run bootstrap); fi
+   if [ -d boris ]; then node boris/scripts/user-telemetry-settings.mjs --repo boris; fi
    ```
 
 2. **[you] Add `CLAUDE_CODE_OAUTH_TOKEN` before the first pull request.**
@@ -145,10 +146,13 @@ it. An empty one is accepted, but one with any branch is refused.
    - protects `develop` if the repository is public. A free-plan repository
      that is not public can't protect a branch (unverified), so "PRs only" is
      a rule people follow there;
-   - files your own work as issues labelled `human` + `do not automate`:
-     the token above, Dependabot's first PR, rewriting the README and
-     `CLAUDE.md` around the product, and Telegram and Grafana, each optional
-     and in its own issue;
+   - files one issue for you, labelled `human` + `do not automate`: the token
+     above. Agent work is filed as ordinary issues, rank label only and
+     unassigned: merging Dependabot's first PR, and rewriting the README and
+     `CLAUDE.md` around the product. Telegram and Grafana are optional and
+     filed only when asked for, as `human` issues:
+     `node scripts/setup.mjs check --with telegram,grafana` (any other name
+     exits 2, naming the valid ones);
    - adds the story template issue, filed from `.github/ISSUE_TEMPLATE/story.md`,
      the same file GitHub's "New issue" button offers;
    - runs the name check, which fails if this base's name is left anywhere it
@@ -299,7 +303,7 @@ Changing a dependency needs npm 11 for the lock step (`npx npm@11 install`);
 
 ```mermaid
 flowchart LR
-  issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>≤ 3 per run"]
+  issue["Issue<br/>ranked, with a done-when"] --> triage["triage<br/>all workable"]
   triage --> pr["Pull request<br/>own worktree"]
   pr --> checks{"verify<br/>(merge gate)"}
   pr -.-> reviews["code + security review,<br/>pr checks<br/>(advisory)"]
@@ -314,7 +318,7 @@ flowchart LR
    `human` and `do not automate`.
 2. **Triage** (`node scripts/triage.mjs`) picks what an agent may take on:
    it skips issues a person owns, issues already in flight, and issues with
-   open dependencies, and takes at most three per run.
+   open dependencies, and lists all that are workable; the run re-triages after each merge until none are left.
 3. **A pull request**, written by an `implementer` agent in its own worktree.
    `verify` is the one check the coordinator waits for before merging;
    nothing mechanical requires it on a free-plan repository until branch protection lands (#340). The code review, security review and `pr checks` (test census and cross-PR
@@ -364,6 +368,7 @@ flowchart LR
 | [`apps/CLAUDE.md`](apps/CLAUDE.md) | The application's layout and deployments; each starter's own rules are in its `CLAUDE.md`. |
 | [`catalogue.json`](catalogue.json) | The engine, starters and providers a product is assembled from. |
 | [`docs/sops.md`](docs/sops.md) | How agent work is run, including every loop's declared limit. |
+| [`docs/releases.md`](docs/releases.md) | The branching strategy and how a change is released, hotfixed and rolled back. |
 | [`docs/data-governance.md`](docs/data-governance.md) | What is exposed, why, and what would change that. |
 | [`docs/adoption.md`](docs/adoption.md) | The adoption ladder being climbed. |
 

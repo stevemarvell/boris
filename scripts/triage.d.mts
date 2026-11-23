@@ -14,17 +14,21 @@ export interface Planned {
   number: number;
   title: string;
   rank: string;
+  attempts?: number;
 }
 export interface Plan {
   work: Planned[];
-  deferred: Planned[];
   notReady: { number: number; title: string; reason: string }[];
   skip: { number: number; title: string; reason: string; author?: string; association?: string }[];
 }
-export declare const MAX_ISSUES_PER_RUN: number;
 export declare const FETCH_LIMIT: number;
 export declare const PAGE_SIZE: number;
 export declare const MAX_PAGES: number;
+export declare const ATTEMPT_MARKER: string;
+export declare const MAX_ATTEMPTS: number;
+export declare function authorClause(logins: string[]): string;
+export declare function trustedLogins(run?: (args: string[]) => string): string[];
+export declare function attemptLookup(run?: (args: string[]) => string, logins?: string[]): (number: number) => number;
 export declare function gh(args: string[]): string;
 export declare function fetchOpen(
   run?: (args: string[]) => string,
@@ -38,7 +42,7 @@ export declare function readiness(issue: Issue): string | null;
 export declare function triage(
   issues: Issue[],
   pullRequests: PullRequest[],
-  max?: number,
   permissionOf?: (login: string) => string,
+  attemptsOf?: (number: number) => number,
 ): Plan;
 export declare function render(plan: Plan, options?: { truncated?: boolean }): string;
