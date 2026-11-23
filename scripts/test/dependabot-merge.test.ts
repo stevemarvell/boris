@@ -39,9 +39,18 @@ describe('dependabot-merge workflow', () => {
     expect(code).not.toMatch(/pull_request_target|^ {2}pull_request:|^ {2}push:/m);
   });
 
-  it('runs only for a successful verify run of a pull request', () => {
-    expect(code).toContain("github.event.workflow_run.conclusion == 'success'");
-    expect(code).toContain("github.event.workflow_run.event == 'pull_request'");
+  it('gates the job itself on a successful verify run of a pull request', () => {
+    // The job-level `if:` (four-space indent), not a mention elsewhere.
+    const block = /^ {4}if: >-\n((?: {6}\S.*\n)+)/m.exec(code);
+    expect(block).not.toBeNull();
+    expect(block![1]).toContain("github.event.workflow_run.conclusion == 'success'");
+    expect(block![1]).toContain("github.event.workflow_run.event == 'pull_request'");
+  });
+
+  it('finds the one open pull request whose head is the verified SHA', () => {
+    expect(code).toContain('.head.sha == "\'"$HEAD_SHA"\'"');
+    expect(code).toContain('.state == "open"');
+    expect(code).toMatch(/if \[ "\$count" -ne 1 \]; then[^\n]*\n[^\n]*\n\s*exit 0/);
   });
 
   it('reads the author from the API and merges only dependabot[bot]', () => {
