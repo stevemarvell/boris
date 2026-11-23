@@ -13,8 +13,9 @@
 //    commit, or an older one whose build inputs are identical according to
 //    its provider — which is what a build its provider's ignore step skipped
 //    leaves behind (scripts/deploy/index.mjs's registry; "vercel"'s is
-//    scripts/deploy/vercel/smoke.mjs) — asked with the same pathspecs the
-//    ignore step uses, so the two cannot disagree. A skipped build passes at
+//    scripts/deploy/vercel/smoke.mjs) — asked through the same function
+//    the ignore step uses (project.mjs's buildInputsChanged), so the two
+//    cannot disagree. A skipped build passes at
 //    once; a build that should have happened still has to show up.
 // 2. The app's own checks, in the script its `smoke` field names, with every
 //    deployed app's URL in the environment under its name upper-cased
@@ -37,13 +38,22 @@
 // does not have to know that, since `deployed(project)` is then empty and
 // the loop below simply does nothing.
 //
+// Which branch publishes production is project.json's `productionBranch`
+// (default `develop`). smoke.yml runs on a push to `develop` and to `main`, and
+// a push to any branch but that one exits 0 here with nothing checked: a
+// product whose `develop` is a preview has no production deployment
+// for that commit to wait for. See notProductionBranch. That push is instead
+// smoked as the develop preview: when productionBranch is `main`, a push to `develop`
+// checks each app's branch alias (the provider derives it) (same gate,
+// same app checks). See isDevelopPush, developProject; docs/releases.md.
+//
 // Usage (smoke.yml runs it with a full-history checkout, fetch-depth: 0):
 //     node scripts/smoke.mjs            # the commit is $GITHUB_SHA, the
 //                                        # gate follows $GITHUB_EVENT_NAME
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { provider } from './deploy/index.mjs';
-import { ROOT, buildPathspecs, deployed, loadProject } from './project.mjs';
+import { ROOT, deployed, loadProject, productionBranch } from './project.mjs';
 
 export const GATE_ATTEMPTS = 40;
 export const GATE_INTERVAL_MS = 15_000;
@@ -53,10 +63,22 @@ export function appUrls(project) {
   return Object.fromEntries(deployed(project).map(([name, app]) => [name.toUpperCase().replace(/[^A-Z0-9]/g, '_'), app.deploy.url]));
 }
 
+export function isCommitSha(value) {
+  return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+}
+
+/** The production git runner: stdout matters, buildInputsChanged reads `git show`. */
+export function runGit(args, cwd = ROOT) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return { status: result.status ?? -1, stdout: result.stdout ?? '' };
+}
+
 async function reportedCommit(fetchJson, url) {
   try {
     const body = await fetchJson(url);
-    return typeof body?.commit === 'string' ? body.commit : '';
+    // Reaches `git diff` and `git show` as a revision: anything but a full
+    // lowercase SHA is an unknown deployment, which keeps polling and fails safe.
+    return isCommitSha(body?.commit) ? body.commit : '';
   } catch {
     return ''; // A cold start or a stale route: not an answer yet, go round again.
   }
@@ -65,14 +87,13 @@ async function reportedCommit(fetchJson, url) {
 /** Wait until the app reports `sha`, or a commit with identical build inputs. */
 export async function waitForCommit({ project, name, sha, fetchJson, git, sleep, log, attempts = GATE_ATTEMPTS }) {
   const app = project.apps[name];
-  const pathspecs = buildPathspecs(project, name);
   const endpoint = `${app.deploy.url}${app.deploy.commitEndpoint}`;
   const { buildIsEquivalent } = provider(app.deploy.provider);
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const deployedSha = await reportedCommit(fetchJson, endpoint);
     log(`${name} attempt ${attempt}: deployed=${deployedSha || '<none>'}`);
     if (deployedSha === sha) return { ok: true, reason: `${name} is serving this commit` };
-    if (deployedSha && buildIsEquivalent({ git, pathspecs, deployedSha, sha })) {
+    if (deployedSha && buildIsEquivalent({ git, project, name, deployedSha, sha })) {
       return { ok: true, reason: `${name} is serving ${deployedSha}, whose inputs match this commit; its build was skipped` };
     }
     if (attempt < attempts) await sleep(GATE_INTERVAL_MS);
@@ -88,6 +109,38 @@ export async function waitForCommit({ project, name, sha, fetchJson, git, sleep,
  * skips the one check that catches a stale deploy. */
 export function gateForEvent(eventName) {
   return eventName !== 'schedule' && eventName !== 'workflow_dispatch';
+}
+
+/** The short branch name in a GITHUB_REF (`refs/heads/main` is `main`); null for a tag, a pull request ref, or nothing. */
+export function branchOfRef(ref) {
+  const match = /^refs\/heads\/(.+)$/.exec(ref ?? '');
+  return match ? match[1] : null;
+}
+
+/** A push to a branch that is not the production branch has no production deployment to wait for: the message to
+ * print and exit 0 on, or null when smoke should run. `schedule` and `workflow_dispatch` are never skipped: they
+ * check whatever is live, and their GITHUB_REF is the default branch or whichever branch was dispatched, not a
+ * commit that should have deployed. No ref at all is not skipped either: fail closed, not open. */
+export function notProductionBranch({ project, ref, eventName }) {
+  if (eventName === 'schedule' || eventName === 'workflow_dispatch' || !ref) return null;
+  const branch = branchOfRef(ref);
+  if (branch !== null && branch === productionBranch(project)) return null;
+  return `not the production branch (${ref}); nothing to smoke`;
+}
+
+/** Whether this run is a push to `develop` while production is published from `main`: the develop-preview case. */
+export function isDevelopPush({ project, ref, eventName }) {
+  return eventName === 'push' && branchOfRef(ref) === 'develop' && productionBranch(project) === 'main';
+}
+
+/** `project` with every deployed app's `deploy.url` replaced by its `develop` branch alias. Apps without a deploy block are untouched. */
+export function developProject(project) {
+  const apps = Object.fromEntries(
+    Object.entries(project.apps).map(([name, app]) =>
+      app.deploy ? [name, { ...app, deploy: { ...app.deploy, url: provider(app.deploy.provider).branchAlias(app.deploy, 'develop') } }] : [name, app],
+    ),
+  );
+  return { ...project, apps };
 }
 
 /** Gate and check every deployed app. Stops at the first failure.
@@ -132,8 +185,28 @@ export async function smoke({ project, sha, fetchJson, git, sleep, run, log, gat
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  // SMOKE_PROJECT_JSON points the process at another project.json (the process tests use it, so they do not
+  // depend on the repository running them); unset, it is the repository's own.
+  let loaded;
+  try {
+    loaded = process.env.SMOKE_PROJECT_JSON ? loadProject(process.env.SMOKE_PROJECT_JSON) : loadProject();
+  } catch (error) {
+    const source = process.env.SMOKE_PROJECT_JSON ? `SMOKE_PROJECT_JSON (${process.env.SMOKE_PROJECT_JSON})` : 'project.json';
+    console.error(`cannot load ${source}: ${error.message}`);
+    process.exit(1);
+  }
+  const target = { project: loaded, ref: process.env.GITHUB_REF, eventName: process.env.GITHUB_EVENT_NAME };
+  // A push to develop when main is production is the develop preview: check the develop alias instead of skipping.
+  const developPush = isDevelopPush(target);
+  const project = developPush ? developProject(loaded) : loaded;
+  if (developPush) console.log('develop: checking the develop branch alias of each deployed app');
+  const skipped = developPush ? null : notProductionBranch(target);
+  if (skipped) {
+    console.log(skipped);
+    process.exit(0);
+  }
   const result = await smoke({
-    project: loadProject(),
+    project,
     sha: process.env.GITHUB_SHA,
     gate: gateForEvent(process.env.GITHUB_EVENT_NAME),
     fetchJson: async (url) => {
@@ -141,10 +214,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       if (!response.ok) throw new Error(`${response.status}`);
       return response.json();
     },
-    git: (args) => {
-      const result = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
-      return { status: result.status ?? -1 };
-    },
+    git: runGit,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     run: (script, urls) =>
       spawnSync('bash', [script], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, ...urls } }).status ?? -1,

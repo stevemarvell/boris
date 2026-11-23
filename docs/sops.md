@@ -41,11 +41,13 @@ so a loop under its attempt ceiling can still run long.
 | `verify` → fix → `verify` | 3 attempts | `.claude/commands/ship.md`, enforced by `.claude/hooks/verify-on-stop.mjs` |
 | `verify` run and report | 1 attempt | `.claude/commands/gate.md` |
 | Sending an agent back for rework | 2 rounds | this document |
-| Implementer agents running at once | 3 | `.claude/skills/delegate/SKILL.md` |
+| Agents running at once | 3 unless the owner sets another number for the run, on non-overlapping paths only; fewer as usage nears its limit, and none started that the remaining usage window cannot finish | `.claude/skills/delegate/SKILL.md` |
 | Polling a deployment in `smoke` | 40 × 15s per app for the freshness gate; 30 × 15s per app check | `scripts/smoke.mjs` (`GATE_ATTEMPTS`); each app's `smoke` script, per loop |
 | Polling the pull request's check runs in `drive-pr` | 40 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
 | Polling the post-merge `smoke` run in `drive-pr` | 30 attempts × 30s | `.claude/skills/drive-pr/SKILL.md` |
-| Issues worked in one `work-backlog` run | 3, re-triaged after each merge | `scripts/triage.mjs`, `MAX_ISSUES_PER_RUN` |
+| Issues worked in one `work-backlog` run | No count. The maximum is the usage window: the run re-triages after each merge and continues until triage lists nothing, or usage reaches its limit, then records what is in flight and schedules one resume after the reset | `.claude/skills/work-backlog/SKILL.md`, `.claude/skills/delegate/SKILL.md` ("On a usage limit") |
+| Pull requests parked at a `drive-pr` ceiling in one `work-backlog` run | No count; the run goes on to the next independent issue and reports each parked pull request | `.claude/skills/work-backlog/SKILL.md` (step 3), `scripts/parked.mjs` |
+| Failed attempts (no pull request) recorded on one issue by `work-backlog` | 2, counted from `<!-- backlog-attempt -->` comments on the issue, then it is labelled `human` and `do not automate` and triage lists it under Skip whatever its labels. Enforced in `scripts/triage.mjs` (tested), so a resumed run cannot lose the tally; writing the comment and label is the loop's discipline | `.claude/skills/work-backlog/SKILL.md` (steps 2 and 3), `scripts/triage.mjs` |
 | Paging Vercel deployments in `preview-prune` | 20 pages × 100 per project | `scripts/deploy/vercel/vercel-prune.mjs`, `MAX_PAGES` |
 
 Smoke is the model the rest of this follows. Every wait in an app's smoke
@@ -56,6 +58,11 @@ progress is visible in the log, and running out is a specific failure rather
 than a timeout. That is what a bounded loop should look like.
 
 ### What enforces this
+
+**The usage-window bound is discipline.** Nothing reads remaining usage: the
+session follows "fewer agents as usage nears its limit" by judgement. The only
+mechanical stop is the platform cutting the session at its usage limit, which
+is why the resume is scheduled and in-flight work is recorded before then.
 
 **Today: nothing mechanical, for the model-driven loops.** SOP 1 is a
 discipline that a session follows by reading it. Be honest about that rather
@@ -68,13 +75,77 @@ Three loops *are* mechanically bounded:
 - Smoke's waits, by `GATE_ATTEMPTS` and the `seq` bounds above.
 - The rate limiter, at 120 requests per minute — see `docs/data-governance.md`.
 - The fix-and-retry loop the stop hook drives.
-  `.claude/hooks/verify-on-stop.mjs` blocks the end of a turn while `verify`
-  is red, which is what creates that loop. It now counts consecutive blocks,
-  per session, in a file outside the checkout. At the third red in a row it
+  `.claude/hooks/verify-on-stop.mjs` runs the checks for what changed: the
+  harness's for engine code, and each affected app's for that app's paths. A
+  change to a file that drives the app checks (`project.json`,
+  `scripts/project.mjs`, `scripts/verify-apps.mjs`, `package.json`,
+  `package-lock.json`) runs every app's checks as well as the harness's. Full
+  `verify` stays the pre-PR contract. The hook blocks the end of a turn while
+  one of its checks is red, which is what creates that loop. It now counts
+  consecutive blocks, per session, in a file outside the checkout. At the third
+  red in a row it
   stops blocking, ends the turn, and reports the failure to the person. A green
   run, or a new turn from the person, resets the count. The ceiling is
   `MAX_CONSECUTIVE_BLOCKS`, and a test holds it to the three attempts
   `.claude/commands/ship.md` declares.
+
+### What CI runs, and when
+
+The branch scheme (`main` production, `develop` a preview) and the release,
+hotfix and rollback procedures are `docs/releases.md`.
+
+Actions bills every job rounded up to a whole minute, on a free allowance, so
+what a push or a merge starts is a spending decision and is written down here.
+
+- **`verify` runs on pull requests and by hand (`workflow_dispatch`). It does
+  not run on a push to `develop`.** The merge re-ran what the pull request had
+  just passed. The price: **nothing mechanical verifies a direct push to
+  `develop`**, so "never commit or push directly to `develop`" is discipline
+  alone, with no check behind it either way. It was already unenforced on a
+  free-plan repository (public since 2026-11-15; rulesets are tracked in #340), but a bad direct push used to
+  turn the next `verify` red and now does not. A person who suspects one runs
+  `verify` by hand from the Actions tab against `develop`.
+- **`pr checks`** (`pr-checks.yml`) is the census and contention in one job,
+  on pull request events including `edited` (a body edit is how a `Removes
+  tests:` line is read) and on a push to `develop` (contention only: it is the
+  one thing that tells an open pull request a merge broke it).
+  `verify` has no `edited` trigger and must not gain one: a full verify per
+  body edit costs far more than the census saves.
+- **`scope` is a job of its own** in `claude-code-review.yml` because the two
+  review jobs `needs:` it, and `needs:` cannot cross workflows. Folding it into
+  `pr-checks` would put the reviews on `edited` and onto pushes. It checks out
+  the base commit on purpose (see the workflow), so it stays apart from the
+  credentialed jobs too.
+- **The Claude reviews run once per pull request**: when it is opened, reopened
+  or marked ready. They do not re-run on a push. The `re-review` label runs
+  both once more and the workflow removes it when they finish. When the driver
+  adds it is defined in `drive-pr` step 4 and nowhere else. Nothing adds the
+  label by itself, so no review loop can run unattended.
+- **`smoke` runs on every push to `develop` and `main`**, and checks the
+  production branch (`productionBranch` in `project.json`, default `develop`).
+  With `productionBranch: "main"`, a push to `develop` checks each app's
+  `<project>-git-develop-<team>.vercel.app` alias instead; any other
+  push exits 0 with "not the production branch ... nothing to smoke". How a
+  change reaches `main` is `docs/releases.md`. Once an app deploys it also runs on a
+  schedule every 6 hours (`SMOKE_SCHEDULE` in `scripts/deploy/add.mjs`).
+- **A deployed app rebuilds only for what it reads.** Its `reads` and
+  `ignores`, `scripts/project.mjs` and the provider's ignore script are
+  diffed as paths. `project.json` is not watched as a file, because every
+  engine sync bumps `engine.commit` in it: when it differs, base and HEAD are
+  compared with exactly two things removed, the `engine` block and the other
+  apps' entries, and any other difference (this app's entry, the top-level
+  `name`, a new key) builds. An unreadable or unparseable manifest builds. Dropping the other apps' entries assumes no build reads another app's entry (a CORS list or API base URL built from its `deploy.url`); `scripts/test/apps-read-manifest.test.ts` fails if an app reads anything from `project.json` but `name`. The ignore step and the `smoke` freshness gate
+  ask this through one function, `buildInputsChanged` in `scripts/project.mjs`.
+
+Cost, **estimated**, not metered per change. The source is the billed minutes
+per job measured over 2026-11-08 to 2026-11-10: `verify` about 2.4 on pull
+requests, code review about 1.9, security review about 1.7, and `scope`, census
+and contention about 1 each (rounded up per job). Before these cuts that was
+about 9 billed minutes per push to a pull request, and about 4 more per merge.
+After, a push should cost about 3.4 (`verify` and `pr checks`), the reviews
+about 5.6 more (`scope`, both reviews, and the `clear re-review` job, which bills at least a minute) only on open and on `re-review`, and a merge about
+2 (`pr checks` and `smoke`). Re-measure from the Actions usage report before
+relying on these.
 
 ---
 
@@ -92,6 +163,15 @@ ours to make — the issue carries **both** labels:
 - **`do not automate`** — and an agent should not start it first
 
 and is assigned to the person who will do it.
+
+The issue's **Details to complete** section (`.github/ISSUE_TEMPLATE/story.md`)
+is its instructions, written so the person can do the work without asking
+anything: numbered steps in order, where to click or what to run, the exact
+values, each command in its own fenced block, what to comment back when done,
+and, where a step needs a secret, that the person enters it themselves and it
+never goes in the repository, an issue or a chat. A `human` issue is not ready
+to hand over until it has them. Its acceptance criteria follow the same rule as
+every issue's: each **Then** states what is true afterwards, in positive terms.
 
 Both labels, not one. `do not automate` alone says *stop*; `human` alone says
 *someone should*. Together they say who, and that the stopping is deliberate
@@ -170,8 +250,8 @@ whatever it spends. `.claude/hooks/filter-verbose.mjs` shrinks CI logs and
 no model.
 
 **Spawn fewer agents.** Each one carries its own context window, loads
-`CLAUDE.md`, and costs 57k–144k tokens on the evidence in
-the model-tiering trial recorded in the base repository. Parallel agents multiply that directly; the
+`CLAUDE.md`, and costs about 105k–165k tokens (observed
+per implementer run, 2026-11-15/16; the model-tiering trial in the base repository measured 57k–144k). Parallel agents multiply that directly; the
 documentation puts agent teams at roughly seven times a standard session. Three
 well-scoped agents beat seven overlapping ones, and cost less than half.
 Fewer is not none: code still goes to an `implementer`. A Sonnet agent with a
@@ -256,8 +336,9 @@ posture, what bounds it, and the trigger that voids the decision.
   The trigger is named: a second one gets it.
 - An exposed schema ranks where it does because it describes invented data.
   The trigger is the same one above.
-- `docs/data-governance.md` is defensible because the deployed apps serve no
-  real data. The trigger is real data landing.
+- `docs/data-governance.md` is defensible while it matches what the deployed
+  apps serve, which that document states. The trigger is real data landing
+  in an app (what is served changing) without that document being updated.
 
 A `medium` with no stated bound is a guess wearing a label. The bound is the
 argument; the label is only its conclusion.
@@ -289,6 +370,10 @@ arrive at it.
 
 Asking is not the cautious choice. It reads as deference, so it never draws the
 scrutiny a risky action draws, and that is what makes it expensive.
+
+No turn ends with a question or an offer of further work. What is on this side
+of the line is done and reported; what is on the other side becomes a human
+issue (SOP 2), and that thread stops there.
 
 ### The test is recoverability, not scope
 
@@ -511,12 +596,13 @@ conflict by deleting evidence, and nothing in the file's own suite can tell.
 
 ### What enforces this
 
-The `test census` check (`scripts/test-census.mjs`) counts declarations on
+The test census (`scripts/test-census.mjs`, a step of the `pr checks` job) counts declarations on
 both sides of a pull request and goes red when the head has fewer without that
 line. It is the backstop, and it counts declarations rather than results — a
 row deleted from inside an `it.each` table is still invisible.
 
-The `contention` check (`scripts/pr-contention.mjs`) is the earlier warning.
+The contention step (`scripts/pr-contention.mjs`, the other step of the `pr
+checks` job) is the earlier warning.
 It three-way merges every open pull request against the base tip and against
 every other open head, and comments when two collide — naming which of the
 conflicting files are test files, because those are the ones this SOP is about.
@@ -641,7 +727,7 @@ effect of closing it.
 This is a legitimate outcome — a note records why this project deliberately
 runs without one — for the half of the gap CI cannot close. It is bounded
 the same way the rest of that gap is bounded: one person has write access,
-the deployed apps serve no data at all (`docs/data-governance.md`), and the
+what the deployed apps serve is in `docs/data-governance.md`, and the
 realistic risk on a laptop session is a prompt-injected agent rather than a
 malicious one. CI was the sharper case *because* it is the one place here
 that already reads content nobody here wrote — a laptop session reads

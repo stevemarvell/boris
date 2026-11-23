@@ -14,7 +14,7 @@ Everything this project publishes about itself builds into the web app's own
 bundle, at `/docs/`. It is reachable wherever that app is deployed —
 `npm run deploy:add` is what deploys it — and nowhere while it isn't; this
 repository's own default is nothing deployed. Nothing here is ever hosted
-anywhere a private repository cannot reach.
+anywhere outside that deployment.
 
 | URL | Source |
 | --- | --- |

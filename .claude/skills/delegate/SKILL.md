@@ -27,17 +27,34 @@ the comparison behind that choice is recorded in the base repository).
 | `code-checker` | Correctness and quality review of a diff or pull request. | nothing |
 | `security-checker` | Exposure review against `docs/data-governance.md`. | nothing |
 
-CI already runs both checkers on every pull request (`claude-code-review.yml`).
-Spawn one by hand only for a review CI cannot do — a pull request that edits
-`.github/workflows/`, where `claude-code-action` refuses to run.
+CI runs both checkers once per pull request, when it is opened, reopened or
+marked ready, and again only when the `re-review` label is added; it does not
+re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
+`drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
+request that edits `.github/workflows/`, where `claude-code-action` refuses to
+run, or one authored by `dependabot[bot]`. Give it **one combined hand review**:
+a single brief to one `security-checker` agent that tells it to apply
+`.claude/agents/security-checker.md` in full and then `code-checker.md`, and
+to report the two sets of findings separately. It is one agent, not two, and
+the security rubric is never cut down.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
 the same check.
 
-**Ceiling: 3 implementers at once**, matching `MAX_ISSUES_PER_RUN` (SOP 1).
-Each costs 57k–144k tokens (SOP 4), and parallel agents on overlapping files
-only produce `contention`.
+**Ceiling: 3 agents at once, unless the owner sets another number for the run** (SOP 1). The number of issues a run works has no count; its maximum is the usage window (below), and the number of agents running falls as usage nears the limit.
+This is discipline; nothing counts running agents. Within it, **run them in
+parallel only on issues whose paths do not overlap**
+(overlap only produces contention warnings, `pr checks`), and **start no more
+than the remaining usage window can finish**: an agent killed at a usage limit
+wastes everything it spent. Each costs about 105k–165k tokens (SOP 4). Issues
+that touch the same files go in **one brief and one PR**. The coordinator
+relays only each agent's final report, not its progress (SOP 1).
+
+**On a usage limit** (an agent or a review run stops on one): record what is
+in flight (issues, PRs, agents) in the run's report, schedule one resume after
+the reset time the limit states, and start no new work until then. Other
+skills point here.
 
 ## The brief
 
@@ -47,7 +64,8 @@ An implementer starts cold. The brief must carry:
    `Closes #<n>` from it.
 2. **The done-when**, copied from the issue rather than paraphrased: when the
    issue follows the story template, its Given/When/Then scenarios are the
-   done-when, one test per scenario.
+   done-when, one test per scenario, and its **Details to complete** are the
+   inputs and decisions already made.
 3. **The files it owns.** It is told to stay inside them, so a missing file
    becomes a report instead of a change. Two parallel agents never own the same
    file.
@@ -66,7 +84,9 @@ its checkout, ports and branch are its own — see the `worktrees` skill.
 The report is a claim, not evidence. Its pull request is the work:
 
 1. Read the diff. Check that it stayed inside its files and did what the brief
-   asked — not only that `verify` is green. Where it changed something a person
+   asked — not only that `verify` is green. Read its
+   "Decisions made" list: open questions it decided and recorded with the
+   reason (SOP 6) rather than stopped for. Where it changed something a person
    would see, look at it on the preview (SOP 3, SOP 9).
 2. Run `drive-pr <n>`. That polls checks, sends review findings back to an
    implementer, merges, and confirms smoke.
