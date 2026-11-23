@@ -33,11 +33,17 @@ marked ready, and again only when the `re-review` label is added; it does not
 re-run on a push (`claude-code-review.yml`; when the driver asks for one is in
 `drive-pr` step 4). Spawn one by hand only for a review CI cannot do — a pull
 request that edits `.github/workflows/`, where `claude-code-action` refuses to
-run, or one authored by `dependabot[bot]`. Give it **one combined hand review**:
+run. Give it **one combined hand review**:
 a single brief to one `security-checker` agent that tells it to apply
 `.claude/agents/security-checker.md` in full and then `code-checker.md`, and
 to report the two sets of findings separately. It is one agent, not two, and
 the security rubric is never cut down.
+
+A pull request authored by `dependabot[bot]` gets **no hand review**: the
+owner decided on 2026-11-23 that every Dependabot update, majors included,
+merges on a green `verify` (#422). `.github/workflows/dependabot-merge.yml`
+squash-merges it, pinned to the head SHA `verify` ran on; nobody spawns a
+checker for it and nobody merges it by hand.
 
 Never hand over an issue labelled `human`, `do not automate`, `blocked…` or
 `template`. `scripts/triage.mjs` already excludes them; a hand-picked task gets
