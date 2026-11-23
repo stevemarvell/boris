@@ -175,6 +175,8 @@ write access" — the sandbox is a second layer around what the reviewing
 session itself can do with its two allowed commands, not a boundary around
 the step that hands it the credential.
 
+The review jobs pin `--permission-mode default` explicitly (and `claude.yml` pins `acceptEdits`), because the action's default became `auto` in v1.0.275, which would turn "a tool not in `--allowedTools` is denied" into a classifier decision; `scripts/test/claude-action-model-pin.test.ts` fails if a step omits it.
+
 ### A third job of the same shape, holding a different thing
 
 `pr checks` in `.github/workflows/pr-checks.yml` carries no Grafana
