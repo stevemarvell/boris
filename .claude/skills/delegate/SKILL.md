@@ -56,7 +56,7 @@ parallel only on issues whose paths do not overlap**
 than the remaining usage window can finish**: an agent killed at a usage limit
 wastes everything it spent. Each costs about 105k–165k tokens (SOP 4). Issues
 that touch the same files go in **one brief and one PR**. The coordinator
-relays only each agent's final report, not its progress (SOP 1).
+relays only each agent's final report, not its progress.
 
 **On a usage limit** (an agent or a review run stops on one): record what is
 in flight (issues, PRs, agents) in the run's report, schedule one resume after
