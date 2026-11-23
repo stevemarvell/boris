@@ -43,6 +43,16 @@ export function gh(args) {
 
 const realSleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
+/** Longest check name printed; names are data from the pull request, and the result stays one line. */
+export const MAX_NAME_LENGTH = 100;
+
+/** A check name made safe for one line of output: control characters (newlines included) become spaces, capped at MAX_NAME_LENGTH. */
+export function cleanName(name) {
+  // eslint-disable-next-line no-control-regex
+  const flat = String(name ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim();
+  return flat.length > MAX_NAME_LENGTH ? `${flat.slice(0, MAX_NAME_LENGTH - 1)}…` : flat;
+}
+
 /**
  * Judge a list of check runs: `{ state, failed }`. `state` is `pending`
  * when the list is empty or any run has not completed, else `fail` when any
@@ -52,7 +62,7 @@ const realSleep = (ms) => new Promise((resolvePromise) => setTimeout(resolveProm
 export function judge(checkRuns) {
   const runs = checkRuns ?? [];
   if (runs.length === 0 || runs.some((run) => run.status !== 'completed')) return { state: 'pending', failed: [] };
-  const failed = runs.filter((run) => !PASSING.has(run.conclusion)).map((run) => run.name);
+  const failed = runs.filter((run) => !PASSING.has(run.conclusion)).map((run) => cleanName(run.name));
   return failed.length > 0 ? { state: 'fail', failed } : { state: 'pass', failed: [] };
 }
 
@@ -116,9 +126,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const pull = process.argv[2];
   if (!/^\d+$/.test(pull ?? '')) {
     process.stderr.write('usage: node scripts/wait-checks.mjs <pull request number>\n');
-    process.exit(64);
+    process.exitCode = 64;
+  } else {
+    // exitCode, not exit(): exit() right after a write can drop output on a pipe.
+    const result = await waitChecks(pull, { log: (line) => process.stderr.write(`${line}\n`) });
+    process.stdout.write(`${render(result)}\n`);
+    process.exitCode = exitCode(result);
   }
-  const result = await waitChecks(pull, { log: (line) => process.stderr.write(`${line}\n`) });
-  process.stdout.write(`${render(result)}\n`);
-  process.exit(exitCode(result));
 }

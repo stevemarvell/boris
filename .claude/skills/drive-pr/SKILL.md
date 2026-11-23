@@ -495,11 +495,14 @@ it. It prints one line and exits with one of three codes:
 | 0 | `smoke: pass <sha> <run id>` | the `smoke` run for the merge commit completed with `success` |
 | 1 | `smoke: fail <sha> <run id>` | it completed with any other conclusion |
 | 2 | `smoke: pending after 30 attempts <sha>` | the ceiling: stop and report that `smoke` never finished, without guessing at a result it never produced |
+| 64 | `smoke: pull request #<n> is not merged` | nothing to wait on (or a usage error): stop and report |
 
 - **Pinned to the merge commit.** The script lists the `smoke` runs for the
   merge commit's own sha, so a poll that lands before GitHub registers the
   new run waits, rather than reading the previous merge's result as this
-  one's. A pull request that is not merged exits 1 with a line saying so.
+  one's. A pull request that is not merged
+  exits 64, not 1, with `smoke: pull request #<n> is not merged` and no run
+  id: that is a precondition failure, not a smoke result; do not file an issue.
 - **On exit 1**, pull the failing step's log tail and open
   an issue from it — the record this project's `smoke`-after-merge row has no
   other mechanism for:

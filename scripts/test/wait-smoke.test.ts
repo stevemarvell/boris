@@ -88,10 +88,11 @@ describe('waitSmoke', () => {
     expect(slept).toHaveLength(SMOKE_ATTEMPTS - 1);
   });
 
-  it('exits 1 at once for a pull request that is not merged', async () => {
+  it('exits 64 (not 1, which is a smoke failure) at once for a pull request that is not merged', async () => {
     const { run } = fakeGh([{ runs: [] }], false);
     const result = await waitSmoke(7, { gh: run, sleep: sleeper().sleep });
     expect(render(result)).toBe('smoke: pull request #7 is not merged');
-    expect(exitCode(result)).toBe(1);
+    expect(exitCode(result)).toBe(64);
+    expect(exitCode(result)).not.toBe(1);
   });
 });

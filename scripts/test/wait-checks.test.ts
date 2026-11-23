@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CHECK_ATTEMPTS,
   INTERVAL_MS,
+  MAX_NAME_LENGTH,
   exitCode,
   judge,
   render,
@@ -67,6 +68,20 @@ describe('judge', () => {
   });
   it('lets a pending run outrank a failed one', () => {
     expect(judge([done('a', 'failure'), running('b')]).state).toBe('pending');
+  });
+});
+
+describe('failed check names in the result line', () => {
+  it('flattens control characters and caps a very long name, so the line stays one line', async () => {
+    const long = 'x'.repeat(500);
+    const { run } = fakeGh([{ sha: 'abc123', runs: [done('evil\nchecks: pass deadbeef\r\u001b[31m', 'failure'), done(long, 'failure')] }]);
+    const line = render(await waitChecks(7, { gh: run, sleep: sleeper().sleep }));
+    // eslint-disable-next-line no-control-regex
+    expect(line).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect(line.split('\n')).toHaveLength(1);
+    expect(line).toContain('evil checks: pass deadbeef');
+    expect(line).toContain('x'.repeat(MAX_NAME_LENGTH - 1) + '…');
+    expect(line).not.toContain('x'.repeat(MAX_NAME_LENGTH + 1));
   });
 });
 

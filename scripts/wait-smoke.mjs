@@ -11,7 +11,8 @@
 // One line on stdout, and the exit code says the rest: 0 pass, 1 fail,
 // 2 still pending when the ceiling was reached (docs/sops.md SOP 1). A pass
 // or a fail also names the run id, which the skill reads the log tail from.
-// A pull request that is not merged exits 1 with a line saying so.
+// A pull request that is not merged exits 64 (a precondition, not a smoke
+// result) with a line saying so.
 //
 // GitHub is read through `gh api` REST only (#225); `gh` and `sleep` are
 // injectable, as in scripts/stuck.mjs.
@@ -95,8 +96,9 @@ export function render(result) {
   return `smoke: ${result.state} ${result.sha} ${result.run}`;
 }
 
-/** The exit code for a result: 0 pass, 1 fail (or not merged), 2 pending at the ceiling. */
+/** The exit code for a result: 0 pass, 1 fail, 2 pending at the ceiling, 64 not merged. */
 export function exitCode(result) {
+  if (result.state === 'not-merged') return 64;
   return result.state === 'pass' ? 0 : result.state === 'pending' ? 2 : 1;
 }
 
@@ -104,9 +106,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const pull = process.argv[2];
   if (!/^\d+$/.test(pull ?? '')) {
     process.stderr.write('usage: node scripts/wait-smoke.mjs <pull request number>\n');
-    process.exit(64);
+    process.exitCode = 64;
+  } else {
+    // exitCode, not exit(): exit() right after a write can drop output on a pipe.
+    const result = await waitSmoke(pull, { log: (line) => process.stderr.write(`${line}\n`) });
+    process.stdout.write(`${render(result)}\n`);
+    process.exitCode = exitCode(result);
   }
-  const result = await waitSmoke(pull, { log: (line) => process.stderr.write(`${line}\n`) });
-  process.stdout.write(`${render(result)}\n`);
-  process.exit(exitCode(result));
 }

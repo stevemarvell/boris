@@ -21,4 +21,4 @@ export declare function waitSmoke(
   },
 ): Promise<SmokeResult>;
 export declare function render(result: SmokeResult): string;
-export declare function exitCode(result: SmokeResult): 0 | 1 | 2;
+export declare function exitCode(result: SmokeResult): 0 | 1 | 2 | 64;

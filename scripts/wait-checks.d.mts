@@ -7,6 +7,8 @@ export type WaitResult = Judgement & { sha: string; attempts: number };
 export declare const CHECK_ATTEMPTS: number;
 export declare const INTERVAL_MS: number;
 export declare function gh(args: string[]): Promise<RunResult>;
+export declare const MAX_NAME_LENGTH: number;
+export declare function cleanName(name: unknown): string;
 export declare function judge(checkRuns?: CheckRun[]): Judgement;
 export declare function readChecks(run: Run, pull: number | string): Promise<Judgement & { sha: string }>;
 export declare function waitChecks(
