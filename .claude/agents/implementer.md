@@ -83,7 +83,8 @@ body with the reason (SOP 6).
 
 ## Finishing
 
-- `npm run verify` green, in full.
+- `npm run verify:changed` green (the checks for what you changed; CI runs the
+  full `npm run verify`). A diff it cannot map runs the full one itself.
 - Commit and push. For new work, open a pull request with the GitHub MCP
   tool `create_pull_request` (base `develop`); the fallback is `gh api -X POST
   repos/{owner}/{repo}/pulls -f title=… -F body=@<file> -f head=<branch> -f

@@ -108,6 +108,12 @@ const ALLOW: Allowed[] = [
     because: 'the setup script to save on this repository\'s cloud environment names its checkout directory',
     base: true,
   },
+  {
+    file: 'README.md',
+    pattern: /^ {3}if \[ -d boris \]; then node boris\/scripts\/user-telemetry-settings\.mjs --repo boris; fi$/,
+    because: 'the same setup script, second line: it must name the checkout directory to run',
+    base: true,
+  },
 
   // The remote name `create` gives this base in a product, fetch-only, so a
   // product can fetch upstream improvements and measure how far behind it is

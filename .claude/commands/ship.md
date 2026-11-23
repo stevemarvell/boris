@@ -4,7 +4,8 @@ description: Verify, commit, and open a pull request for the current work.
 
 Ship the current working-tree changes:
 
-1. Run `npm run verify`. If it fails, fix it and run it again — **at most
+1. Run `npm run verify:changed` (the checks for what this branch changed; CI
+   runs the full `npm run verify`). If it fails, fix it and run it again — **at most
    three attempts**. On the third failure stop and report what you tried and
    what is still red, rather than attempting a fourth (SOP 1 in
    `docs/sops.md`). Do not continue to step 2 while it is red.
