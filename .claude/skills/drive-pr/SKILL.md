@@ -34,7 +34,7 @@ keeps the judgement:
 | --- | --- | --- |
 | 1. Poll | runs the loop, returns the head SHA and green or red | reads the result; classifies "CI did not run" |
 | 2. Read reviews | lists open findings as `id, file:line, severity, claim` | decides which are real |
-| 3. Fix and reply | nothing (read-only tools) | reproduces each finding, briefs the implementer, posts replies and resolves threads, files issues |
+| 3. Fix and reply | no write tools except Bash, held to GET by instruction | reproduces each finding, briefs the implementer, posts replies and resolves threads, files issues |
 | 4. Merge | nothing | the re-review decision and the merge |
 | 5. Ceiling | reports `ceiling` | posts the stop comment |
 
