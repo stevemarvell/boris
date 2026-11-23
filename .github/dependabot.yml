@@ -31,8 +31,7 @@ version: 2
 #         gets no uv entry (#236).
 #
 # scripts/test/dependabot.test.ts holds this file to project.json.
-# 2026-11-23: root `yaml` pinned one patch back to prove #422 end to end (a real
-# Dependabot PR must merge itself); Dependabot puts it back to the latest.
+
 updates:
   - package-ecosystem: github-actions
     directory: /
