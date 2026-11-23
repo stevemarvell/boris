@@ -91,7 +91,7 @@ Three loops *are* mechanically bounded:
 
 ### What CI runs, and when
 
-The branch scheme (`main` production, `develop` its preview) and the release,
+The branch scheme (`main` production, `develop` a preview) and the release,
 hotfix and rollback procedures are `docs/releases.md`.
 
 Actions bills every job rounded up to a whole minute, on a free allowance, so
