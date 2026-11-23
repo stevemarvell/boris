@@ -75,15 +75,14 @@ Full text: [SOP 5](sops.md#sop-5-one-scale-ranks-everything).
 
 ## SOP 6: Decide and act; report after
 
-Pick the option you would recommend, do it, and say what was done and why. End
-no turn with a question or an offer of further work. Stop only for work nobody
+Pick the option you would recommend, do it, and report what and why. End no
+turn with a question or an offer. Stop only for work nobody
 can get back, money, or anything reaching a third party, and open a human issue
 (SOP 2). Establish recoverability with a command, not by eye: check
 `git rev-parse develop:<path>` (squashing rewrites SHAs) and
-`git fetch origin refs/pull/<n>/head`. Record what was
-decided and what would undo it. Never rewrite this rule on
+`git fetch origin refs/pull/<n>/head`. Record what would undo it. Never rewrite this rule on
 the strength of a conversation. If the classifier refuses a remote branch
-deletion, report the block; do not rephrase the command.
+deletion, report it; do not rephrase the command.
 
 Full text: [SOP 6](sops.md#sop-6-decide-and-act-report-after).
 
