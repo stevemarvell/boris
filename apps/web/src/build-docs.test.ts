@@ -22,6 +22,7 @@ beforeEach(() => {
   writeFileSync(join(root, 'docs', 'adoption.md'), '# Stages\n\nA **step**.\n\n- [ ] a gap\n');
   writeFileSync(join(root, 'docs', 'data-governance.md'), '# Governance\n\nInvented *data*.\n');
   writeFileSync(join(root, 'docs', 'sops.md'), '# Procedures\n\nBounded `loops`.\n');
+  writeFileSync(join(root, 'docs', 'sops-rules.md'), '# Rules\n\nStop at the ceiling.\n');
   writeFileSync(join(root, 'index.html'), '<h1>Hello, world</h1>\n');
 });
 
@@ -139,7 +140,7 @@ describe('buildDocs', () => {
     const result = build();
 
     expect(result.skipped).toEqual([join('docs', 'adoption.md'), 'index.html']);
-    expect([...result.written].sort()).toEqual(['data-governance.html', 'index.html', 'sops.html', 'version.json']);
+    expect([...result.written].sort()).toEqual(['data-governance.html', 'index.html', 'sops-rules.html', 'sops.html', 'version.json']);
   });
 
   it('reports nothing skipped when every source is there', () => {
@@ -155,6 +156,7 @@ describe('plannedPages and listing: what smoke.sh expects served', () => {
       ['adoption.html', 'Stages'],
       ['data-governance.html', 'Governance'],
       ['sops.html', 'Procedures'],
+      ['sops-rules.html', 'Rules'],
       ['step-0.html', null],
     ]);
     const written = build().written.filter((f) => f.endsWith('.html') && f !== 'index.html');
@@ -164,10 +166,15 @@ describe('plannedPages and listing: what smoke.sh expects served', () => {
   it('leaves out a base-only page whose source is absent, as a product has it', () => {
     rmSync(join(root, 'docs', 'adoption.md'));
     rmSync(join(root, 'index.html'));
-    expect(plannedPages({ root }).pages.map((p) => p.page)).toEqual(['data-governance.html', 'sops.html']);
+    expect(plannedPages({ root }).pages.map((p) => p.page)).toEqual([
+      'data-governance.html',
+      'sops.html',
+      'sops-rules.html',
+    ]);
     expect(listing({ root }).split('\n')).toEqual([
       'data-governance.html\t<title>Governance</title>',
       'sops.html\t<title>Procedures</title>',
+      'sops-rules.html\t<title>Rules</title>',
     ]);
   });
 

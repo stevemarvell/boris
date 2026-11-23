@@ -295,7 +295,7 @@ jobs:
 
             Read `.claude/agents/code-checker.md` and follow it exactly. It is
             this repository's review rubric and it supersedes any default
-            review habit you have. Read `CLAUDE.md` and `docs/sops.md` as that
+            review habit you have. Read `CLAUDE.md` and `docs/sops-rules.md` as that
             file instructs, before forming an opinion.
 
             Get the diff with `gh pr diff ${{ github.event.pull_request.number }}`.
@@ -437,7 +437,7 @@ jobs:
             Read `.claude/agents/security-checker.md` and follow it exactly.
             It is this repository's security rubric and it supersedes any
             generic checklist you would otherwise reach for. Read `CLAUDE.md`,
-            `docs/sops.md` and `docs/data-governance.md` as that file
+            `docs/sops-rules.md` and `docs/data-governance.md` as that file
             instructs, before forming an opinion — that document says what is
             exposed and which controls are load-bearing, and reporting "the API
             is unauthenticated" as a finding with nothing behind it is noise.

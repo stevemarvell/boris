@@ -1,5 +1,7 @@
 # Standard operating procedures
 
+The rules alone, short enough to load every time, are in [`docs/sops-rules.md`](sops-rules.md).
+
 How agent work is run in this repository. These are the procedures that govern
 *how* work is done rather than *what* the code does — the things that are true
 across every task, and that nobody should have to rediscover.
