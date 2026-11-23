@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { goGiven, latestTag, nextTag, ownerSaidGo, plan, releaseNotes, tagRelease, type Pull, type Run } from '../release.mjs';
+import { goGiven, goMessage, latestTag, nextTag, ownerSaidGo, plan, releaseNotes, tagRelease, type Pull, type Run } from '../release.mjs';
 
 const pr = (n: number, at: string | null, base = 'develop'): Pull => ({ number: n, title: `Change ${n}`, html_url: `https://github.com/o/n/pull/${n}`, merged_at: at, base: { ref: base } });
 
@@ -151,5 +151,15 @@ describe('against the REST API', () => {
     expect(merged.calls.every((c) => c.startsWith('gh api '))).toBe(true);
     const open = gh({ 'pulls/7': { merged: false, base: { ref: 'main' } } });
     await expect(tagRelease({ run: open.run, repo: 'o/n', pr: 7, date: '2026-11-22' })).rejects.toThrow(/not a merged pull request into main/);
+  });
+});
+
+describe('the go instruction the script prints', () => {
+  it('is accepted by ownerSaidGo', () => {
+    const head = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+    const printed = goMessage({ given: false, sha: head });
+    const typed = /`(go [^`]+)`/.exec(printed)?.[1] ?? '';
+    expect(typed).toBe(`go ${head}`);
+    expect(ownerSaidGo({ owner: 'steve', comments: [{ user: { login: 'steve' }, body: typed }], headSha: head })).toBe(true);
   });
 });

@@ -59,6 +59,11 @@ export function releaseNotes(pulls, { since = null, branch = 'develop' } = {}) {
   return merged.map((p) => `- ${p.title} ([#${p.number}](${p.html_url}))`).join('\n');
 }
 
+/** The line `release.mjs go` prints. The instruction names the full head sha, the only form `ownerSaidGo` accepts. */
+export function goMessage({ given, sha }) {
+  return given ? `go given; merge with sha=${sha}` : `waiting for the owner: no valid go for head ${sha} (the owner comments \`go ${sha}\`), and not merged by them`;
+}
+
 /**
  * Whether the owner has released: a comment `go <sha>` (case-insensitive,
  * trimmed, optional trailing full stop) whose author login is `owner` and whose
@@ -162,7 +167,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (command === 'plan') console.log(JSON.stringify(await plan({ run: exec, repo, date }), null, 2));
   else if (command === 'go') {
     const { given, sha } = await goGiven({ run: exec, repo, pr });
-    console.log(given ? `go given; merge with sha=${sha}` : `waiting for the owner: no valid go for head ${sha} (the owner comments \`go ${sha.slice(0, 7)}\`), and not merged by them`);
+    console.log(goMessage({ given, sha }));
     process.exit(given ? 0 : 1);
   } else if (command === 'tag') console.log(JSON.stringify(await tagRelease({ run: exec, repo, pr, date }), null, 2));
   else throw new Error('usage: release.mjs plan|go|tag [--repo o/n] [--pr n] [--date YYYY-MM-DD]');

@@ -12,6 +12,7 @@ export declare function nextTag(existingTags: string[], date: Date | string): st
 export declare function latestTag(tags: string[]): string | null;
 export declare function releaseNotes(pulls: Pull[], options?: { since?: string | null; branch?: string }): string;
 export declare function ownerSaidGo(options: { owner: string; comments: { user?: { login?: string }; body?: string; created_at?: string }[]; mergedBy?: string | null; headSha?: string }): boolean;
+export declare function goMessage(options: { given: boolean; sha: string }): string;
 export declare function plan(options: { run: Run; repo: string; date: Date | string }): Promise<{ tag: string; last: string | null; notes: string }>;
 export declare function goGiven(options: { run: Run; repo: string; pr: number | string }): Promise<{ given: boolean; sha: string }>;
 export declare function tagRelease(options: { run: Run; repo: string; pr: number | string; date: Date | string }): Promise<{ tag: string; sha: string; url: string }>;
