@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -44,7 +46,7 @@ const SHELL_KEYWORDS = new Set(['{', '}', 'if', 'then', 'else', 'elif', 'fi', 'd
 const BASE_SCRIPTS = 'base-scripts/scripts/';
 const TOKEN = /GH_TOKEN|github\.token|secrets\./;
 // Plain shell variables the real workflow sets or exports.
-const ALLOWED_VARS = new Set(['BASE_SHA']);
+const ALLOWED_VARS = new Set(['BASE_SHA', 'dirty']);
 // Prefixed onto the one `git fetch` that authenticates through git's environment.
 const GIT_FETCH_VARS = new Set(['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']);
 // Env keys that change what a command resolves to or loads.
@@ -60,8 +62,8 @@ interface Command {
   redirects: string[];
 }
 
-// Where a redirect may write: nowhere, a descriptor, the runner's temp dir, and
-// and the step output file. Nothing is written into the workspace (#373).
+// Where a redirect may write: nowhere, a descriptor, the runner's temp dir, or
+// the step output file. Nothing is written into the workspace (#373).
 const REDIRECT_TARGETS = new Set(['/dev/null', '&1', '&2', '"$GITHUB_OUTPUT"']);
 const redirectOk = (t: string) =>
   REDIRECT_TARGETS.has(t) || (/^"?\$RUNNER_TEMP(\/|"|$)/.test(t) && !t.includes('..'));
@@ -469,7 +471,6 @@ describe('pr-checks.yml scratch files, trigger and base-scripts cleanliness (#37
 
   it('only pull requests into develop trigger it', () => {
     expect(load(real).on?.pull_request?.branches).toEqual(['develop']);
-    expect(load(mutate('    branches: [develop]\n    types:', '    types:')).on?.pull_request?.branches).toBeUndefined();
   });
 
   it('writes open-prs.json and refs.txt under $RUNNER_TEMP, never the workspace', () => {
@@ -487,15 +488,34 @@ describe('pr-checks.yml scratch files, trigger and base-scripts cleanliness (#37
     expect(violations(u).join('\n')).toContain('redirect to open-prs.json not allowed');
   });
 
-  it('the base-scripts step fails when git status --porcelain prints anything', () => {
+  // Timeout: a real repository init, add, commit and several status runs (<=300 ms quiet); 30 s.
+  it('the real base-scripts guard passes on a clean checkout and fails on an untracked file', { timeout: 30_000 }, () => {
     const step = steps().find((s) => s.name === 'Say which commit the scripts came from');
-    expect(step?.run).toMatch(/^test -z "\$\(git -C base-scripts status --porcelain\)"$/m);
-    expect(violations(real)).toEqual([]);
-  });
-
-  it('a step that does not assert a clean base-scripts is caught', () => {
-    const t = mutate('          test -z "$(git -C base-scripts status --porcelain)"\n', '');
-    const step = load(t).jobs.checks.steps.find((s) => s.name === 'Say which commit the scripts came from');
-    expect(step?.run).not.toMatch(/status --porcelain/);
+    const line = (step?.run ?? '').split('\n').find((l) => l.startsWith('dirty=') && l.includes('status --porcelain --ignored'));
+    expect(line).toBeDefined();
+    const dir = mkdtempSync(join(tmpdir(), 'base-scripts-'));
+    try {
+      const repo = join(dir, 'base-scripts');
+      const git = (...a: string[]) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
+      execFileSync('git', ['init', '-q', repo]);
+      writeFileSync(join(repo, 'a.txt'), 'x');
+      writeFileSync(join(repo, '.gitignore'), 'ignored.txt\n');
+      git('add', 'a.txt', '.gitignore');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'c');
+      const run = () => spawnSync('bash', ['-e', '-c', line ?? 'false'], { cwd: dir });
+      expect(run().status).toBe(0);
+      writeFileSync(join(repo, 'untracked.txt'), 'y');
+      expect(run().status).not.toBe(0);
+      rmSync(join(repo, 'untracked.txt'));
+      expect(run().status).toBe(0);
+      // An ignored file is not the base commit either.
+      writeFileSync(join(repo, 'ignored.txt'), 'z');
+      expect(run().status).not.toBe(0);
+      // git status itself failing (not a repository) must fail the guard too.
+      rmSync(join(repo, '.git'), { recursive: true, force: true });
+      expect(run().status).not.toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

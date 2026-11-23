@@ -196,13 +196,12 @@ either script is judged by the unedited copy; its edit takes effect once
 merged. `scripts/test/pr-checks-base-scripts.test.ts` parses the workflow and
 allowlists what a step may run, splitting commands on `;`, `&&`, `||`, `|`, a
 lone `&` and `$( )`, and stripping redirections after checking their targets
-(only `/dev/null`, `&1`/`&2`, `$RUNNER_TEMP/...`, and the three files the
-workflow writes: `open-prs.json`, `refs.txt`, `"$GITHUB_OUTPUT"`). A step,
+(only `/dev/null`, `&1`/`&2`, `$RUNNER_TEMP/...` and `"$GITHUB_OUTPUT"`). A step,
 job or workflow `shell:` must be exactly `bash`, and `working-directory` is
 rejected anywhere. `node` only with
 a `base-scripts/scripts/` path as its first word (no flags, no `..`), `gh`,
 `git`, `echo`, `cat`, `printf`, `base64`, `test`/`[`, `set` with only
-`-e`/`-u`/`-o pipefail`, and `export` or assignment of `BASE_SHA` only (plus the
+`-e`/`-u`/`-o pipefail`, and `export` or assignment of `BASE_SHA` only (plus `dirty`, assigned, not exported, in the clean-checkout guard) (plus the
 `GIT_CONFIG_*` prefix on the one `git fetch`). It rejects `npm`, `npx`, `bash`,
 local `uses: ./`, any mention of `GITHUB_ENV`/`GITHUB_PATH`, and `NODE_OPTIONS`,
 `PATH`, `BASH_ENV` or `LD_*` in an `env:` (#371). It does not look inside an
@@ -222,7 +221,7 @@ Two more things keep the pull request out of the job's reach (#373): the
 scratch files `open-prs.json` and `refs.txt` are written under `$RUNNER_TEMP`,
 so a pull request that tracks either as a symlink has nothing written through
 it, and the "Say which commit the scripts came from" step fails if
-`git -C base-scripts status --porcelain` prints anything, so the base-script
+`git -C base-scripts status --porcelain --ignored` prints anything, so the base-script
 checkout is exactly the base commit. The test asserts all three.
 
 What remains: the scripts are as trustworthy as the base branch, so a merge to
