@@ -20,10 +20,10 @@ review jobs carry, because that posture has the same shape and the same need
 for a written trigger.
 
 A product that sets `productionBranch: "main"` (`docs/releases.md`) builds
-production from `main` only. Its `develop` is then a standing staging URL, the
+production from `main` only. Its `develop` is then a standing preview URL, the
 `-git-develop-` branch alias of each app: public like every URL here, serving
 code that is merged but not yet released, and smoke-checked by CI after each
-merge. Staging uses the product's preview resources, not production's. The
+merge. The `develop` preview uses the product's preview resources, not production's. The
 prune above protects both the production branch's and `develop`'s builds.
 
 ---
