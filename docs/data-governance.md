@@ -215,9 +215,15 @@ workflow can run its own steps with the token, and the test reads that same
 edited file. That is bounded by one account with write access and
 `pull_request` rather than `pull_request_target`, and voided by a second writer
 with push access (branch protection, #340, would let a review gate it). The
-same writer can also open a pull request against a branch other than `develop`
-whose scripts they edited, since the `pull_request` trigger has no `branches:`
-filter and `base.sha` is then that branch's tip.
+`pull_request` trigger has `branches: [develop]`, so a pull request against any
+other branch does not run `pr checks` with the token (#373); otherwise its
+`base.sha` would be that branch's tip, whose scripts its author may have edited.
+Two more things keep the pull request out of the job's reach (#373): the
+scratch files `open-prs.json` and `refs.txt` are written under `$RUNNER_TEMP`,
+so a pull request that tracks either as a symlink has nothing written through
+it, and the "Say which commit the scripts came from" step fails if
+`git -C base-scripts status --porcelain` prints anything, so the base-script
+checkout is exactly the base commit. The test asserts all three.
 
 What remains: the scripts are as trustworthy as the base branch, so a merge to
 `develop` that has not been reviewed still reaches this token on the next run.

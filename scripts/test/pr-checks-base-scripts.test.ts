@@ -33,6 +33,7 @@ interface Defaults {
   run?: { shell?: unknown; 'working-directory'?: unknown };
 }
 interface Workflow {
+  on?: { pull_request?: { branches?: string[] } };
   env?: Record<string, unknown>;
   defaults?: Defaults;
   jobs: { checks: { env?: Record<string, unknown>; defaults?: Defaults; steps: Step[] } };
@@ -60,8 +61,8 @@ interface Command {
 }
 
 // Where a redirect may write: nowhere, a descriptor, the runner's temp dir, and
-// the three files the real workflow writes (its own outputs, in the workspace).
-const REDIRECT_TARGETS = new Set(['/dev/null', '&1', '&2', 'open-prs.json', 'refs.txt', '"$GITHUB_OUTPUT"']);
+// and the step output file. Nothing is written into the workspace (#373).
+const REDIRECT_TARGETS = new Set(['/dev/null', '&1', '&2', '"$GITHUB_OUTPUT"']);
 const redirectOk = (t: string) =>
   REDIRECT_TARGETS.has(t) || (/^"?\$RUNNER_TEMP(\/|"|$)/.test(t) && !t.includes('..'));
 
@@ -285,12 +286,12 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('rejects a branch command hidden after && among allowed ones', () => {
-    const v = violations(mutate('run: echo "pr checks scripts', 'run: echo hi && npm run x && echo "pr checks scripts'));
+    const v = violations(mutate('run: |\n          echo "pr checks scripts', 'run: |\n          echo hi && npm run x && echo "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
   });
 
   it('rejects a branch command inside $( )', () => {
-    const v = violations(mutate('run: echo "pr checks scripts', 'run: echo "$(npm run x)" "pr checks scripts'));
+    const v = violations(mutate('run: |\n          echo "pr checks scripts', 'run: |\n          echo "$(npm run x)" "pr checks scripts'));
     expect(v.join('\n')).toContain('command not allowed: npm run x');
   });
 
@@ -425,7 +426,7 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   });
 
   it('counts a token interpolated into a run: as held', () => {
-    const t = mutate('run: echo "pr checks scripts', 'run: echo "${{ github.token }}" "pr checks scripts');
+    const t = mutate('run: |\n          echo "pr checks scripts', 'run: |\n          echo "${{ github.token }}" "pr checks scripts');
     expect(tokenHolders(t)).toContain('Say which commit the scripts came from');
     expect(tokenHolders(real)).not.toContain('Say which commit the scripts came from');
   });
@@ -460,5 +461,41 @@ describe('pr-checks.yml runs only what the allowlist names', () => {
   it('asserts the checkout is credential-less', () => {
     const t = mutate('sparse-checkout: scripts\n          persist-credentials: false', 'sparse-checkout: scripts');
     expect(checkoutProblems(t)).toContain('persist-credentials is not false');
+  });
+});
+
+describe('pr-checks.yml scratch files, trigger and base-scripts cleanliness (#373)', () => {
+  const steps = () => load(real).jobs.checks.steps;
+
+  it('only pull requests into develop trigger it', () => {
+    expect(load(real).on?.pull_request?.branches).toEqual(['develop']);
+    expect(load(mutate('    branches: [develop]\n    types:', '    types:')).on?.pull_request?.branches).toBeUndefined();
+  });
+
+  it('writes open-prs.json and refs.txt under $RUNNER_TEMP, never the workspace', () => {
+    const runs = steps().map((s) => s.run ?? '').join('\n');
+    const bare = runs.split('\n').filter((l) => !l.trim().startsWith('#')).filter((l) => /(?<!RUNNER_TEMP\/)\b(open-prs\.json|refs\.txt)/.test(l));
+    expect(bare).toEqual([]);
+    expect(runs).toContain('"$RUNNER_TEMP/open-prs.json"');
+    expect(runs).toContain('"$RUNNER_TEMP/refs.txt"');
+  });
+
+  it('rejects a redirect to a workspace open-prs.json or refs.txt', () => {
+    const t = mutate('> "$RUNNER_TEMP/refs.txt"', '> refs.txt');
+    expect(violations(t).join('\n')).toContain('redirect to refs.txt not allowed');
+    const u = mutate("|| echo '[]' > \"$RUNNER_TEMP/open-prs.json\"", "|| echo '[]' > open-prs.json");
+    expect(violations(u).join('\n')).toContain('redirect to open-prs.json not allowed');
+  });
+
+  it('the base-scripts step fails when git status --porcelain prints anything', () => {
+    const step = steps().find((s) => s.name === 'Say which commit the scripts came from');
+    expect(step?.run).toMatch(/^test -z "\$\(git -C base-scripts status --porcelain\)"$/m);
+    expect(violations(real)).toEqual([]);
+  });
+
+  it('a step that does not assert a clean base-scripts is caught', () => {
+    const t = mutate('          test -z "$(git -C base-scripts status --porcelain)"\n', '');
+    const step = load(t).jobs.checks.steps.find((s) => s.name === 'Say which commit the scripts came from');
+    expect(step?.run).not.toMatch(/status --porcelain/);
   });
 });
