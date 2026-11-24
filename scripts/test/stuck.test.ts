@@ -742,10 +742,29 @@ describe('find: a released production branch (#430)', () => {
     }
   });
 
+  it('reports nothing for main once a hotfix is back-merged into develop with a merge commit', async () => {
+    const { dir, g, run } = repo();
+    try {
+      g('checkout', '-q', 'main');
+      writeFileSync(join(dir, 'hotfix.txt'), 'fix\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'hotfix');
+      // The back-merge (docs/releases.md, Hotfix step 3): main into develop, merge commit.
+      g('checkout', '-q', 'develop');
+      g('merge', '--no-ff', '-q', '-m', 'Back-merge', 'main');
+      const findings = await find(options(run, 'main'));
+      expect(findings.orphanedBranches).toEqual([]);
+      expect(isEmpty(findings)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps today\'s behaviour when no production branch other than develop is configured', async () => {
     const { dir, run } = repo();
     try {
-      const findings = await find(options(run));
+      // Explicit, not read from project.json: a product built from this base sets `productionBranch: main`.
+      const findings = await find(options(run, 'develop'));
       expect(findings.orphanedBranches).toEqual([{ name: 'main', ahead: 1, where: 'local' }]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

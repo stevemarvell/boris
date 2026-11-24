@@ -92,7 +92,8 @@ A defect is live and cannot wait for the next release.
    Merge with a merge commit, tag as a release (`node scripts/release.mjs tag`),
    and confirm production smoke.
 3. The same day, open a pull request merging `main` into `develop` (the
-   back-merge) so the fix is not lost at the next release, and merge it.
+   back-merge) so the fix is not lost at the next release, and merge it with a
+   merge commit, never a squash, so `main` becomes reachable from `develop`.
 
 ## Rollback
 
